@@ -1,0 +1,445 @@
+# CRM Platform — Slice 1 Design: Events → Profiles → Segments
+
+- **Date:** 2026-09-15
+- **Status:** Approved for planning
+- **Scope:** Sub-project 1 of a MoEngage-style customer engagement platform
+- **Purpose of project:** Portfolio / learning. Architecture quality and documentation weigh as much as feature count.
+
+---
+
+## 1. Context and goals
+
+MoEngage is a multi-tenant customer engagement platform: ingest user events, build unified profiles, segment users, and orchestrate campaigns across channels. This project rebuilds that platform as a set of sub-projects. Slice 1 is the foundation every later slice depends on:
+
+1. **Ingest** events and identity calls at high throughput.
+2. **Resolve** identities into unified **profiles** with attributes and an event timeline.
+3. **Segment** profiles with a rule builder, evaluated both in batch (SQL) and in real time (stream).
+
+### 1.1 Decisions locked during brainstorming
+
+| Axis | Decision |
+|---|---|
+| Stack | .NET 10 (C#), React 19 + TypeScript, SQL Server 2022, Redis 7, Kafka (KRaft) |
+| Architecture | Modular monolith, one solution, schema-per-module |
+| Tenancy | Multi-tenant, shared DB, `TenantId` column + EF Core global query filters |
+| Ingestion path | API → Kafka → Worker |
+| Profile storage | Core columns + JSON `Attributes`; promoted computed columns for hot keys |
+| Segmentation | Hybrid: batch SQL materialization + real-time Redis sets for eligible rules |
+| Auth | ASP.NET Identity + JWT for dashboard; per-tenant API keys for ingest |
+| UI slice 1 | Segment builder + profile explorer |
+| Runtime | docker-compose, local only |
+| Docs | BRD, ADRs (MADR), design spec + C4 diagrams, OpenAPI, data dictionary |
+
+### 1.2 Success criteria for slice 1
+
+- `docker compose up` brings up the whole system; README shows it in 3 commands.
+- An event posted to `/v1/track` appears in the profile timeline within 2 s (p95, local).
+- A segment with mixed attribute + event rules returns correct members in batch; a real-time-eligible segment updates its Redis set within 2 s of the triggering event.
+- Tenant A can never read tenant B data (integration test proves it).
+- Load test: 1,000 events/s sustained for 60 s locally with consumer lag returning to zero within 30 s.
+- All doc deliverables in §9 exist and are linked from README.
+
+### 1.3 Out of scope for slice 1
+
+Campaign sending, journeys/flows, analytics dashboards, channel adapters, mobile/web SDKs, AI features, behavioral sequence rules ("did A then B"), cross-tenant users, Azure deployment.
+
+---
+
+## 2. Architecture
+
+### 2.1 System context (C4 L1)
+
+```mermaid
+C4Context
+  title CRM Platform — System Context (slice 1)
+  Person(marketer, "Marketer", "Builds segments, explores profiles")
+  Person(dev, "Developer", "Integrates ingest API")
+  System(crm, "CRM Platform", "Ingests events, unifies profiles, evaluates segments")
+  System_Ext(app, "Customer's App / Backend", "Sends track/identify events")
+  Rel(app, crm, "POST /v1/track, /v1/identify", "HTTPS + API key")
+  Rel(marketer, crm, "Uses dashboard", "HTTPS + JWT")
+  Rel(dev, crm, "Reads OpenAPI, manages API keys")
+```
+
+### 2.2 Containers (C4 L2)
+
+```mermaid
+C4Container
+  title CRM Platform — Containers
+  Container(web, "Crm.Web", "React 19 / Vite", "Segment builder, profile explorer")
+  Container(api, "Crm.Api", "ASP.NET Core", "Ingest + admin REST, Swagger")
+  Container(worker, "Crm.Worker", "ASP.NET BackgroundService", "Kafka consumers, segment batch jobs")
+  ContainerDb(sql, "SQL Server 2022", "", "Profiles, events, segments, identity")
+  ContainerDb(redis, "Redis 7", "", "Identity cache, real-time segment sets, counters")
+  ContainerQueue(kafka, "Kafka (KRaft)", "", "events.raw, events.processed, events.dlq")
+  Rel(web, api, "JSON/HTTPS")
+  Rel(api, kafka, "produce events.raw")
+  Rel(api, sql, "admin reads/writes")
+  Rel(api, redis, "API-key cache, preview-count cache")
+  Rel(worker, kafka, "consume raw / produce+consume processed")
+  Rel(worker, sql, "profiles, events, segment runs")
+  Rel(worker, redis, "identity cache, segment sets, counters")
+```
+
+### 2.3 Modular monolith layout
+
+```
+Crm.sln
+src/
+  Hosts/
+    Crm.Api/                 ASP.NET Core host: ingest + admin REST, Swagger, rate limiting
+    Crm.Worker/              BackgroundService host: Kafka consumers, batch jobs
+    Crm.Web/                 React (Vite + TS); separate dev server, static in compose
+  Modules/
+    Ingestion/
+      Ingestion.Application  validation, event envelope, Kafka producer port
+      Ingestion.Infrastructure Confluent.Kafka producer adapter
+    Profiles/
+      Profiles.Domain        Profile, UserIdentity, Event, merge rules
+      Profiles.Application   commands (ResolveIdentity, ApplyEvent), queries (search, timeline)
+      Profiles.Infrastructure EF DbContext (schema profiles), repositories, Redis identity cache
+    Segmentation/
+      Segmentation.Domain    RuleTree, RuleNode types, RealtimeEligibility
+      Segmentation.Application RuleCompiler, SegmentRunner, RealtimeEvaluator, preview
+      Segmentation.Infrastructure EF DbContext (schema segments), Redis sets, Kafka consumer
+    Tenancy/
+      Tenancy.Domain         Tenant, ApiKey
+      Tenancy.Application    auth, key issuance
+      Tenancy.Infrastructure ASP.NET Identity (schema identity), JWT, API key hashing
+  Shared/
+    Crm.Contracts/           integration events: TrackEventRaw, EventTracked, ProfileUpdated; shared DTOs
+    Crm.Kernel/              Entity base, Result<T>, ITenantContext, IClock, error types
+tests/
+  Ingestion.UnitTests/  Profiles.UnitTests/  Segmentation.UnitTests/  Tenancy.UnitTests/
+  Crm.IntegrationTests/    Testcontainers: SQL Server + Kafka + Redis
+  Crm.ArchTests/           NetArchTest module boundary rules
+  Crm.LoadTests/           k6 scripts
+  Crm.Web/ (Vitest + Playwright inside web project)
+docs/
+  brd/  adr/  design/  api/  data-dictionary/  superpowers/specs/
+deploy/
+  docker-compose.yml  docker-compose.observability.yml  sql/init.sql
+```
+
+### 2.4 Module dependency rules (enforced by `Crm.ArchTests`)
+
+- Every module may depend on `Crm.Kernel` and `Crm.Contracts` only.
+- `Ingestion` has no database and no dependency on other modules.
+- `Segmentation` does **not** reference `Profiles` assemblies. It reads `profiles.Profiles` and `profiles.Events` tables via raw SQL in its own infrastructure project. This is a documented exception (ADR-0009) chosen over replicating profile data.
+- Hosts reference module Infrastructure projects for DI registration only; no host code calls module internals.
+- No module references a Host.
+
+### 2.5 Tenant isolation
+
+- Middleware resolves the tenant from either a JWT `tenant_id` claim or an `X-Api-Key` header and populates a scoped `ITenantContext`.
+- Every module entity carries `TenantId`. Each DbContext applies a global query filter `e.TenantId == tenant.Id`. `SaveChanges` interceptor stamps `TenantId` on inserts and throws if it differs.
+- Resolving a request without a tenant throws `TenantContextMissingException` (500, logged as a bug) rather than returning unfiltered data.
+- Kafka messages carry `TenantId` in both a header and the payload. Consumers create a tenant scope per message.
+- Redis keys are always prefixed `t:{tenantId}:`.
+
+---
+
+## 3. Data model
+
+All tables have `TenantId UNIQUEIDENTIFIER NOT NULL`, `CreatedAt`, `UpdatedAt`. IDs are UUIDv7 (`Guid.CreateVersion7()`).
+
+### 3.1 Schema `profiles`
+
+**Profiles**
+
+| Column | Type | Notes |
+|---|---|---|
+| Id | uniqueidentifier PK | |
+| TenantId | uniqueidentifier | clustered index (TenantId, Id) |
+| ExternalId | nvarchar(128) null | customer's user id |
+| Email | nvarchar(256) null | normalized lower-case |
+| Phone | nvarchar(32) null | E.164 |
+| Attributes | nvarchar(max) | JSON object, validated `ISJSON` |
+| FirstSeenAt / LastSeenAt | datetime2 | |
+| EventCount | bigint | maintained by worker |
+| MergedIntoId | uniqueidentifier null | non-null means this profile is a merge loser; excluded from all reads |
+| Promoted computed columns | e.g. `Attr_plan AS JSON_VALUE(Attributes,'$.plan') PERSISTED` | created per tenant hot-key list via migration helper; slice 1 ships a fixed list: `plan`, `country`, `city` |
+
+Indexes: unique filtered `(TenantId, ExternalId)`, `(TenantId, Email)`, `(TenantId, Phone)` where not null; `(TenantId, LastSeenAt DESC)`; one index per promoted column.
+
+**UserIdentities**
+
+| Column | Type | Notes |
+|---|---|---|
+| TenantId, Kind, Value | PK | Kind ∈ `external_id`, `anonymous_id`, `email`, `phone` |
+| ProfileId | FK → Profiles | |
+
+**Events** (partitioned by month on `OccurredAt`)
+
+| Column | Type | Notes |
+|---|---|---|
+| Id | uniqueidentifier | UUIDv7, unique nonclustered (idempotency) |
+| TenantId | uniqueidentifier | |
+| ProfileId | uniqueidentifier | |
+| Name | nvarchar(64) | |
+| Properties | nvarchar(max) | JSON |
+| OccurredAt | datetime2 | client timestamp, clamped to ±7 d of `ReceivedAt` |
+| ReceivedAt | datetime2 | |
+
+Clustered index `(TenantId, ProfileId, OccurredAt)`; nonclustered `(TenantId, Name, OccurredAt)` for segment event predicates.
+
+### 3.2 Schema `segments`
+
+**Segments**: Id, TenantId, Name, Description, `Definition` (JSON rule tree), `DefinitionVersion` int, `IsRealtimeEligible` bit, `CurrentRunId` null, `MemberCount` int, `LastRunAt`, `Status` (Draft/Active/Archived).
+
+**SegmentRuns**: RunId, SegmentId, TenantId, StartedAt, FinishedAt, Status, MemberCount, CompiledSql (for audit/debug).
+
+**SegmentRunMembers**: RunId, ProfileId (PK), TenantId.
+
+**MembershipChanges**: Id, TenantId, SegmentId, ProfileId, Change (`Entered`/`Exited`), Source (`Batch`/`Realtime`), OccurredAt. Consumed by future campaign triggers.
+
+### 3.3 Schema `identity`
+
+ASP.NET Identity default tables plus `Tenants` (Id, Name, Slug, Status) and `ApiKeys` (Id, TenantId, Prefix, KeyHash sha256, Name, CreatedAt, RevokedAt, LastUsedAt). Users belong to exactly one tenant (`Users.TenantId`). Roles: `Admin`, `Viewer`.
+
+### 3.4 Redis keys (complete list for slice 1)
+
+| Key | Type | TTL | Purpose |
+|---|---|---|---|
+| `t:{tenant}:id:{kind}:{value}` | string → ProfileId | 1 h | identity lookup cache |
+| `t:{tenant}:seg:{segId}:members` | SET of ProfileId | none | real-time membership |
+| `t:{tenant}:seg:{segId}:ev:{profileId}` | string counter | = rule window | real-time event count in window |
+| `t:{tenant}:preview:{defHash}` | string count | 60 s | live count cache |
+| `apikey:{prefix}` | string → TenantId | 10 min | API key resolution cache |
+
+SQL Server is the single source of truth. Every Redis key can be rebuilt (identity cache from `UserIdentities`, segment sets by replaying `events.processed` or a batch run).
+
+### 3.5 Kafka topics
+
+| Topic | Key | Producer | Consumers | Payload |
+|---|---|---|---|---|
+| `events.raw` | `{tenantId}:{userKey}` | Api | Worker (group `profiles`) | `TrackEventRaw` / `IdentifyRaw` |
+| `events.processed` | `{tenantId}:{profileId}` | Worker | Worker (group `segmentation`) | `EventTracked`, `ProfileUpdated` |
+| `events.dlq` | same as source | Worker | none (manual) | original bytes + `error` header |
+
+Partitions: 12 each locally. Retention: raw 7 d, processed 7 d, dlq 30 d.
+
+---
+
+## 4. Ingestion and profile pipeline
+
+### 4.1 Ingest API
+
+Endpoints (auth `X-Api-Key`, rate limit per key: token bucket 2,000 req/min, 429 on exceed):
+
+- `POST /v1/track` — `{ userId? , anonymousId?, event, properties?, timestamp? }`; at least one of `userId`/`anonymousId` required.
+- `POST /v1/identify` — `{ userId, anonymousId?, traits? }`; links anonymous → known and merges traits into `Attributes`.
+- `POST /v1/batch` — `{ events: [...] }`, max 500 items, each validated independently; response lists per-item accepted/rejected.
+
+Per request: FluentValidation (event name ≤ 64 chars, alnum + `_`; properties ≤ 32 KB; timestamp within ±7 d), assign `EventId` (UUIDv7), stamp `TenantId` and `ReceivedAt`, produce to `events.raw` with `acks=all`, return `202 { eventId }`. No database access on this path.
+
+### 4.2 Worker — `events.raw` consumer
+
+Per message, inside one tenant scope and one SQL transaction:
+
+1. **Identity resolve.** Look up `(Kind, Value)` in Redis, then `UserIdentities`. On miss, create Profile + identity row.
+2. **Merge** (identify only, when `anonymousId` maps to profile A and `userId` maps to profile B, A ≠ B): winner = profile with earlier `FirstSeenAt`; loser's `Events.ProfileId` re-pointed, loser's identities re-pointed, loser's `Attributes` merged into winner (winner's values win on conflict), loser marked `MergedIntoId = winner`. Publish `ProfileMerged`.
+3. **Upsert profile.** Update `LastSeenAt`, `EventCount += 1`, and for identify apply traits with `JSON_MODIFY` per key (last write wins).
+4. **Append event.** Insert into `Events`. Duplicate `Id` (unique index violation) → treat as already processed, skip.
+5. Commit, then produce `EventTracked` / `ProfileUpdated` to `events.processed`, then commit Kafka offset.
+
+Semantics: at-least-once delivery + idempotent insert = effectively-once. Because the partition key is `tenant:user`, all messages for one user are processed serially by one consumer, so merges do not race.
+
+### 4.3 Failure handling
+
+- Transient SQL/Redis errors: Polly retry 3× exponential (200 ms → 2 s), then treat as poison.
+- Poison message: produce to `events.dlq` with `error`, `stack`, `attempt` headers; commit offset; increment `crm_dlq_total{topic}`.
+- Kafka unavailable at ingest: API returns 503 `problem+json` with `Retry-After`; never buffers in memory.
+- Worker never crash-loops on a single bad message.
+
+---
+
+## 5. Segmentation
+
+### 5.1 Rule tree (stored JSON, `DefinitionVersion` = 1)
+
+```json
+{
+  "op": "and",
+  "children": [
+    { "type": "attribute", "key": "plan", "cmp": "eq", "value": "pro" },
+    { "type": "event", "name": "purchase", "cmp": "gte", "count": 3, "window": "30d" },
+    { "op": "or", "children": [
+      { "type": "attribute", "key": "country", "cmp": "in", "value": ["ID", "SG"] },
+      { "type": "event", "name": "app_open", "cmp": "eq", "count": 0, "window": "7d" }
+    ]}
+  ]
+}
+```
+
+Node types:
+
+- `group`: `op ∈ and | or | not` (`not` has exactly one child), `children[]`.
+- `attribute`: `key`, `cmp ∈ eq | neq | in | nin | gt | gte | lt | lte | contains | exists | not_exists`, `value` (string | number | bool | array). Type inferred from JSON value; numeric compares cast with `TRY_CONVERT(float, ...)`.
+- `event`: `name`, `cmp ∈ eq | gte | lte`, `count` ≥ 0, `window` in `Nd` / `Nh` (max 365 d).
+
+Limits: depth ≤ 5, leaves ≤ 20. Validated by a shared Zod schema (frontend) and a C# validator (backend) generated from the same fixture set.
+
+### 5.2 Compiler
+
+`RuleCompiler.Compile(RuleTree, TenantId) → CompiledQuery { Sql, Parameters }`. Pure, deterministic, no I/O.
+
+- Root always: `SELECT p.Id FROM profiles.Profiles p WHERE p.TenantId = @tenant AND p.MergedIntoId IS NULL AND (<tree>)`.
+- `attribute` on a promoted key → `p.Attr_plan = @p0`; otherwise `JSON_VALUE(p.Attributes, '$.plan') = @p0`. `exists` → `IS NOT NULL`. `in` → table-valued parameter or `IN (@p0, @p1, ...)`.
+- `event` → `EXISTS (SELECT 1 FROM profiles.Events e WHERE e.TenantId = @tenant AND e.ProfileId = p.Id AND e.Name = @p1 AND e.OccurredAt >= @p2 HAVING COUNT(*) >= @p3)`; `count = 0` → `NOT EXISTS (...)`.
+- Every value is a parameter. JSON path is built from the validated key (`^[A-Za-z0-9_]{1,64}$`), never from raw input.
+
+Tests: one unit test per node/comparator, plus golden-file tests (`rules/*.json` → `expected/*.sql`).
+
+### 5.3 Batch materialization
+
+Triggered by `POST /segments/{id}/run` or a schedule (Quartz.NET, default every 6 h for Active segments).
+
+1. Create `SegmentRuns` row (Status = Running, store `CompiledSql`).
+2. `INSERT INTO SegmentRunMembers (RunId, ProfileId, TenantId) <compiled SQL>`.
+3. Diff against `CurrentRunId`: `EXCEPT` both ways → insert `MembershipChanges` (Entered / Exited, Source = Batch).
+4. Update `Segments.CurrentRunId`, `MemberCount`, `LastRunAt`; mark run Finished.
+5. If the segment is real-time eligible, rebuild the Redis set from the run (`DEL` + `SADD` in a pipeline) so batch corrects drift.
+6. Prune runs older than the last 3.
+
+Command timeout 5 min; failure marks run Failed with error text; segment keeps previous run.
+
+### 5.4 Real-time evaluation
+
+`RealtimeEligibility.Classify(tree)` returns eligible iff: no `not` group, every `attribute` leaf uses any comparator (attributes are fully known from the profile snapshot), every `event` leaf has `cmp ∈ gte` and `count ≥ 1`. Zero-count and negation need knowledge of absence and stay batch-only. Result stored in `Segments.IsRealtimeEligible` and shown as a badge in the UI.
+
+Worker consumer (group `segmentation`) on `EventTracked` / `ProfileUpdated`:
+
+1. Load the tenant's eligible Active segments from an in-memory cache (invalidated by a `segments.changed` Redis pub/sub message on save).
+2. For `EventTracked`, `INCR t:{tenant}:seg:{seg}:ev:{profile}` with `EXPIRE` = rule window for each segment referencing that event name.
+3. Evaluate the tree in C# (`RealtimeEvaluator`) against the profile snapshot in the message plus counters.
+4. `SADD` / `SREM` the membership set; on transition write `MembershipChanges` (Source = Realtime).
+
+Approximation accepted and documented: the counter TTL is a sliding-ish window (reset on expiry, not per-event decay). Batch runs correct any drift.
+
+### 5.5 Preview count
+
+`POST /v1/segments/preview { definition }` → validate → compile → `SELECT COUNT(*)` with a 5 s command timeout → cache in Redis by SHA-256 of the canonical definition for 60 s. Timeout returns `{ count: null, timedOut: true }` and the UI shows "too slow to preview; save and run".
+
+---
+
+## 6. API surface
+
+Base path `/v1`. Errors are RFC 9457 `application/problem+json` with `traceId`. Pagination is cursor-based (`?cursor=&limit=` ≤ 200). OpenAPI generated from code at build, committed to `docs/api/openapi.json`; CI fails if the generated file differs.
+
+| Group | Auth | Endpoints |
+|---|---|---|
+| Ingest | API key | `POST /track`, `POST /identify`, `POST /batch` |
+| Profiles | JWT | `GET /profiles?q=` (email / externalId / phone prefix), `GET /profiles/{id}`, `GET /profiles/{id}/events?from&to&name&cursor` |
+| Segments | JWT | `GET /segments`, `POST /segments`, `GET/PUT/DELETE /segments/{id}`, `POST /segments/preview`, `POST /segments/{id}/run`, `GET /segments/{id}/runs`, `GET /segments/{id}/members?cursor`, `GET /segments/{id}/changes?since&cursor` |
+| Tenancy | JWT (Admin) | `POST /auth/login`, `POST /auth/refresh`, `POST /tenants` (bootstrap, dev only), `GET/POST /api-keys`, `DELETE /api-keys/{id}` |
+| Ops | none | `GET /health/live`, `GET /health/ready`, `GET /metrics` |
+
+Auth details:
+
+- JWT: HS256 dev / RS256 configurable, 15 min access + 7 d refresh, claims `sub`, `tenant_id`, `role`.
+- API key format `crm_live_<32 base62>`; stored as SHA-256 hash + 8-char prefix; shown once on creation. Resolution: Redis `apikey:{prefix}` → SQL fallback, compare hash in constant time. `LastUsedAt` updated at most once per minute.
+- Roles: `Admin` full; `Viewer` read-only on profiles/segments.
+
+---
+
+## 7. Web UI
+
+React 19, Vite, TypeScript, TanStack Router + Query, shadcn/ui + Tailwind, Zod, typed client via `openapi-typescript` from the committed spec.
+
+Routes:
+
+1. `/login` — email/password → JWT in memory + refresh cookie.
+2. `/profiles` — search input (debounced), results table (external id, email, last seen, event count), detail drawer: core fields, attributes JSON viewer, event timeline with infinite scroll and name filter.
+3. `/segments` — list with member count, last run, real-time/batch badge, status.
+4. `/segments/new`, `/segments/:id` — rule builder:
+   - Nested AND/OR/NOT groups, add/remove/move rows, typed inputs per comparator.
+   - Live count (debounced 500 ms, calls preview; shows spinner, cached result, or "too slow").
+   - Save (validates with Zod, shows server problem+json field errors), Run now, Members tab (paged), Runs tab.
+
+Builder state is a pure reducer over the same JSON tree shape the backend stores; the Zod schema is the frontend's contract and mirrors the C# validator via a shared fixture directory (`tests/fixtures/rules/valid/*.json`, `invalid/*.json`) run by both test suites.
+
+Testing: Vitest + Testing Library for the reducer and builder components; Playwright smoke: login → create segment → see count → run → see members.
+
+---
+
+## 8. Cross-cutting
+
+### 8.1 Error handling
+
+- Application layer returns `Result<T>` with typed errors (`Validation`, `NotFound`, `Conflict`, `Forbidden`). Exceptions only for programmer errors and infrastructure faults.
+- API maps `Result` errors to 400/404/409/403 problem+json; unhandled → 500 with `traceId`, details logged not returned.
+- Worker uses Polly retry, then DLQ (see §4.3). Batch job failures are recorded on the run and surfaced in the UI.
+
+### 8.2 Observability
+
+- OpenTelemetry: ASP.NET Core, HttpClient, EF Core, Confluent.Kafka instrumentation; trace context propagated in Kafka headers; exporter OTLP → Jaeger.
+- Serilog structured logs with `TenantId`, `TraceId`, `ProfileId` enrichers; JSON console sink.
+- Prometheus metrics: `crm_ingest_events_total`, `crm_ingest_rejected_total`, `crm_consumer_lag`, `crm_dlq_total`, `crm_segment_run_seconds`, `crm_realtime_eval_seconds`.
+- `docker-compose.observability.yml` adds Prometheus, Grafana (one provisioned dashboard), Jaeger.
+
+### 8.3 Testing strategy
+
+| Level | Tool | Covers |
+|---|---|---|
+| Unit | xUnit + FluentAssertions | identity merge rules, rule compiler (golden files), eligibility classifier, real-time evaluator, validators, API key hashing |
+| Integration | xUnit + Testcontainers (SQL Server, Kafka, Redis) | ingest → worker → profile round-trip; identify merge; batch run on seeded data; real-time set update; tenant isolation (A cannot read B via API or query); DLQ on poison message |
+| Architecture | NetArchTest | dependency rules in §2.4 |
+| Contract | build step | OpenAPI drift check; rule fixture parity (C# and Zod agree on valid/invalid) |
+| E2E | Playwright | login, build segment, preview, run, members |
+| Load | k6 | 1,000 events/s for 60 s; report lag recovery and p95 ingest latency in README |
+
+TDD applies to every unit in the plan: tests first, then implementation.
+
+### 8.4 Local runtime
+
+`deploy/docker-compose.yml`: `sqlserver` (2022, healthcheck), `kafka` (KRaft single node, topics created by init container), `redis`, `api`, `worker`, `web` (nginx serving Vite build, proxying `/v1` to api). `make up`, `make seed` (creates tenant, admin user, API key, 5k demo profiles with 100k events), `make test`.
+
+---
+
+## 9. Documentation deliverables
+
+All Markdown with Mermaid diagrams, under `docs/`:
+
+| Path | Content |
+|---|---|
+| `docs/brd/BRD.md` | Vision, personas (marketer, developer, tenant admin), slice 1 scope, roadmap, numbered FRs (FR-01…), NFRs (throughput, latency, isolation, availability targets for local), out-of-scope, glossary |
+| `docs/adr/0001-modular-monolith.md` | Modular monolith over microservices |
+| `docs/adr/0002-kafka-ingestion.md` | Kafka over Redis Streams / RabbitMQ / sync writes |
+| `docs/adr/0003-sql-server-json-profiles.md` | Core columns + JSON over EAV / Redis-primary |
+| `docs/adr/0004-shared-db-tenancy.md` | Shared DB + TenantId over DB-per-tenant |
+| `docs/adr/0005-hybrid-segmentation.md` | Batch + real-time with eligibility classifier |
+| `docs/adr/0006-redis-roles.md` | Redis as rebuildable cache only |
+| `docs/adr/0007-auth-model.md` | ASP.NET Identity JWT + hashed API keys |
+| `docs/adr/0008-run-and-swap-membership.md` | Immutable runs + diff table |
+| `docs/adr/0009-segmentation-reads-profiles-tables.md` | Cross-module raw SQL read exception |
+| `docs/design/architecture.md` | C4 L1–L3 diagrams, module map, sequence diagrams (ingest, identify-merge, batch run, real-time eval) |
+| `docs/design/2026-09-15-crm-slice1-design.md` | Copy/link of this spec |
+| `docs/api/openapi.json`, `docs/api/README.md` | Generated contract + usage guide with curl examples |
+| `docs/data-dictionary/*.md` | Per schema: tables, columns, types, indexes, partitioning, retention; generated from EF model + hand notes |
+| `README.md` | 3-command quickstart, architecture summary, links to all of the above, load-test results |
+
+ADRs use MADR format: Context, Decision Drivers, Considered Options, Decision Outcome, Consequences.
+
+---
+
+## 10. Roadmap (later sub-projects, each with its own brainstorm → spec → plan)
+
+1. **Slice 1 — this spec.**
+2. **Campaigns:** email channel (MailHog locally), templates, send-to-segment, delivery/open events fed back through `events.raw`.
+3. **Journeys / Flows:** DAG builder, triggers on `MembershipChanges`, waits, branches.
+4. **Analytics:** funnels and retention over `Events` (columnstore index), campaign reports.
+5. **Channels + SDKs:** push, SMS, WhatsApp adapters; JavaScript web SDK.
+6. **AI:** send-time optimization, churn scoring.
+
+---
+
+## 11. Risks and mitigations
+
+| Risk | Mitigation |
+|---|---|
+| `JSON_VALUE` predicates scan on large tenants | Promoted computed columns for hot keys; document limit; later slice adds per-tenant promotion UI |
+| Identity merge edge cases (three-way, re-merge) | Explicit rules in §4.2; unit tests per scenario; merge loser kept, never deleted |
+| Real-time counters drift from truth | Batch run rebuilds sets; UI badge sets expectation |
+| SQL Server + Kafka containers heavy locally | Compose healthchecks + documented minimum resources (8 GB RAM); observability stack optional |
+| Scope creep toward campaigns | §1.3 out-of-scope list; roadmap items require their own spec |
