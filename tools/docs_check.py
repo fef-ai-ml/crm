@@ -83,16 +83,18 @@ REQUIRED: dict[str, list[str]] = {
 for number, slug in ADRS:
     REQUIRED[f"docs/adr/{number:04d}-{slug}.md"] = ["# "] + MADR
 
-LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
+LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
+
+
+def heading_present(lines: list[str], heading: str) -> bool:
+    if heading == "# ":
+        return any(line.startswith("# ") for line in lines)
+    return any(line.rstrip() == heading for line in lines)
 
 
 def check_headings(path: Path, text: str, headings: list[str]) -> list[str]:
     lines = text.splitlines()
-    errors = []
-    for heading in headings:
-        if not any(line.startswith(heading) for line in lines):
-            errors.append(f"missing heading '{heading}'")
-    return errors
+    return [f"missing heading '{h}'" for h in headings if not heading_present(lines, h)]
 
 
 def check_links(path: Path, text: str) -> list[str]:
