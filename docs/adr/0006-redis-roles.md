@@ -27,7 +27,7 @@ Chosen option: "Rebuildable cache with an explicit key inventory", because every
 ### Positive consequences
 
 - Flushing Redis is a safe operational action; a batch run or replay restores it.
-- The key inventory is a reviewable table, and every key carries a tenant prefix.
+- The key inventory is a reviewable table, and every key carries a tenant prefix except the two resolved before a tenant is known or scoped: `apikey:{prefix}` and the `segments:changed` control channel, which carries the tenant id in its payload instead.
 - TTLs are explicit; nothing grows unbounded.
 
 ### Negative consequences
@@ -37,4 +37,4 @@ Chosen option: "Rebuildable cache with an explicit key inventory", because every
 
 ## Consequences
 
-Slice 1 key inventory: identity cache (TTL 1 h), real-time segment member sets, per-segment event counters (TTL = rule window), preview count cache (60 s), API key resolution cache (10 min). Documented in [redis-and-kafka.md](../data-dictionary/redis-and-kafka.md). Any new key requires a row in that table.
+Slice 1 key inventory: identity cache (TTL 1 h), real-time segment member sets, per-(segment, event leaf) counters keyed by event name and window (TTL = that leaf's window, one key per leaf so two leaves on the same event with different windows stay separate), preview count cache (60 s), API key resolution cache (10 min), and the `segments:changed` pub/sub control channel. Documented in [redis-and-kafka.md](../data-dictionary/redis-and-kafka.md). Any new key requires a row in that table.

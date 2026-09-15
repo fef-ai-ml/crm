@@ -38,4 +38,4 @@ Chosen option: "Shared database with TenantId column", because it needs no provi
 
 ## Consequences
 
-`ITenantContext` in `Crm.Kernel` is the only source of the current tenant. `TenantContextMissingException` is a 500 and logged as a bug. Every Redis key is prefixed `t:{tenantId}:` (see [0006](0006-redis-roles.md)). Column definitions are in the [data dictionary](../data-dictionary/README.md).
+`ITenantContext` in `Crm.Kernel` is the only source of the current tenant. `TenantContextMissingException` is a 500 and logged as a bug. Every key is prefixed `t:{tenantId}:` except keys resolved before a tenant is known (`apikey:{prefix}`) and the global control channel `segments:changed`, whose payload carries the tenant id (see [0006](0006-redis-roles.md)). Column definitions are in the [data dictionary](../data-dictionary/README.md).

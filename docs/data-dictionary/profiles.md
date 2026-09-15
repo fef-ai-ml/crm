@@ -58,7 +58,7 @@ Constraint: `CK_UserIdentities_Kind CHECK (Kind IN ('external_id','anonymous_id'
 
 ## Events
 
-Append-only timeline. Partitioned monthly on `OccurredAt` via partition function `PF_Events_Monthly` and scheme `PS_Events_Monthly`; a maintenance job adds the next month's boundary on the first day of each month.
+Append-only timeline. One row per `track` event; `identify` calls never write here. Partitioned monthly on `OccurredAt` via partition function `PF_Events_Monthly` and scheme `PS_Events_Monthly`; a maintenance job adds the next month's boundary on the first day of each month.
 
 | Column | Type | Null | Description |
 |---|---|---|---|
@@ -74,7 +74,7 @@ Indexes:
 | Name | Columns | Notes |
 |---|---|---|
 | CX_Events_TenantId_ProfileId_OccurredAt | TenantId, ProfileId, OccurredAt | clustered, partition-aligned |
-| UX_Events_Id | Id, OccurredAt | unique; `OccurredAt` included for partition alignment |
+| UX_Events_Id | Id, OccurredAt | unique on (Id, OccurredAt); on a partitioned table this is the enforceable idempotency key. Kafka redelivery carries identical Id and OccurredAt, so duplicates are rejected. |
 | IX_Events_TenantId_Name_OccurredAt | TenantId, Name, OccurredAt | includes ProfileId; segment event predicates |
 
 Constraint: `CK_Events_Properties_IsJson CHECK (ISJSON(Properties) = 1)`. Retention: none in slice 1 (partitions allow cheap future purge).

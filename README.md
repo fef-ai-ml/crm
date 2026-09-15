@@ -41,9 +41,9 @@ python3 tools/docs_check.py
 The commands below are the target developer experience for slice 1 and become available as the implementation plans land. Until then they are the contract the implementation must satisfy.
 
 ```bash
-docker compose -f deploy/docker-compose.yml up -d   # SQL Server, Kafka, Redis, API, Worker, Web
+make up                                               # docker compose -f deploy/docker-compose.yml up -d: SQL Server, Kafka, Redis, API, Worker, Web
 make seed                                             # demo tenant, admin user, API key, 5k profiles, 100k events
-open http://localhost:5173                            # dashboard; API at http://localhost:8080, Swagger at /swagger
+open http://localhost:3000                            # dashboard (nginx-served build); API at http://localhost:8080, Swagger at /swagger
 ```
 
 Send a first event:

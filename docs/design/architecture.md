@@ -54,7 +54,7 @@ C4Component
     Component(ratelimit, "Rate Limiter", "ASP.NET rate limiting", "Token bucket per API key, 2,000 req/min")
     Component(ingest, "Ingest Endpoints", "Minimal API + FluentValidation", "/v1/track, /v1/identify, /v1/batch")
     Component(profiles, "Profiles Endpoints", "Minimal API", "search, detail, timeline")
-    Component(segments, "Segments Endpoints", "Minimal API", "CRUD, preview, run, members, runs, changes")
+    Component(segments, "Segments Endpoints", "Minimal API", "CRUD, preview, run, members (via Segmentation.Infrastructure join), runs, changes")
     Component(tenancy, "Tenancy Endpoints", "Minimal API + ASP.NET Identity", "login, refresh, api-keys")
     Component(problem, "Problem Details Mapper", "RFC 9457", "Maps Result errors and exceptions to problem+json")
   }
@@ -66,7 +66,7 @@ C4Component
   Rel(ingest, kafka, "produce events.raw")
   Rel(profiles, sql, "read profiles, events")
   Rel(segments, sql, "segments, runs, preview COUNT")
-  Rel(segments, redis, "preview cache")
+  Rel(segments, redis, "preview cache, SCARD members")
   Rel(tenancy, sql, "identity schema")
 ```
 
@@ -82,7 +82,7 @@ C4Component
     Component(processedprod, "Processed Producer", "Confluent.Kafka", "EventTracked, ProfileUpdated, ProfileMerged")
     Component(segconsumer, "Segmentation Consumer", "Confluent.Kafka, group segmentation", "Real-time evaluation of eligible segments")
     Component(evaluator, "Realtime Evaluator", "Segmentation.Application", "Evaluates rule tree against snapshot + counters")
-    Component(runner, "Segment Runner", "Quartz.NET job + on-demand", "Compile, materialize, diff, swap, prune")
+    Component(runner, "Segment Runner", "Quartz.NET: polls Queued runs every 5 s + 6 h schedule", "Compile, materialize, diff, swap, prune")
     Component(dlq, "DLQ Publisher", "Polly + Confluent.Kafka", "After 3 retries, publish with error headers")
   }
   ContainerQueue(kafka, "Kafka")
@@ -179,6 +179,7 @@ sequenceDiagram
   Kafka->>Worker: consume
   Worker->>SQL: resolve anonymous_id:A -> Profile P1, external_id:U -> Profile P2
   alt P1 != P2
+    Note over Worker,SQL: UPDLOCK on both profile rows for the whole transaction
     Worker->>SQL: winner = older FirstSeenAt
     Worker->>SQL: UPDATE Events SET ProfileId=winner WHERE ProfileId=loser
     Worker->>SQL: UPDATE UserIdentities SET ProfileId=winner WHERE ProfileId=loser
@@ -201,6 +202,7 @@ sequenceDiagram
   UI->>Api: POST /v1/segments/{id}/run
   Api->>SQL: INSERT SegmentRuns (Status=Queued)
   Api-->>UI: 202 { runId }
+  Runner->>SQL: poll SegmentRuns WHERE Status=Queued (every 5 s)
   Runner->>SQL: compile rule tree; UPDATE run Status=Running, CompiledSql
   Runner->>SQL: INSERT SegmentRunMembers SELECT ... (5 min timeout)
   Runner->>SQL: INSERT MembershipChanges (new EXCEPT current = Entered; current EXCEPT new = Exited)
@@ -220,10 +222,10 @@ sequenceDiagram
   participant Cache as In-memory segment cache
   participant Redis
   participant SQL as SQL Server
-  Kafka->>Seg: events.processed EventTracked { tenant, profile snapshot, event }
+  Kafka->>Seg: events.processed EventTracked | ProfileUpdated { tenant, profile snapshot, event? }
   Seg->>Cache: eligible Active segments for tenant
   loop each segment referencing event.name
-    Seg->>Redis: INCR t:{tenant}:seg:{seg}:ev:{profile}; EXPIRE window
+    Seg->>Redis: INCR t:{tenant}:seg:{seg}:ev:{eventName}:{window}:{profile}; EXPIRE window NX
   end
   loop each eligible segment
     Seg->>Seg: evaluate rule tree (snapshot + counters)
@@ -237,3 +239,26 @@ sequenceDiagram
   end
   Seg->>Kafka: commit offset
 ```
+
+## 6. Rule Compiler Mapping
+
+JV = `JSON_VALUE(p.Attributes, '$.key')` or the promoted column.
+
+| Node / cmp | SQL fragment | Missing-key semantics |
+|---|---|---|
+| attribute eq | `JV = @p` | excluded |
+| attribute neq | `(JV <> @p OR JV IS NULL)` | included |
+| attribute in | `JV IN (@p0, @p1, …)` | excluded |
+| attribute nin | `(JV NOT IN (@p0, …) OR JV IS NULL)` | included |
+| attribute gt/gte/lt/lte | `TRY_CONVERT(float, JV) > @p` (etc.) | excluded (NULL compares UNKNOWN) |
+| attribute contains | `JV LIKE '%' + @p + '%' ESCAPE '\'` with `%`, `_`, `\` escaped in @p | excluded |
+| attribute exists | `JV IS NOT NULL` | excluded |
+| attribute not_exists | `JV IS NULL` | included |
+| event gte n (n ≥ 1) | `EXISTS (SELECT 1 FROM profiles.Events e WHERE e.TenantId=@t AND e.ProfileId=p.Id AND e.Name=@n AND e.OccurredAt>=@since HAVING COUNT(*) >= @c)` | — |
+| event eq 0 | `NOT EXISTS (… same subquery without HAVING …)` | — |
+| event eq n (n ≥ 1) | `EXISTS (… HAVING COUNT(*) = @c)` | — |
+| event lte n | `NOT EXISTS (… HAVING COUNT(*) > @c)` | — |
+| group and/or | `(c1 AND c2 …)` / `(c1 OR c2 …)` | — |
+| group not | `NOT (c1)` | — |
+
+Booleans are compared as the strings `true`/`false`; `@since = SYSUTCDATETIME() - window`.

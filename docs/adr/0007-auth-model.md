@@ -39,3 +39,5 @@ Chosen option: "ASP.NET Identity JWT plus hashed API keys", because it ships wit
 ## Consequences
 
 Claims: `sub`, `tenant_id`, `role`. Rate limit: token bucket, 2,000 requests/min per API key, 429 on exceed. `LastUsedAt` on keys is updated at most once per minute. Tables are in the [identity data dictionary](../data-dictionary/identity.md).
+
+The refresh token is carried in an httpOnly, Secure, `SameSite=Strict` cookie (`crm_refresh`, path `/v1/auth`) rather than in the response body or client-side storage, because a script can never read it: the access token is the only bearer credential exposed to JavaScript, which bounds the impact of an XSS finding to a 15-minute window.

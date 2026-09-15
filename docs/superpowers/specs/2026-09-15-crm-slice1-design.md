@@ -135,7 +135,7 @@ deploy/
 - Every module entity carries `TenantId`. Each DbContext applies a global query filter `e.TenantId == tenant.Id`. `SaveChanges` interceptor stamps `TenantId` on inserts and throws if it differs.
 - Resolving a request without a tenant throws `TenantContextMissingException` (500, logged as a bug) rather than returning unfiltered data.
 - Kafka messages carry `TenantId` in both a header and the payload. Consumers create a tenant scope per message.
-- Redis keys are always prefixed `t:{tenantId}:`.
+- Every key is prefixed `t:{tenantId}:` except keys resolved before a tenant is known (`apikey:{prefix}`) and the global control channel `segments:changed`, whose payload carries the tenant id.
 
 ---
 
@@ -203,7 +203,7 @@ ASP.NET Identity default tables plus `Tenants` (Id, Name, Slug, Status) and `Api
 |---|---|---|---|
 | `t:{tenant}:id:{kind}:{value}` | string → ProfileId | 1 h | identity lookup cache |
 | `t:{tenant}:seg:{segId}:members` | SET of ProfileId | none | real-time membership |
-| `t:{tenant}:seg:{segId}:ev:{profileId}` | string counter | = rule window | real-time event count in window |
+| `t:{tenant}:seg:{segId}:ev:{eventName}:{window}:{profileId}` | string counter | = that leaf's window | real-time event count in window; one key per (segment, event leaf) so two leaves on the same event with different windows stay separate |
 | `t:{tenant}:preview:{defHash}` | string count | 60 s | live count cache |
 | `apikey:{prefix}` | string → TenantId | 10 min | API key resolution cache |
 
@@ -229,7 +229,7 @@ Endpoints (auth `X-Api-Key`, rate limit per key: token bucket 2,000 req/min, 429
 
 - `POST /v1/track` — `{ userId? , anonymousId?, event, properties?, timestamp? }`; at least one of `userId`/`anonymousId` required.
 - `POST /v1/identify` — `{ userId, anonymousId?, traits? }`; links anonymous → known and merges traits into `Attributes`.
-- `POST /v1/batch` — `{ events: [...] }`, max 500 items, each validated independently; response lists per-item accepted/rejected.
+- `POST /v1/batch` — `{ events: [...] }`, max 500 items, each validated independently; response lists per-item accepted/rejected. Each item carries a `type` discriminator (`track` or `identify`) selecting which shape and validation rules apply.
 
 Per request: FluentValidation (event name ≤ 64 chars, alnum + `_`; properties ≤ 32 KB; timestamp within ±7 d), assign `EventId` (UUIDv7), stamp `TenantId` and `ReceivedAt`, produce to `events.raw` with `acks=all`, return `202 { eventId }`. No database access on this path.
 
@@ -239,11 +239,15 @@ Per message, inside one tenant scope and one SQL transaction:
 
 1. **Identity resolve.** Look up `(Kind, Value)` in Redis, then `UserIdentities`. On miss, create Profile + identity row.
 2. **Merge** (identify only, when `anonymousId` maps to profile A and `userId` maps to profile B, A ≠ B): winner = profile with earlier `FirstSeenAt`; loser's `Events.ProfileId` re-pointed, loser's identities re-pointed, loser's `Attributes` merged into winner (winner's values win on conflict), loser marked `MergedIntoId = winner`. Publish `ProfileMerged`.
-3. **Upsert profile.** Update `LastSeenAt`, `EventCount += 1`, and for identify apply traits with `JSON_MODIFY` per key (last write wins).
-4. **Append event.** Insert into `Events`. Duplicate `Id` (unique index violation) → treat as already processed, skip.
+3. **Upsert profile.** For `track`, update `LastSeenAt` and `EventCount += 1`. For `identify`, update `LastSeenAt` and attributes only (apply traits with `JSON_MODIFY` per key, last write wins); `identify` never creates an Events row and never changes `EventCount`. After a merge, the winner's `EventCount` is recomputed as `COUNT(*)` of its Events inside the merge transaction.
+4. **Append event.** For `track`, insert into `Events`. Duplicate `Id` (unique index violation) → treat as already processed, skip.
 5. Commit, then produce `EventTracked` / `ProfileUpdated` to `events.processed`, then commit Kafka offset.
 
-Semantics: at-least-once delivery + idempotent insert = effectively-once. Because the partition key is `tenant:user`, all messages for one user are processed serially by one consumer, so merges do not race.
+Semantics: at-least-once delivery + idempotent insert = effectively-once. Kafka ordering is guaranteed per identifier key, not per person. A merge and a concurrent event for the same person can land on different partitions; correctness comes from row locks on the two profile rows during the merge plus the applier following `MergedIntoId` to the winner:
+
+1. Merge runs in one SQL transaction that first takes `UPDLOCK, HOLDLOCK` on both profile rows (`SELECT ... WITH (UPDLOCK, HOLDLOCK) WHERE Id IN (winner, loser)`).
+2. The event applier, before inserting an event, locks its resolved profile row the same way and, if `MergedIntoId` is not null, follows it to the winner (loop until null) and applies there.
+3. Identity-cache entries for the loser's identities are deleted inside the merge transaction, before commit.
 
 ### 4.3 Failure handling
 
@@ -289,13 +293,15 @@ Limits: depth ≤ 5, leaves ≤ 20. Validated by a shared Zod schema (frontend) 
 - `event` → `EXISTS (SELECT 1 FROM profiles.Events e WHERE e.TenantId = @tenant AND e.ProfileId = p.Id AND e.Name = @p1 AND e.OccurredAt >= @p2 HAVING COUNT(*) >= @p3)`; `count = 0` → `NOT EXISTS (...)`.
 - Every value is a parameter. JSON path is built from the validated key (`^[A-Za-z0-9_]{1,64}$`), never from raw input.
 
+Full comparator mapping: architecture doc §6.
+
 Tests: one unit test per node/comparator, plus golden-file tests (`rules/*.json` → `expected/*.sql`).
 
 ### 5.3 Batch materialization
 
-Triggered by `POST /segments/{id}/run` or a schedule (Quartz.NET, default every 6 h for Active segments).
+`POST /segments/{id}/run` inserts a `SegmentRuns` row (Status = Queued) and returns immediately; a Quartz.NET job in the Worker polls `SELECT ... WHERE Status = 'Queued'` every 5 s and executes runs one per segment at a time, alongside its own 6-hour schedule for Active segments. No new Redis or Kafka artifact is needed to deliver the run.
 
-1. Create `SegmentRuns` row (Status = Running, store `CompiledSql`).
+1. Create `SegmentRuns` row (Status = Queued); the Worker sets Running when it picks the run up.
 2. `INSERT INTO SegmentRunMembers (RunId, ProfileId, TenantId) <compiled SQL>`.
 3. Diff against `CurrentRunId`: `EXCEPT` both ways → insert `MembershipChanges` (Entered / Exited, Source = Batch).
 4. Update `Segments.CurrentRunId`, `MemberCount`, `LastRunAt`; mark run Finished.
@@ -310,8 +316,8 @@ Command timeout 5 min; failure marks run Failed with error text; segment keeps p
 
 Worker consumer (group `segmentation`) on `EventTracked` / `ProfileUpdated`:
 
-1. Load the tenant's eligible Active segments from an in-memory cache (invalidated by a `segments.changed` Redis pub/sub message on save).
-2. For `EventTracked`, `INCR t:{tenant}:seg:{seg}:ev:{profile}` with `EXPIRE` = rule window for each segment referencing that event name.
+1. Load the tenant's eligible Active segments from an in-memory cache (invalidated by a `segments:changed` Redis pub/sub message on save).
+2. For `EventTracked`, `INCR t:{tenant}:seg:{seg}:ev:{eventName}:{window}:{profile}` then `EXPIRE key window NX` (set TTL only when absent) for each (segment, event leaf) referencing that event name.
 3. Evaluate the tree in C# (`RealtimeEvaluator`) against the profile snapshot in the message plus counters.
 4. `SADD` / `SREM` the membership set; on transition write `MembershipChanges` (Source = Realtime).
 
@@ -331,13 +337,13 @@ Base path `/v1`. Errors are RFC 9457 `application/problem+json` with `traceId`. 
 |---|---|---|
 | Ingest | API key | `POST /track`, `POST /identify`, `POST /batch` |
 | Profiles | JWT | `GET /profiles?q=` (email / externalId / phone prefix), `GET /profiles/{id}`, `GET /profiles/{id}/events?from&to&name&cursor` |
-| Segments | JWT | `GET /segments`, `POST /segments`, `GET/PUT/DELETE /segments/{id}`, `POST /segments/preview`, `POST /segments/{id}/run`, `GET /segments/{id}/runs`, `GET /segments/{id}/members?cursor`, `GET /segments/{id}/changes?since&cursor` |
+| Segments | JWT | `GET /segments`, `POST /segments`, `GET/PUT/DELETE /segments/{id}` (`GET /segments/{id}` includes `realtimeMemberCount`, the live `SCARD` of the members set, `null` when not real-time eligible), `POST /segments/preview`, `POST /segments/{id}/run`, `GET /segments/{id}/runs`, `GET /segments/{id}/members?cursor`, `GET /segments/{id}/changes?since&cursor` |
 | Tenancy | JWT (Admin) | `POST /auth/login`, `POST /auth/refresh`, `POST /tenants` (bootstrap, dev only), `GET/POST /api-keys`, `DELETE /api-keys/{id}` |
-| Ops | none | `GET /health/live`, `GET /health/ready`, `GET /metrics` |
+| Ops | none | `GET /health/live`, `GET /health/ready`, `GET /metrics` (served at the host root, not under `/v1`) |
 
 Auth details:
 
-- JWT: HS256 dev / RS256 configurable, 15 min access + 7 d refresh, claims `sub`, `tenant_id`, `role`.
+- JWT: HS256 dev / RS256 configurable, 15 min access, claims `sub`, `tenant_id`, `role`. The refresh token is an httpOnly, Secure, `SameSite=Strict` cookie named `crm_refresh`, path `/v1/auth`, valid 7 d. `POST /auth/login` returns `{ accessToken, expiresIn }` in the body; `POST /auth/refresh` takes no body, reads the cookie, and rotates it.
 - API key format `crm_live_<32 base62>`; stored as SHA-256 hash + 8-char prefix; shown once on creation. Resolution: Redis `apikey:{prefix}` → SQL fallback, compare hash in constant time. `LastUsedAt` updated at most once per minute.
 - Roles: `Admin` full; `Viewer` read-only on profiles/segments.
 
@@ -393,7 +399,7 @@ TDD applies to every unit in the plan: tests first, then implementation.
 
 ### 8.4 Local runtime
 
-`deploy/docker-compose.yml`: `sqlserver` (2022, healthcheck), `kafka` (KRaft single node, topics created by init container), `redis`, `api`, `worker`, `web` (nginx serving Vite build, proxying `/v1` to api). `make up`, `make seed` (creates tenant, admin user, API key, 5k demo profiles with 100k events), `make test`.
+`deploy/docker-compose.yml`: `sqlserver` (2022, healthcheck), `kafka` (KRaft single node, topics created by init container), `redis`, `api`, `worker`, `web` (nginx serving Vite build, proxying `/v1` to api). Web published on port 3000, api on 8080. `make up`, `make seed` (creates tenant, admin user, API key, 5k demo profiles with 100k events), `make test`.
 
 ---
 

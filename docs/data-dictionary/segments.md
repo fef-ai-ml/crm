@@ -11,7 +11,7 @@ Owner: Segmentation module. Membership model rationale: [ADR 0008](../adr/0008-r
 | Description | nvarchar(1024) | yes | |
 | Definition | nvarchar(max) JSON | no | Rule tree, spec §5.1 |
 | DefinitionVersion | int | no | Rule format version; 1 in slice 1 |
-| DefinitionHash | binary(32) | no | SHA-256 of canonical Definition; preview cache key |
+| DefinitionHash | binary(32) | no | SHA-256 of the canonical Definition; used to detect unchanged definitions on save and shared with the preview cache key function |
 | IsRealtimeEligible | bit | no | Result of the eligibility classifier at save time |
 | Status | varchar(16) | no | `Draft`, `Active`, `Archived` |
 | CurrentRunId | uniqueidentifier | yes | FK to SegmentRuns(RunId); null until first successful run |
@@ -28,7 +28,7 @@ Constraints: `CK_Segments_Definition_IsJson`; `CK_Segments_Status CHECK (Status 
 |---|---|---|---|
 | RunId | uniqueidentifier | no | Primary key |
 | SegmentId | uniqueidentifier | no | FK to Segments(Id) |
-| Status | varchar(16) | no | `Queued`, `Running`, `Finished`, `Failed` |
+| Status | varchar(16) | no | `Queued`, `Running`, `Finished`, `Failed`. Queued rows are picked up by the Worker poll (5 s). |
 | StartedAt | datetime2(3) | yes | |
 | FinishedAt | datetime2(3) | yes | |
 | MemberCount | int | yes | Set on Finished |
@@ -62,4 +62,4 @@ Pruning: runs older than the newest 3 per segment are deleted; cascade removes t
 
 Indexes: `PK_MembershipChanges (Id)`; `CX_MembershipChanges_TenantId_SegmentId_OccurredAt (TenantId, SegmentId, OccurredAt)` clustered; `IX_MembershipChanges_TenantId_ProfileId (TenantId, ProfileId)`.
 
-Constraints: `CK_MembershipChanges_Change CHECK (Change IN ('Entered','Exited'))`; `CK_MembershipChanges_Source CHECK (Source IN ('Batch','Realtime'))`. Retention: 90 days, purged by a scheduled job.
+Constraints: `CK_MembershipChanges_Change CHECK (Change IN ('Entered','Exited'))`; `CK_MembershipChanges_Source CHECK (Source IN ('Batch','Realtime'))`. Retention: none in slice 1.

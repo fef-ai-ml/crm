@@ -65,9 +65,9 @@ Supporting scope: multi-tenancy, dashboard authentication, API key management, o
 | ID | Requirement |
 |---|---|
 | FR-08 | Identities of kind `external_id`, `anonymous_id`, `email`, `phone` map to exactly one profile per tenant. |
-| FR-09 | When `identify` links an anonymous profile to a known profile, the older profile wins, the loser's events and identities are re-pointed to the winner, the loser's attributes are merged (winner's values win on conflict), and the loser is marked merged and excluded from all reads. |
-| FR-10 | Each event updates the profile's `LastSeenAt` and `EventCount`; each identify applies traits key-by-key with last-write-wins. |
-| FR-11 | `GET /v1/profiles?q=` searches by email, external id, or phone prefix; `GET /v1/profiles/{id}` returns core fields and attributes; `GET /v1/profiles/{id}/events` returns the timeline with cursor pagination and optional name filter. |
+| FR-09 | When `identify` links an anonymous profile to a known profile, the older profile wins, the loser's events and identities are re-pointed to the winner, the loser's attributes are merged (winner's values win on conflict), and the loser is marked merged and excluded from all reads. Merges hold row locks on both profiles; events arriving for a merged-away profile are re-routed to the winner. The winner's `EventCount` is recomputed. |
+| FR-10 | Each event updates the profile's `LastSeenAt` and `EventCount`; each identify applies traits key-by-key with last-write-wins. identify calls do not create timeline entries or change `EventCount`. |
+| FR-11 | `GET /v1/profiles?q=` searches by email, external id, or phone prefix (email and external id are matched by prefix; phone by prefix after E.164 normalization); `GET /v1/profiles/{id}` returns core fields and attributes; `GET /v1/profiles/{id}/events` returns the timeline with cursor pagination and optional name filter. |
 
 ### Segmentation
 
@@ -96,6 +96,7 @@ Supporting scope: multi-tenancy, dashboard authentication, API key management, o
 |---|---|
 | FR-23 | Admins create and revoke API keys; the full key is shown once, only its prefix afterwards. |
 | FR-24 | Every read and write is scoped to the caller's tenant; a request without a resolvable tenant fails rather than returning unscoped data. |
+| FR-25 | A development-only `POST /v1/tenants` bootstraps a tenant with its first Admin user. |
 
 ## 5. Non-Functional Requirements
 
@@ -105,7 +106,7 @@ Supporting scope: multi-tenancy, dashboard authentication, API key management, o
 | NFR-02 | **Latency:** ingest p95 < 50 ms; ingest-to-timeline p95 < 2 s; real-time segment update p95 < 2 s. |
 | NFR-03 | **Isolation:** tenant data separation enforced in the data access layer (global query filters) and covered by integration tests. |
 | NFR-04 | **Durability:** events are acknowledged only after Kafka `acks=all`; the worker commits offsets only after the database transaction commits. |
-| NFR-05 | **Idempotency:** at-least-once delivery combined with a unique event id yields effectively-once processing. |
+| NFR-05 | **Idempotency:** at-least-once delivery combined with a unique event id yields effectively-once processing (enforced on the pair (Id, OccurredAt), which redelivery preserves). |
 | NFR-06 | **Observability:** distributed traces across API, Kafka, and worker; structured logs with tenant and trace ids; Prometheus metrics for ingest rate, consumer lag, DLQ count, and segment run duration. |
 | NFR-07 | **Security:** API keys stored as SHA-256 hashes; JWT access tokens expire in 15 minutes; rate limit 2,000 requests/min per API key. |
 | NFR-08 | **Modularity:** module dependency rules are enforced by automated architecture tests; no module references another module's assemblies. |

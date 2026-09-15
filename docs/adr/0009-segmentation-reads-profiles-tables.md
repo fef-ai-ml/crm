@@ -36,4 +36,4 @@ Chosen option: "Documented exception with raw read-only SQL", because the rule c
 
 ## Consequences
 
-The only tables Segmentation may read outside its schema are `profiles.Profiles` and `profiles.Events`, read-only. `Crm.ArchTests` still forbids the assembly reference. Any additional cross-schema read requires a new record.
+The only tables Segmentation may read outside its schema are `profiles.Profiles` and `profiles.Events`, read-only. `Crm.ArchTests` still forbids the assembly reference. This covers batch runs, preview counts, and the members listing. Any additional cross-schema read requires a new record.

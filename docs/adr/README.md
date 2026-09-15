@@ -21,4 +21,4 @@ Decisions that shape the CRM platform, recorded in [MADR](https://adr.github.io/
 1. Copy [template.md](template.md) to `NNNN-kebab-slug.md` using the next number.
 2. Fill every section; list at least two considered options.
 3. Add a row to the index above.
-4. Run `python3 tools/docs_check.py --only docs/adr` and add the file to the `ADRS` list in `tools/docs_check.py`.
+4. Add the file to the `ADRS` list in `tools/docs_check.py`, then run `python3 tools/docs_check.py --only docs/adr`.

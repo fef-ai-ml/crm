@@ -12,7 +12,7 @@ The ingest API must accept bursts of events, acknowledge quickly, and never lose
 
 - NFR-01 and NFR-02: 1,000 events/s with ingest p95 under 50 ms.
 - NFR-04: durability; acknowledge only after the transport has persisted the event.
-- FR-09: identity merges must not race; events for one user must be processed in order.
+- FR-09: per-identifier ordering keeps one identifier's events serial; cross-identifier merges are protected by row locks, see spec §4.2.
 - Portfolio value: MoEngage and comparable platforms run on Kafka; reviewers expect it.
 - Replay: segmentation must be able to rebuild state from processed events.
 
@@ -29,7 +29,7 @@ Chosen option: "Kafka", because partition keys give per-user ordering for free, 
 
 ### Positive consequences
 
-- Ordering per `{tenantId}:{userKey}` key makes identity merges race-free without locks.
+- Ordering per `{tenantId}:{userKey}` key keeps one identifier's events serial; cross-identifier merges are protected by row locks, see spec §4.2.
 - Two consumer groups (`profiles`, `segmentation`) read the same processed stream; adding Campaign triggers later is another consumer group.
 - DLQ is just another topic; poison handling is uniform.
 

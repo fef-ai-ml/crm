@@ -1,14 +1,14 @@
 # Redis Keys and Kafka Topics
 
-Redis holds only rebuildable state ([ADR 0006](../adr/0006-redis-roles.md)). Kafka is the ingestion backbone ([ADR 0002](../adr/0002-kafka-ingestion.md)). Every Redis key is prefixed with the tenant id except the API key cache, which is looked up before the tenant is known.
+Redis holds only rebuildable state ([ADR 0006](../adr/0006-redis-roles.md)). Kafka is the ingestion backbone ([ADR 0002](../adr/0002-kafka-ingestion.md)). Every key is prefixed `t:{tenantId}:` except the API key cache (`apikey:{prefix}`), which is looked up before the tenant is known, and the `segments:changed` control channel, whose payload carries the tenant id instead.
 
 ## Redis
 
 | Key pattern | Type | TTL | Written by | Read by | Rebuild from |
 |---|---|---|---|---|---|
 | `t:{tenantId}:id:{kind}:{value}` | string → ProfileId | 1 h | Raw events consumer on lookup miss; deleted on merge for the loser | Raw events consumer | `profiles.UserIdentities` |
-| `t:{tenantId}:seg:{segmentId}:members` | SET of ProfileId | none | Segmentation consumer (SADD/SREM); Segment Runner (DEL + SADD on batch finish) | Segments API for real-time badge counts | Batch run or replay of `events.processed` |
-| `t:{tenantId}:seg:{segmentId}:ev:{profileId}` | string counter | = rule window (e.g. 30 d) | Segmentation consumer (INCR + EXPIRE) | Realtime Evaluator | Replay of `events.processed` |
+| `t:{tenantId}:seg:{segmentId}:members` | SET of ProfileId | none | Segmentation consumer (SADD/SREM); Segment Runner (DEL + SADD on batch finish) | Segments API (`GET /segments/{id}` realtimeMemberCount), Realtime Evaluator | Batch run or replay of `events.processed` |
+| `t:{tenantId}:seg:{segmentId}:ev:{eventName}:{window}:{profileId}` | string counter | = that leaf's window (e.g. 30 d) | Segmentation consumer (INCR + EXPIRE NX) | Realtime Evaluator | Replay of `events.processed` |
 | `t:{tenantId}:preview:{definitionHashHex}` | string count | 60 s | Segments API after a preview query | Segments API | Re-run preview |
 | `apikey:{prefix}` | string → TenantId | 10 min | Tenant middleware on SQL fallback; deleted on revoke | Tenant middleware | `identity.ApiKeys` |
 | `segments:changed` | pub/sub channel | — | Segments API on save/archive (payload: tenantId) | Worker in-memory segment cache invalidation | — |
@@ -32,7 +32,7 @@ Message contracts (in `Crm.Contracts`, JSON, camelCase):
 | `TrackEventRaw` | eventId, tenantId, userId?, anonymousId?, event, properties (object), occurredAt, receivedAt |
 | `IdentifyRaw` | eventId, tenantId, userId, anonymousId?, traits (object), receivedAt |
 | `EventTracked` | eventId, tenantId, profileId, event, properties, occurredAt, profile: { externalId?, email?, phone?, attributes } |
-| `ProfileUpdated` | tenantId, profileId, changedKeys (string[]), profile: { externalId?, email?, phone?, attributes } |
+| `ProfileUpdated` | tenantId, profileId, changedKeys (string[]), occurredAt, profile: { externalId?, email?, phone?, attributes } |
 | `ProfileMerged` | tenantId, winnerProfileId, loserProfileId, occurredAt |
 
 Producer settings: `acks=all`, `enable.idempotence=true`. Consumer settings: `enable.auto.commit=false`, manual commit after the SQL transaction commits, `auto.offset.reset=earliest`.

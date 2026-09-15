@@ -73,13 +73,13 @@ Links `anonymousId` to `userId` (merging profiles when both already exist) and a
 ### POST /batch
 
 ```json
-{ "events": [ { "type": "track", "userId": "u-1", "event": "app_open" }, { "type": "identify", "userId": "u-1", "traits": { "plan": "free" } } ] }
+{ "events": [ { "type": "track", "userId": "u-1", "event": "app_open" }, { "type": "track", "userId": "u-1", "event": "bad name!" } ] }
 ```
 
-Up to 500 items, each validated independently. Response `202`:
+Up to 500 items, each validated independently. Each item carries a `type` discriminator (`track` or `identify`) selecting which shape and validation rules apply. Response `202`:
 
 ```json
-{ "accepted": 1, "rejected": 1, "results": [ { "index": 0, "eventId": "..." }, { "index": 1, "errors": { "traits.plan": ["..."] } } ] }
+{ "accepted": 1, "rejected": 1, "results": [ { "index": 0, "eventId": "..." }, { "index": 1, "errors": { "events[1].event": ["must match [A-Za-z0-9_]{1,64}"] } } ] }
 ```
 
 ## Profiles
@@ -108,7 +108,7 @@ Auth: JWT. Writes require Admin.
 |---|---|---|
 | GET | `/segments?status=&limit=&cursor=` | List with `memberCount`, `lastRunAt`, `isRealtimeEligible`, `status` |
 | POST | `/segments` | Create; body `{ name, description?, definition, status? }`; `409` on duplicate name |
-| GET | `/segments/{id}` | Full segment including `definition` |
+| GET | `/segments/{id}` | Full segment including `definition`, `memberCount`, and `realtimeMemberCount` |
 | PUT | `/segments/{id}` | Replace name, description, definition, status |
 | DELETE | `/segments/{id}` | Archive (soft delete) |
 | POST | `/segments/preview` | Body `{ definition }`; returns `{ "count": 1234, "timedOut": false, "cachedAt": "..." }` or `{ "count": null, "timedOut": true }` after 5 s |
@@ -116,6 +116,8 @@ Auth: JWT. Writes require Admin.
 | GET | `/segments/{id}/runs?limit=&cursor=` | Runs newest first: `runId`, `status`, `startedAt`, `finishedAt`, `memberCount`, `trigger`, `error` |
 | GET | `/segments/{id}/members?limit=&cursor=` | Profiles in the current run (id, externalId, email, lastSeenAt) |
 | GET | `/segments/{id}/changes?since=&limit=&cursor=` | Membership changes: `profileId`, `change`, `source`, `occurredAt` |
+
+`memberCount` is from the current batch run; `realtimeMemberCount` is the live Redis set size for eligible segments and `null` otherwise.
 
 Definition example (see spec §5.1 for the grammar):
 
@@ -132,8 +134,8 @@ Validation: depth ≤ 5, leaves ≤ 20, `key` matches `[A-Za-z0-9_]{1,64}`, `win
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| POST | `/auth/login` | none | Body `{ email, password }`; returns `{ accessToken, expiresIn, refreshToken }` |
-| POST | `/auth/refresh` | none | Body `{ refreshToken }`; rotates and returns a new pair |
+| POST | `/auth/login` | none | Body `{ email, password }`; returns `{ accessToken, expiresIn }` and sets the `crm_refresh` cookie (httpOnly, Secure, `SameSite=Strict`, path `/v1/auth`) |
+| POST | `/auth/refresh` | none | No body; reads the `crm_refresh` cookie, rotates it, and returns `{ accessToken, expiresIn }` |
 | POST | `/tenants` | none, development only | Body `{ name, slug, adminEmail, adminPassword }`; bootstraps a tenant and its first Admin |
 | GET | `/api-keys` | JWT Admin | List: `id`, `name`, `prefix`, `createdAt`, `lastUsedAt`, `revokedAt` |
 | POST | `/api-keys` | JWT Admin | Body `{ name }`; returns the full key once: `{ id, name, prefix, key }` |
