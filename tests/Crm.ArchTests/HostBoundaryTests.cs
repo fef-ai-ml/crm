@@ -13,7 +13,7 @@ public class HostBoundaryTests
         AssertReferencesOnlyModuleInfrastructure("Crm.Api", typeof(Crm.Api.Program).Assembly);
     }
 
-    [Fact(Skip = "Worker registers modules in Task 8")]
+    [Fact]
     public void AT005_crm_worker_references_only_module_infrastructure_projects()
     {
         AssertReferencesOnlyModuleInfrastructure("Crm.Worker", typeof(Crm.Worker.Program).Assembly);

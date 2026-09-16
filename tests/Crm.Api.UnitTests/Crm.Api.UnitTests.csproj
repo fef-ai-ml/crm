@@ -12,6 +12,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Hosts\Crm.Api\Crm.Api.csproj" />
+    <ProjectReference Include="..\..\src\Hosts\Crm.Worker\Crm.Worker.csproj" />
     <ProjectReference Include="..\..\src\Shared\Crm.Hosting\Crm.Hosting.csproj" />
   </ItemGroup>
 </Project>
