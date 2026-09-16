@@ -2220,22 +2220,39 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace Crm.Hosting.Health;
 
-public sealed class KafkaHealthCheck(string bootstrapServers) : IHealthCheck, IDisposable
+/// <summary>
+/// Admin metadata round-trip. Confluent.Kafka exposes only a synchronous GetMetadata, so it runs on the thread pool
+/// and the health-check cancellation token (registration timeout) races it via WaitAsync. Registered as a DI singleton
+/// so Dispose runs on shutdown.
+/// </summary>
+public sealed class KafkaHealthCheck : IHealthCheck, IDisposable
 {
-    private readonly IAdminClient _admin = new AdminClientBuilder(new AdminClientConfig { BootstrapServers = bootstrapServers }).Build();
+    private static readonly TimeSpan MetadataTimeout = TimeSpan.FromSeconds(3);
+    private readonly IAdminClient _admin;
 
-    public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
+    public KafkaHealthCheck(CrmHostingOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        _admin = new AdminClientBuilder(new AdminClientConfig { BootstrapServers = options.KafkaBootstrapServers }).Build();
+    }
+
+    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
         try
         {
-            var metadata = _admin.GetMetadata(TimeSpan.FromSeconds(3));
-            return Task.FromResult(metadata.Brokers.Count > 0
+            var metadata = await Task.Run(() => _admin.GetMetadata(MetadataTimeout), cancellationToken)
+                .WaitAsync(cancellationToken);
+            return metadata.Brokers.Count > 0
                 ? HealthCheckResult.Healthy($"{metadata.Brokers.Count} broker(s)")
-                : HealthCheckResult.Unhealthy("no brokers in metadata"));
+                : HealthCheckResult.Unhealthy("no brokers in metadata");
+        }
+        catch (OperationCanceledException)
+        {
+            return HealthCheckResult.Unhealthy("Kafka metadata request timed out");
         }
         catch (KafkaException ex)
         {
-            return Task.FromResult(HealthCheckResult.Unhealthy("Kafka unreachable", ex));
+            return HealthCheckResult.Unhealthy("Kafka unreachable", ex);
         }
     }
 
@@ -2302,10 +2319,12 @@ public static class HealthCheckExtensions
             return ConnectionMultiplexer.Connect(redisOptions);
         });
 
+        services.AddSingleton<Health.KafkaHealthCheck>();
+
         services.AddHealthChecks()
             .AddCheck("sqlserver", new Health.SqlServerHealthCheck(options.SqlConnectionString), HealthStatus.Unhealthy, [ReadyTag], TimeSpan.FromSeconds(3))
             .AddTypeActivatedCheck<Health.RedisHealthCheck>("redis", HealthStatus.Unhealthy, [ReadyTag], TimeSpan.FromSeconds(3))
-            .AddCheck("kafka", new Health.KafkaHealthCheck(options.KafkaBootstrapServers), HealthStatus.Unhealthy, [ReadyTag], TimeSpan.FromSeconds(5));
+            .AddCheck<Health.KafkaHealthCheck>("kafka", HealthStatus.Unhealthy, [ReadyTag], TimeSpan.FromSeconds(5));
 
         return services;
     }
