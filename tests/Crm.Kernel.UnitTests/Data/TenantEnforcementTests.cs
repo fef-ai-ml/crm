@@ -21,14 +21,17 @@ public class TenantEnforcementTests
         public void ForceTenant(Guid tenantId) => TenantId = tenantId;
     }
 
-    public sealed class WidgetDbContext(DbContextOptions<WidgetDbContext> options, ITenantContext tenant) : DbContext(options)
+    public sealed class WidgetDbContext(DbContextOptions<WidgetDbContext> options, ITenantContext tenant)
+        : DbContext(options), ITenantScopedDbContext
     {
         public DbSet<Widget> Widgets => Set<Widget>();
+
+        public Guid CurrentTenantId => tenant.TenantId;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<Widget>();
-            modelBuilder.ApplyTenantFilters(tenant);
+            modelBuilder.ApplyTenantFilters(this);
         }
     }
 

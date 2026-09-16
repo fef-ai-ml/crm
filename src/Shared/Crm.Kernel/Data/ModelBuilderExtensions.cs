@@ -1,5 +1,4 @@
 using System.Reflection;
-using Crm.Kernel.Tenancy;
 using Microsoft.EntityFrameworkCore;
 
 namespace Crm.Kernel.Data;
@@ -10,11 +9,17 @@ public static class ModelBuilderExtensions
         .GetMethod(nameof(SetFilter), BindingFlags.NonPublic | BindingFlags.Static)!;
 
     /// <summary>
-    /// Adds the global query filter e => e.TenantId == tenant.TenantId to every root entity type derived from <see cref="Entity"/>.
-    /// Evaluating the filter on an unresolved context throws <see cref="TenantContextMissingException"/>, so queries fail closed.
+    /// Adds the global query filter e => e.TenantId == context.CurrentTenantId to every root entity type derived from
+    /// <see cref="Entity"/>. The lambda references the DbContext instance, which EF Core substitutes with the
+    /// current context at query time; an unresolved tenant therefore throws <see cref="Tenancy.TenantContextMissingException"/>
+    /// on every query, so reads fail closed.
     /// </summary>
-    public static ModelBuilder ApplyTenantFilters(this ModelBuilder modelBuilder, ITenantContext tenant)
+    public static ModelBuilder ApplyTenantFilters<TContext>(this ModelBuilder modelBuilder, TContext context)
+        where TContext : DbContext, ITenantScopedDbContext
     {
+        ArgumentNullException.ThrowIfNull(modelBuilder);
+        ArgumentNullException.ThrowIfNull(context);
+
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {
             if (entityType.BaseType is not null || !typeof(Entity).IsAssignableFrom(entityType.ClrType))
@@ -22,13 +27,14 @@ public static class ModelBuilderExtensions
                 continue;
             }
 
-            SetFilterMethod.MakeGenericMethod(entityType.ClrType).Invoke(null, [modelBuilder, tenant]);
+            SetFilterMethod.MakeGenericMethod(entityType.ClrType, typeof(TContext)).Invoke(null, [modelBuilder, context]);
         }
 
         return modelBuilder;
     }
 
-    private static void SetFilter<TEntity>(ModelBuilder modelBuilder, ITenantContext tenant)
+    private static void SetFilter<TEntity, TContext>(ModelBuilder modelBuilder, TContext context)
         where TEntity : Entity
-        => modelBuilder.Entity<TEntity>().HasQueryFilter(e => e.TenantId == tenant.TenantId);
+        where TContext : DbContext, ITenantScopedDbContext
+        => modelBuilder.Entity<TEntity>().HasQueryFilter(e => e.TenantId == context.CurrentTenantId);
 }
