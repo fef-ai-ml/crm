@@ -1,0 +1,90 @@
+using DotNet.Testcontainers.Builders;
+using DotNet.Testcontainers.Containers;
+using Microsoft.Data.SqlClient;
+using Testcontainers.Kafka;
+using Testcontainers.Redis;
+using Xunit;
+
+namespace Crm.IntegrationTests.Fixtures;
+
+/// <summary>
+/// One SQL Server (image from MSSQL_IMAGE, default SQL Server 2022), one Kafka, one Redis for the whole test run.
+/// Works on Docker and on Podman (DOCKER_HOST + TESTCONTAINERS_RYUK_DISABLED=true, see docs/dev-setup.md).
+/// </summary>
+public sealed class CrmStackFixture : IAsyncLifetime
+{
+    public const string SaPassword = "Crm_Test_Passw0rd!";
+
+    private readonly IContainer _sql = new ContainerBuilder(Environment.GetEnvironmentVariable("MSSQL_IMAGE") ?? "mcr.microsoft.com/mssql/server:2022-latest")
+        .WithEnvironment("ACCEPT_EULA", "Y")
+        .WithEnvironment("MSSQL_SA_PASSWORD", SaPassword)
+        .WithEnvironment("MSSQL_PID", "Developer")
+        .WithPortBinding(1433, assignRandomHostPort: true)
+        .WithWaitStrategy(Wait.ForUnixContainer().UntilInternalTcpPortIsAvailable(1433))
+        .Build();
+
+    private readonly KafkaContainer _kafka = new KafkaBuilder("confluentinc/cp-kafka:7.5.12").Build();
+
+    private readonly RedisContainer _redis = new RedisBuilder("redis:7.0").Build();
+
+    public string SqlConnectionString { get; private set; } = string.Empty;
+
+    public string RedisConfiguration { get; private set; } = string.Empty;
+
+    public string KafkaBootstrapServers { get; private set; } = string.Empty;
+
+    public async Task InitializeAsync()
+    {
+        await Task.WhenAll(_sql.StartAsync(), _kafka.StartAsync(), _redis.StartAsync());
+
+        SqlConnectionString = $"Server={_sql.Hostname},{_sql.GetMappedPublicPort(1433)};Database=crm_test;User Id=sa;Password={SaPassword};TrustServerCertificate=True;Encrypt=False";
+        RedisConfiguration = _redis.GetConnectionString();
+        KafkaBootstrapServers = _kafka.GetBootstrapAddress();
+
+        await WaitForSqlLoginAsync(TimeSpan.FromSeconds(90));
+        await EnsureDatabaseAsync("crm_test");
+    }
+
+    /// <summary>The API only auto-migrates in Development; tests run as "Testing", so the fixture creates the database itself.</summary>
+    private async Task EnsureDatabaseAsync(string name)
+    {
+        var master = new SqlConnectionStringBuilder(SqlConnectionString) { InitialCatalog = "master" }.ConnectionString;
+        await using var connection = new SqlConnection(master);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"IF DB_ID(N'{name}') IS NULL CREATE DATABASE [{name}];";
+        await command.ExecuteNonQueryAsync();
+    }
+
+    public async Task DisposeAsync()
+    {
+        await Task.WhenAll(_sql.DisposeAsync().AsTask(), _kafka.DisposeAsync().AsTask(), _redis.DisposeAsync().AsTask());
+    }
+
+    public Task PauseRedisAsync() => ((IContainer)_redis).PauseAsync();
+
+    public Task UnpauseRedisAsync() => ((IContainer)_redis).UnpauseAsync();
+
+    private async Task WaitForSqlLoginAsync(TimeSpan budget)
+    {
+        var master = new SqlConnectionStringBuilder(SqlConnectionString) { InitialCatalog = "master" }.ConnectionString;
+        var deadline = DateTime.UtcNow + budget;
+        Exception? last = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                await using var connection = new SqlConnection(master);
+                await connection.OpenAsync();
+                return;
+            }
+            catch (SqlException ex)
+            {
+                last = ex;
+                await Task.Delay(TimeSpan.FromSeconds(2));
+            }
+        }
+
+        throw new TimeoutException($"SQL Server did not accept logins within {budget}.", last);
+    }
+}
