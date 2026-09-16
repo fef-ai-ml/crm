@@ -81,7 +81,31 @@ REQUIRED: dict[str, list[str]] = {
         "## Tenancy",
         "## Ops",
     ],
+    "docs/test/README.md": [
+        "# Test Specification",
+        "## Levels and Tools",
+        "## Case Identifiers",
+        "## Case Format",
+        "## Running",
+        "## Definition of Done",
+    ],
+    "docs/test/traceability.md": ["# Traceability Matrix", "## Functional Requirements", "## Non-Functional Requirements"],
+    "docs/test/unit.md": ["# Unit Test Cases"],
+    "docs/test/integration.md": ["# Integration Test Cases"],
+    "docs/test/architecture-contract.md": ["# Architecture and Contract Test Cases", "## Architecture", "## Contract"],
+    "docs/test/e2e-load.md": ["# End-to-End and Load Test Cases", "## End-to-End", "## Load"],
+    "docs/test/fixtures.md": ["# Test Fixtures", "## Seed Dataset", "## Rule Fixtures", "## Golden SQL Files"],
 }
+
+# Documents whose `### <ID> — title` headings define test cases; traceability.md must reference every one.
+TEST_CASE_DOCS = (
+    "docs/test/unit.md",
+    "docs/test/integration.md",
+    "docs/test/architecture-contract.md",
+    "docs/test/e2e-load.md",
+)
+TEST_CASE_HEADING_RE = re.compile(r"^### ((?:UT|IT|AT|CT|E2E|LT)-\d{3}) — ", re.MULTILINE)
+TEST_CASE_ID_RE = re.compile(r"\b((?:UT|IT|AT|CT|E2E|LT)-\d{3})\b")
 for number, slug in ADRS:
     REQUIRED[f"docs/adr/{number:04d}-{slug}.md"] = ["# "] + MADR
 
@@ -202,6 +226,36 @@ def check_adr_index_content(text: str) -> list[str]:
     return errors
 
 
+def defined_test_case_ids() -> set[str]:
+    ids: set[str] = set()
+    for rel in TEST_CASE_DOCS:
+        path = ROOT / rel
+        if path.exists():
+            ids.update(TEST_CASE_HEADING_RE.findall(path.read_text(encoding="utf-8")))
+    return ids
+
+
+def check_traceability_content(text: str) -> list[str]:
+    """traceability.md must name every requirement id and agree with the defined test cases."""
+    errors = [f"missing requirement id '{token}'" for token in REQUIRED_FR_IDS + REQUIRED_NFR_IDS if token not in text]
+    referenced = set(TEST_CASE_ID_RE.findall(text))
+    defined = defined_test_case_ids()
+    errors += [f"references undefined test case '{case}'" for case in sorted(referenced - defined)]
+    errors += [f"defined test case '{case}' not traced to any requirement" for case in sorted(defined - referenced)]
+    return errors
+
+
+def check_test_case_doc(text: str) -> list[str]:
+    """Case ids within one document must be unique."""
+    seen: set[str] = set()
+    errors = []
+    for case in TEST_CASE_HEADING_RE.findall(text):
+        if case in seen:
+            errors.append(f"duplicate test case id '{case}'")
+        seen.add(case)
+    return errors
+
+
 def parse_argv(argv: list[str]) -> str | None:
     """Return the --only prefix (or None), exiting with usage on any other shape."""
     args = argv[1:]
@@ -249,6 +303,10 @@ def main(argv: list[str]) -> int:
             errors += check_brd_content(text)
         if rel == "docs/adr/README.md":
             errors += check_adr_index_content(text)
+        if rel == "docs/test/traceability.md":
+            errors += check_traceability_content(text)
+        if rel in TEST_CASE_DOCS:
+            errors += check_test_case_doc(text)
         for message in errors:
             print(f"ERROR {rel}: {message}")
             total_errors += 1

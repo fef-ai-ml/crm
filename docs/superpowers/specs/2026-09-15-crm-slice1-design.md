@@ -424,6 +424,7 @@ All Markdown with Mermaid diagrams, under `docs/`:
 | `docs/api/openapi.json`, `docs/api/README.md` | Generated contract + usage guide with curl examples |
 | `docs/data-dictionary/*.md` | Per schema: tables, columns, types, indexes, partitioning, retention; generated from EF model + hand notes |
 | `README.md` | 3-command quickstart, architecture summary, links to all of the above, load-test results |
+| `docs/test/*.md` | Test specification written before implementation: strategy, 125 cases (unit, integration, architecture, contract, end-to-end, load) in Given/When/Then, traceability matrix to every FR/NFR, seed dataset and rule/golden fixtures |
 
 ADRs use MADR format: Context, Decision Drivers, Considered Options, Decision Outcome, Consequences.
 

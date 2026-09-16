@@ -29,6 +29,7 @@ Slice 1 (events → profiles → segments) is in the documentation phase. The de
 | [Architecture decisions](docs/adr/README.md) | Why the monolith, Kafka, SQL Server JSON, shared-DB tenancy, hybrid segmentation, Redis roles, auth, run-and-swap, cross-schema reads |
 | [Data dictionary](docs/data-dictionary/README.md) | Tables, columns, indexes, Redis keys, Kafka topics |
 | [API reference](docs/api/README.md) | Endpoints, auth, errors, pagination, examples |
+| [Test specification](docs/test/README.md) | 125 test cases at six levels, traceability to every FR/NFR, fixtures |
 
 Validate the documentation set:
 
