@@ -2467,7 +2467,8 @@ public static class OpenApiExport
     public static async Task WriteAsync(WebApplication app, string path, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(app);
-        var provider = app.Services.GetRequiredService<IOpenApiDocumentProvider>();
+        // AddOpenApi("v1") registers the provider as a keyed singleton keyed by document name.
+        var provider = app.Services.GetRequiredKeyedService<IOpenApiDocumentProvider>("v1");
         var document = await provider.GetOpenApiDocumentAsync(cancellationToken: cancellationToken);
 
         var directory = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path));
