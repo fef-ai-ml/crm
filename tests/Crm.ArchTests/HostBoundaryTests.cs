@@ -7,15 +7,19 @@ namespace Crm.ArchTests;
 [Trait("Category", "Architecture")]
 public class HostBoundaryTests
 {
-    public static TheoryData<string, Assembly> Hosts => new()
+    [Fact]
+    public void AT005_crm_api_references_only_module_infrastructure_projects()
     {
-        { "Crm.Api", typeof(Crm.Api.Program).Assembly },
-        { "Crm.Worker", typeof(Crm.Worker.Program).Assembly },
-    };
+        AssertReferencesOnlyModuleInfrastructure("Crm.Api", typeof(Crm.Api.Program).Assembly);
+    }
 
-    [Theory(Skip = "Hosts register modules in Tasks 7–8")]
-    [MemberData(nameof(Hosts))]
-    public void AT005_hosts_reference_only_module_infrastructure_projects(string name, Assembly host)
+    [Fact(Skip = "Worker registers modules in Task 8")]
+    public void AT005_crm_worker_references_only_module_infrastructure_projects()
+    {
+        AssertReferencesOnlyModuleInfrastructure("Crm.Worker", typeof(Crm.Worker.Program).Assembly);
+    }
+
+    private static void AssertReferencesOnlyModuleInfrastructure(string name, Assembly host)
     {
         var moduleRefs = host.GetReferencedAssemblies()
             .Select(a => a.Name!)
