@@ -61,6 +61,8 @@ up: env ## start the stack (infrastructure now; api/worker/web after plan A)
 	@echo "SQL Server  localhost:1433  (sa / see deploy/.env; engine-side port $(MSSQL_HOST_PORT))"
 	@echo "Kafka       localhost:19092 (external listener)"
 	@echo "Redis       localhost:$(REDIS_HOST_PORT)"
+	@echo "API         http://localhost:8080  (Scalar UI at /swagger, health at /health/ready)"
+	@echo "Worker      http://localhost:8081/health/ready"
 
 down: ## stop the stack and remove volumes (KEEP=1 keeps data)
 ifeq ($(KEEP),1)
