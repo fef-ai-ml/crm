@@ -139,6 +139,16 @@ services:
       retries: 12
       start_period: 20s
 
+  web:
+    build:
+      context: ../src/Hosts/Crm.Web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   sqldata:
   kafkadata:

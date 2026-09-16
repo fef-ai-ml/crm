@@ -38,7 +38,7 @@ else \
 fi
 endef
 
-.PHONY: help up down logs ps env tunnel tunnel-apps tunnel-down test-unit test-integration test docs-check seed migrate openapi web-dev
+.PHONY: help up down logs ps env tunnel tunnel-apps tunnel-down test-unit test-integration test docs-check seed migrate openapi web-dev web-install e2e
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -63,6 +63,7 @@ up: env ## start the stack (infrastructure now; api/worker/web after plan A)
 	@echo "Redis       localhost:$(REDIS_HOST_PORT)"
 	@echo "API         http://localhost:8080  (Scalar UI at /swagger, health at /health/ready)"
 	@echo "Worker      http://localhost:8081/health/ready"
+	@echo "Web         http://localhost:3000"
 
 down: ## stop the stack and remove volumes (KEEP=1 keeps data)
 ifeq ($(KEEP),1)
@@ -103,3 +104,9 @@ seed: ## bootstrap the demo tenant, users and API key (plan B)
 
 web-dev: ## run the React dev server (plan A)
 	cd src/Hosts/Crm.Web && npm run dev
+
+web-install: ## install web dependencies
+	cd src/Hosts/Crm.Web && npm ci
+
+e2e: ## run Playwright against the compose stack (make up first)
+	cd src/Hosts/Crm.Web && npx playwright install --with-deps chromium && npm run e2e
