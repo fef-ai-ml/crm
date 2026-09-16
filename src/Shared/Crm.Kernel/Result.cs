@@ -1,6 +1,6 @@
-namespace Crm.Kernel;
-
 using System.Diagnostics.CodeAnalysis;
+
+namespace Crm.Kernel;
 
 public class Result
 {

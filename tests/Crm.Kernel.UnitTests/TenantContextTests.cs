@@ -1,8 +1,6 @@
-#pragma warning disable IDE0005 // Using directive is unnecessary
 using Crm.Kernel.Tenancy;
 using FluentAssertions;
 using Xunit;
-#pragma warning restore IDE0005
 
 namespace Crm.Kernel.UnitTests;
 
@@ -44,5 +42,16 @@ public class TenantContextTests
         var act = () => ctx.Resolve(Guid.NewGuid(), null, TenantPrincipalKind.ApiKey);
 
         act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Resolve_rejects_empty_tenant_id()
+    {
+        var ctx = new TenantContext();
+
+        var act = () => ctx.Resolve(Guid.Empty, null, TenantPrincipalKind.User);
+
+        act.Should().Throw<ArgumentException>();
+        ctx.IsResolved.Should().BeFalse();
     }
 }

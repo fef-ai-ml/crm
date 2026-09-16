@@ -1,8 +1,6 @@
-#pragma warning disable IDE0005 // Using directive is unnecessary
 using Crm.Kernel.Redis;
 using FluentAssertions;
 using Xunit;
-#pragma warning restore IDE0005
 
 namespace Crm.Kernel.UnitTests;
 
