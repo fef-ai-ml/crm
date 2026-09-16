@@ -27,7 +27,7 @@ Non-goals (later plans): ingestion endpoints, Kafka consumers, profile and segme
 |---|---|---|
 | .NET SDK | 10.0.400 via mise | `global.json` pins `10.0.400` with `rollForward: latestPatch` |
 | Container engine | Podman 6.1.1 machine (libkrun, 5 CPU, 8 GB) exposed through `docker` CLI context `podman` | Compose runs via standalone `docker-compose` v5.5.1; Testcontainers needs `DOCKER_HOST` pointing at the podman socket and `TESTCONTAINERS_RYUK_DISABLED=true` |
-| amd64 emulation | works (`--platform linux/amd64 alpine` → `x86_64`) | SQL Server 2022 image (amd64-only) runs emulated; container start budget 90 s, healthcheck retries accordingly |
+| amd64 emulation | `qemu-x86_64` only; Podman 6.1.1 with the libkrun provider has no Rosetta | Simple amd64 binaries run; SQL Server 2022 (SQLPAL) segfaults (verified 2026-09-16). Locally the arm64-native `mcr.microsoft.com/azure-sql-edge:latest` is used via `MSSQL_IMAGE` in `deploy/.env`; CI and amd64 hosts use `mssql/server:2022-latest`. Edge is retired (no updates) and lacks a few enterprise features; slice 1 uses none of them |
 | Node | 26.8, npm 11 | Vite/React toolchain native |
 | k6 | not installed | `brew install k6` documented; load tests are a later plan |
 | GitHub CLI | 2.100 | CI on GitHub Actions |
@@ -166,11 +166,11 @@ Vite 6 + React 19 + TypeScript strict; TanStack Router (file-based) and TanStack
 
 | Service | Image | Notes |
 |---|---|---|
-| `sqlserver` | `mcr.microsoft.com/mssql/server:2022-latest`, `platform: linux/amd64` | `ACCEPT_EULA=Y`, `MSSQL_SA_PASSWORD` from `.env`, `MSSQL_PID=Developer`, volume `sqldata`; healthcheck `/opt/mssql-tools18/bin/sqlcmd -C -Q "SELECT 1"` interval 10 s, retries 18 (3 min budget under emulation); `init` sidecar runs `sql/init.sql` (`CREATE DATABASE crm`) once healthy |
+| `sqlserver` | `${MSSQL_IMAGE}` — default `mcr.microsoft.com/mssql/server:2022-latest`; `deploy/.env` sets `mcr.microsoft.com/azure-sql-edge:latest` on arm64 hosts without Rosetta | `ACCEPT_EULA=Y`, `MSSQL_SA_PASSWORD` from `.env`, `MSSQL_PID=Developer`, `MSSQL_MEMORY_LIMIT_MB=2048`, volume `sqldata`; healthcheck is TCP (`bash -c '</dev/tcp/127.0.0.1/1433'`, 5 s × 36) because Edge ships no `sqlcmd`. No init sidecar: the first EF Core migration creates database `crm` and sets `READ_COMMITTED_SNAPSHOT ON` |
 | `kafka` | `apache/kafka:3.9.1` (multi-arch) | KRaft single node, `KAFKA_NODE_ID=1`, controller+broker, listeners `PLAINTEXT://kafka:9092` internal and `EXTERNAL://localhost:19092` for host tools, `KAFKA_AUTO_CREATE_TOPICS_ENABLE=false`; healthcheck `kafka-broker-api-versions.sh` |
 | `kafka-init` | same image, one-shot | creates `events.raw`, `events.processed` (12 partitions, `retention.ms=604800000`) and `events.dlq` (12, `retention.ms=2592000000`) idempotently |
 | `redis` | `redis:7-alpine` | `--appendonly no`, healthcheck `redis-cli ping` |
-| `api` | built from `src/Hosts/Crm.Api/Dockerfile` | port 8080, depends on sqlserver-init, kafka-init, redis healthy; `ASPNETCORE_ENVIRONMENT=Development` |
+| `api` | built from `src/Hosts/Crm.Api/Dockerfile` | port 8080, depends on sqlserver healthy, kafka-init completed, redis healthy; `ASPNETCORE_ENVIRONMENT=Development` |
 | `worker` | built from `src/Hosts/Crm.Worker/Dockerfile` | port 8081 (health), same dependencies |
 | `web` | built from `src/Hosts/Crm.Web/Dockerfile` | port 3000, depends on api |
 
@@ -249,7 +249,8 @@ Each plan is executed with subagent-driven development, ends green, and is pushe
 | Migrations applied at API startup only in Development; `make migrate` elsewhere | fast local loop without hiding schema changes in production paths |
 | `Microsoft.AspNetCore.OpenApi` + Scalar UI at `/swagger` | built into .NET 10, no Swashbuckle dependency; path kept for the spec's Swagger promise |
 | `apache/kafka` KRaft image | official multi-arch image, native on arm64, no ZooKeeper |
-| SQL Server 2022 under amd64 emulation locally | spec-faithful; emulation verified on the Podman machine; CI runs native |
+| Azure SQL Edge locally, SQL Server 2022 in CI | 2022 segfaults under qemu on the libkrun Podman machine (no Rosetta); Edge is arm64-native and T-SQL/JSON compatible for slice 1; image selected by `MSSQL_IMAGE` so amd64 hosts stay on 2022 |
+| Database created by migrations, not a SQL init sidecar | Edge has no `sqlcmd`; EF Core `Migrate()` issues `CREATE DATABASE` itself and the first migration sets `READ_COMMITTED_SNAPSHOT` with `suppressTransaction` |
 | No .NET Aspire | compose is the documented contract; Aspire would duplicate it |
 | Test-only ingest probe endpoint for IT-035 | rate-limit policy is testable before `/track` exists; removed by the Ingestion plan |
 
@@ -259,7 +260,8 @@ Each plan is executed with subagent-driven development, ends green, and is pushe
 
 | Risk | Mitigation |
 |---|---|
-| Emulated SQL Server slow to start or flaky under libkrun | 3 min healthcheck budget, Testcontainers 90 s wait strategy, CI native |
+| Behaviour differences between Azure SQL Edge (local) and SQL Server 2022 (CI) | slice 1 uses only core T-SQL, JSON functions, computed columns, partitioning; CI is the source of truth; any Edge-only failure is a local-dev note, any CI-only failure blocks |
+| Host ports already taken by other local projects (6379 seen) | Redis published on `${REDIS_HOST_PORT:-6380}`; other ports configurable the same way when needed |
 | Testcontainers + Podman quirks (Ryuk, socket path) | `make test-integration` sets the variables; documented in `docs/dev-setup.md`; fallback `TESTCONTAINERS_HOST_OVERRIDE` |
 | 8 GB VM with SQL Server + Kafka + three .NET processes | SQL Server capped at 2 GB (`MSSQL_MEMORY_LIMIT_MB=2048`), Kafka heap 512 MB, observability profile opt-in |
 | Secure cookie on plain-HTTP localhost | Development relaxes `Secure` only for localhost; documented |

@@ -1,0 +1,93 @@
+name: crm
+
+# Runtime infrastructure for the CRM platform (slice 1).
+# Application services (api, worker, web) are added by the foundation plan A.
+# Spec: docs/superpowers/specs/2026-09-16-foundation-design.md §8.
+
+services:
+  sqlserver:
+    # Target engine is SQL Server 2022 (CI, amd64). On arm64 hosts without Rosetta the
+    # 2022 image cannot run, so deploy/.env selects the arm64-native Azure SQL Edge image.
+    image: ${MSSQL_IMAGE:-mcr.microsoft.com/mssql/server:2022-latest}
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+      MSSQL_PID: Developer
+      MSSQL_MEMORY_LIMIT_MB: "2048"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqldata:/var/opt/mssql
+    healthcheck:
+      # TCP-level check works for both images (Edge ships no sqlcmd). Login-level readiness
+      # is verified by the API's /health/ready once plan A lands.
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/1433'"]
+      interval: 5s
+      timeout: 3s
+      retries: 36                    # 3 min budget (emulated 2022 is slow; Edge takes ~15 s)
+      start_period: 10s
+
+  # The `crm` database and READ_COMMITTED_SNAPSHOT are created by the first EF Core
+  # migration (Azure SQL Edge ships no sqlcmd, so there is no SQL init sidecar).
+
+  kafka:
+    image: apache/kafka:3.9.1
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:19092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_NUM_PARTITIONS: "12"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_HEAP_OPTS: -Xmx512m -Xms512m
+      CLUSTER_ID: crm-local-kraft-cluster-0001
+    ports:
+      - "19092:19092"                # host tools use localhost:19092
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  kafka-init:
+    image: apache/kafka:3.9.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        B=/opt/kafka/bin/kafka-topics.sh
+        $$B --bootstrap-server kafka:9092 --create --if-not-exists --topic events.raw       --partitions 12 --replication-factor 1 --config retention.ms=604800000
+        $$B --bootstrap-server kafka:9092 --create --if-not-exists --topic events.processed --partitions 12 --replication-factor 1 --config retention.ms=604800000
+        $$B --bootstrap-server kafka:9092 --create --if-not-exists --topic events.dlq       --partitions 12 --replication-factor 1 --config retention.ms=2592000000
+        $$B --bootstrap-server kafka:9092 --list
+    restart: "no"
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    ports:
+      - "${REDIS_HOST_PORT:-6380}:6379"   # 6380 on the host: 6379 is commonly taken by other local projects
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  sqldata:
+  kafkadata:
