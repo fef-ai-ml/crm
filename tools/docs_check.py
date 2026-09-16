@@ -36,6 +36,7 @@ ADRS = [
 REQUIRED: dict[str, list[str]] = {
     "README.md": ["# ", "## Status", "## Documentation", "## Quickstart"],
     "docs/README.md": ["# CRM Documentation", "## Documents"],
+    "docs/dev-setup.md": ["# Developer Setup", "## Prerequisites", "## First run", "## Podman specifics", "## Everyday commands"],
     "docs/brd/BRD.md": [
         "# ",
         "## 1. Vision",

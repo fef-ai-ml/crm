@@ -83,17 +83,23 @@ docs-check: ## validate the documentation set
 
 # --- wired by plan A -------------------------------------------------------
 
-test-unit: ## run unit + architecture + contract tests (plan A)
+test-unit: ## run unit + architecture + contract tests
 	dotnet test Crm.sln --filter "Category!=Integration"
 
-test-integration: ## run Testcontainers-based tests against the local engine (plan A)
-	DOCKER_HOST=$$(docker context inspect --format '{{.Endpoints.docker.Host}}') \
+# Testcontainers: engine socket from DOCKER_HOST when set (e.g. the ssh tunnel socket), else the
+# active docker context; no Ryuk on Podman; SQL image from deploy/.env; host override for remote engines.
+TESTCONTAINERS_HOST_OVERRIDE ?=
+
+test-integration: env ## run the Testcontainers suite against the active engine (see docs/dev-setup.md)
+	DOCKER_HOST=$${DOCKER_HOST:-$$(docker context inspect --format '{{.Endpoints.docker.Host}}')} \
 	TESTCONTAINERS_RYUK_DISABLED=true \
+	MSSQL_IMAGE=$(MSSQL_IMAGE) \
+	TESTCONTAINERS_HOST_OVERRIDE=$(TESTCONTAINERS_HOST_OVERRIDE) \
 	dotnet test Crm.sln --filter "Category=Integration"
 
 test: test-unit test-integration ## run everything
 
-openapi: ## export docs/api/openapi.json from the API project (plan B)
+openapi: ## export docs/api/openapi.json from the API project
 	dotnet run --project src/Hosts/Crm.Api -- --export-openapi docs/api/openapi.json
 
 migrate: ## apply EF Core migrations for every module (plan B)
@@ -102,7 +108,7 @@ migrate: ## apply EF Core migrations for every module (plan B)
 seed: ## bootstrap the demo tenant, users and API key (plan B)
 	@echo "wired by plan B" && exit 1
 
-web-dev: ## run the React dev server (plan A)
+web-dev: ## run the React dev server
 	cd src/Hosts/Crm.Web && npm run dev
 
 web-install: ## install web dependencies

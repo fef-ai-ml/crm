@@ -1,5 +1,7 @@
 # CRM Platform
 
+![ci](https://github.com/fef-ai-ml/crm/actions/workflows/ci.yml/badge.svg)
+
 A MoEngage-style customer engagement platform built as a portfolio project: high-throughput event ingestion, identity resolution into unified customer profiles, and a segmentation engine that evaluates rules in batch and in real time.
 
 Stack: .NET 10 modular monolith (API + Worker), React 19 dashboard, SQL Server 2022, Kafka (KRaft), Redis 7, docker-compose.
@@ -12,7 +14,8 @@ Slice 1 (events → profiles → segments) is in the documentation phase. The de
 |---|---|
 | Design spec | Approved |
 | Documentation (BRD, ADRs, architecture, data dictionary, API reference) | Complete |
-| Implementation: Kernel, Contracts, Tenancy | Planned |
+| Implementation: solution skeleton, Kernel, Contracts, hosts, web shell, CI | Complete |
+| Implementation: Tenancy | Planned |
 | Implementation: Ingestion, Profiles pipeline | Planned |
 | Implementation: Segmentation | Planned |
 | Implementation: Web dashboard | Planned |
@@ -30,6 +33,7 @@ Slice 1 (events → profiles → segments) is in the documentation phase. The de
 | [Data dictionary](docs/data-dictionary/README.md) | Tables, columns, indexes, Redis keys, Kafka topics |
 | [API reference](docs/api/README.md) | Endpoints, auth, errors, pagination, examples |
 | [Test specification](docs/test/README.md) | 125 test cases at six levels, traceability to every FR/NFR, fixtures |
+| [Developer setup](docs/dev-setup.md) | Prerequisites, first run, Podman specifics, everyday commands |
 
 Validate the documentation set:
 
@@ -39,13 +43,13 @@ python3 tools/docs_check.py
 
 ## Quickstart
 
-The commands below are the target developer experience for slice 1 and become available as the implementation plans land. Until then they are the contract the implementation must satisfy.
-
 ```bash
-make up                                               # docker compose -f deploy/docker-compose.yml up -d: SQL Server, Kafka, Redis, API, Worker, Web
-make seed                                             # demo tenant, admin user, API key, 5k profiles, 100k events
-open http://localhost:3000                            # dashboard (nginx-served build); API at http://localhost:8080, Swagger at /swagger
+make up                         # infrastructure + api + worker + web, waits until healthy
+open http://localhost:3000      # web shell shows readiness of SQL, Kafka, Redis
+open http://localhost:8080/swagger
 ```
+
+See [Developer Setup](docs/dev-setup.md) for prerequisites, Podman specifics, and running against a remote engine.
 
 Send a first event:
 
