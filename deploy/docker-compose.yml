@@ -15,7 +15,9 @@ services:
       MSSQL_PID: Developer
       MSSQL_MEMORY_LIMIT_MB: "2048"
     ports:
-      - "1433:1433"
+      # Host port is configurable because remote engines (see `make tunnel`) often already
+      # run a SQL Server on 1433; the ssh tunnel maps it back to localhost:1433 for the apps.
+      - "${MSSQL_HOST_PORT:-1433}:1433"
     volumes:
       - sqldata:/var/opt/mssql
     healthcheck:
