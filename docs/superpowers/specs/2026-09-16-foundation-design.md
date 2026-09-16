@@ -75,7 +75,7 @@ Namespace `Crm.Kernel`. No package dependencies except `Microsoft.EntityFramewor
 | `ITenantScopedDbContext` | `Guid CurrentTenantId { get; }`, implemented by every module `DbContext` |
 | `ModelBuilderExtensions.ApplyTenantFilters<TContext>(this ModelBuilder, TContext context)` where `TContext : DbContext, ITenantScopedDbContext` | adds `e => e.TenantId == context.CurrentTenantId` to every `Entity`-derived type in the model. The filter closes over the `DbContext` instance rather than a resolved tenant value because EF Core caches the compiled model per context *type*: a filter capturing a resolved `Guid` would freeze the first tenant it saw for every later query against that context type. |
 | `RedisKeys` | static builders: `IdentityCache(tenant, kind, value)`, `SegmentMembers(tenant, segment)`, `EventCounter(tenant, segment, eventName, window, profile)`, `PreviewCount(tenant, hashHex)`, `ApiKey(prefix)`, `SegmentsChangedChannel` — shapes exactly as in the [data dictionary](../../data-dictionary/redis-and-kafka.md) |
-| `IdGenerator` | `Guid NewId()` wrapping `Guid.CreateVersion7()` (mockable) |
+| `IIdGenerator` / `UuidV7IdGenerator` | `Guid NewId()` wrapping `Guid.CreateVersion7()` (mockable) |
 
 Tests: UT-054, UT-055, UT-057 in `Crm.Kernel.UnitTests`. The interceptor test uses the EF in-memory provider with a `TestEntity`.
 
