@@ -59,3 +59,4 @@ nunit-*.xml
 # local compose secrets
 deploy/.env
 .env.local
+__pycache__/
