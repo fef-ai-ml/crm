@@ -72,7 +72,8 @@ Namespace `Crm.Kernel`. No package dependencies except `Microsoft.EntityFramewor
 | `TenantMismatchException` | thrown by the save interceptor when an entity's `TenantId` differs from the context |
 | `IClock` | `DateTime UtcNow`; `SystemClock` implementation |
 | `TenantSaveChangesInterceptor` | on `SavingChanges`: stamps `TenantId`, `CreatedAt`, `UpdatedAt` on added entities; verifies `TenantId` on modified/deleted; refreshes `UpdatedAt` |
-| `ModelBuilderExtensions.ApplyTenantFilters(ITenantContext)` | adds `e => e.TenantId == ctx.TenantId` to every `Entity`-derived type in the model |
+| `ITenantScopedDbContext` | `Guid CurrentTenantId { get; }`, implemented by every module `DbContext` |
+| `ModelBuilderExtensions.ApplyTenantFilters<TContext>(this ModelBuilder, TContext context)` where `TContext : DbContext, ITenantScopedDbContext` | adds `e => e.TenantId == context.CurrentTenantId` to every `Entity`-derived type in the model. The filter closes over the `DbContext` instance rather than a resolved tenant value because EF Core caches the compiled model per context *type*: a filter capturing a resolved `Guid` would freeze the first tenant it saw for every later query against that context type. |
 | `RedisKeys` | static builders: `IdentityCache(tenant, kind, value)`, `SegmentMembers(tenant, segment)`, `EventCounter(tenant, segment, eventName, window, profile)`, `PreviewCount(tenant, hashHex)`, `ApiKey(prefix)`, `SegmentsChangedChannel` — shapes exactly as in the [data dictionary](../../data-dictionary/redis-and-kafka.md) |
 | `IdGenerator` | `Guid NewId()` wrapping `Guid.CreateVersion7()` (mockable) |
 
