@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Crm.Segmentation.Application</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Segmentation.Domain\Segmentation.Domain.csproj" />
+    <ProjectReference Include="..\..\..\Shared\Crm.Contracts\Crm.Contracts.csproj" />
+  </ItemGroup>
+</Project>

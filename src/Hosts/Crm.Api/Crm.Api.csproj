@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <RootNamespace>Crm.Api</RootNamespace>
+    <UserSecretsId>crm-api</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Shared\Crm.Hosting\Crm.Hosting.csproj" />
+    <ProjectReference Include="..\..\Shared\Crm.Kernel\Crm.Kernel.csproj" />
+    <ProjectReference Include="..\..\Shared\Crm.Contracts\Crm.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Ingestion\Ingestion.Infrastructure\Ingestion.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Profiles\Profiles.Infrastructure\Profiles.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Segmentation\Segmentation.Infrastructure\Segmentation.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Tenancy\Tenancy.Infrastructure\Tenancy.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Scalar.AspNetCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+  </ItemGroup>
+</Project>

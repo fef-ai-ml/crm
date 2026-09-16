@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Crm.Tenancy.Application</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Tenancy.Domain\Tenancy.Domain.csproj" />
+    <ProjectReference Include="..\..\..\Shared\Crm.Contracts\Crm.Contracts.csproj" />
+  </ItemGroup>
+</Project>
