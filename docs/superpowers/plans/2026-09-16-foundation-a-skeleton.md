@@ -966,7 +966,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `Entity`, `ITenantContext`, `IClock`, `TenantMismatchException`, `TenantContextMissingException` (Task 2).
-- Produces: `Crm.Kernel.Data.TenantSaveChangesInterceptor(ITenantContext, IClock)` (register as scoped, add via `options.AddInterceptors(...)`); `Crm.Kernel.Data.ModelBuilderExtensions.ApplyTenantFilters(this ModelBuilder, ITenantContext)`.
+- Produces: `Crm.Kernel.Data.TenantSaveChangesInterceptor(ITenantContext, IClock)` (register as scoped, add via `options.AddInterceptors(...)`); `Crm.Kernel.Data.ITenantScopedDbContext { Guid CurrentTenantId }`; `Crm.Kernel.Data.ModelBuilderExtensions.ApplyTenantFilters<TContext>(this ModelBuilder, TContext context) where TContext : DbContext, ITenantScopedDbContext`. The filter lambda references the DbContext instance (not the ITenantContext) because EF Core caches the model per context type and only re-binds expressions that reference the current DbContext; capturing the ITenantContext directly would freeze the first instance's tenant into the cached model (found during execution, corrected in the fix round of this task).
 
 - [ ] **Step 1: Write the failing tests (UT-054, UT-055)**
 
@@ -996,14 +996,17 @@ public class TenantEnforcementTests
         public void ForceTenant(Guid tenantId) => TenantId = tenantId;
     }
 
-    public sealed class WidgetDbContext(DbContextOptions<WidgetDbContext> options, ITenantContext tenant) : DbContext(options)
+    public sealed class WidgetDbContext(DbContextOptions<WidgetDbContext> options, ITenantContext tenant)
+        : DbContext(options), ITenantScopedDbContext
     {
         public DbSet<Widget> Widgets => Set<Widget>();
+
+        public Guid CurrentTenantId => tenant.TenantId;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<Widget>();
-            modelBuilder.ApplyTenantFilters(tenant);
+            modelBuilder.ApplyTenantFilters(this);
         }
     }
 
@@ -1212,11 +1215,26 @@ public sealed class TenantSaveChangesInterceptor(ITenantContext tenant, IClock c
 }
 ```
 
+`src/Shared/Crm.Kernel/Data/ITenantScopedDbContext.cs`:
+
+```csharp
+namespace Crm.Kernel.Data;
+
+/// <summary>
+/// Implemented by every module DbContext. Query filters read the tenant through the context instance
+/// so EF Core re-evaluates them per query instead of caching the first instance's tenant in the model.
+/// </summary>
+public interface ITenantScopedDbContext
+{
+    /// <summary>Throws <see cref="Tenancy.TenantContextMissingException"/> when no tenant is resolved.</summary>
+    Guid CurrentTenantId { get; }
+}
+```
+
 `src/Shared/Crm.Kernel/Data/ModelBuilderExtensions.cs`:
 
 ```csharp
 using System.Reflection;
-using Crm.Kernel.Tenancy;
 using Microsoft.EntityFrameworkCore;
 
 namespace Crm.Kernel.Data;
@@ -1227,11 +1245,17 @@ public static class ModelBuilderExtensions
         .GetMethod(nameof(SetFilter), BindingFlags.NonPublic | BindingFlags.Static)!;
 
     /// <summary>
-    /// Adds the global query filter e => e.TenantId == tenant.TenantId to every root entity type derived from <see cref="Entity"/>.
-    /// Evaluating the filter on an unresolved context throws <see cref="TenantContextMissingException"/>, so queries fail closed.
+    /// Adds the global query filter e => e.TenantId == context.CurrentTenantId to every root entity type derived from
+    /// <see cref="Entity"/>. The lambda references the DbContext instance, which EF Core substitutes with the
+    /// current context at query time; an unresolved tenant therefore throws <see cref="Tenancy.TenantContextMissingException"/>
+    /// on every query, so reads fail closed.
     /// </summary>
-    public static ModelBuilder ApplyTenantFilters(this ModelBuilder modelBuilder, ITenantContext tenant)
+    public static ModelBuilder ApplyTenantFilters<TContext>(this ModelBuilder modelBuilder, TContext context)
+        where TContext : DbContext, ITenantScopedDbContext
     {
+        ArgumentNullException.ThrowIfNull(modelBuilder);
+        ArgumentNullException.ThrowIfNull(context);
+
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {
             if (entityType.BaseType is not null || !typeof(Entity).IsAssignableFrom(entityType.ClrType))
@@ -1239,17 +1263,20 @@ public static class ModelBuilderExtensions
                 continue;
             }
 
-            SetFilterMethod.MakeGenericMethod(entityType.ClrType).Invoke(null, [modelBuilder, tenant]);
+            SetFilterMethod.MakeGenericMethod(entityType.ClrType, typeof(TContext)).Invoke(null, [modelBuilder, context]);
         }
 
         return modelBuilder;
     }
 
-    private static void SetFilter<TEntity>(ModelBuilder modelBuilder, ITenantContext tenant)
+    private static void SetFilter<TEntity, TContext>(ModelBuilder modelBuilder, TContext context)
         where TEntity : Entity
-        => modelBuilder.Entity<TEntity>().HasQueryFilter(e => e.TenantId == tenant.TenantId);
+        where TContext : DbContext, ITenantScopedDbContext
+        => modelBuilder.Entity<TEntity>().HasQueryFilter(e => e.TenantId == context.CurrentTenantId);
 }
 ```
+
+The test's `WidgetDbContext` implements `ITenantScopedDbContext` (`public Guid CurrentTenantId => tenant.TenantId;`) and calls `modelBuilder.ApplyTenantFilters(this);`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -1612,8 +1639,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Test: `tests/Crm.ArchTests/ModuleBoundaryTests.cs`, `tests/Crm.ArchTests/HostBoundaryTests.cs`, `tests/Crm.ArchTests/TenantScopingTests.cs`
 
 **Interfaces:**
-- Consumes: `TenantSaveChangesInterceptor`, `ModelBuilderExtensions.ApplyTenantFilters`, `ITenantContext`, `IClock` (Tasks 2–3).
-- Produces: `IServiceCollection AddIngestionModule(this IServiceCollection, IConfiguration)`, `AddProfilesModule`, `AddSegmentationModule`, `AddTenancyModule` (namespaces `Crm.<Module>.Infrastructure`); `ProfilesDbContext` (schema `profiles`), `SegmentationDbContext` (schema `segments`). Hosts call exactly these four methods. Connection string key: `ConnectionStrings:Crm`.
+- Consumes: `TenantSaveChangesInterceptor`, `ITenantScopedDbContext`, `ModelBuilderExtensions.ApplyTenantFilters<TContext>(this ModelBuilder, TContext)`, `ITenantContext`, `IClock` (Tasks 2–3).
+- Produces: `IServiceCollection AddIngestionModule(this IServiceCollection, IConfiguration)`, `AddProfilesModule`, `AddSegmentationModule`, `AddTenancyModule` (namespaces `Crm.<Module>.Infrastructure`); `ProfilesDbContext` (schema `profiles`), `SegmentationDbContext` (schema `segments`), both implementing `ITenantScopedDbContext` and calling `modelBuilder.ApplyTenantFilters(this)`. Hosts call exactly these four methods. Connection string key: `ConnectionStrings:Crm`.
 
 - [ ] **Step 1: Write the failing architecture tests**
 
@@ -1837,15 +1864,18 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Crm.Profiles.Infrastructure;
 
-public sealed class ProfilesDbContext(DbContextOptions<ProfilesDbContext> options, ITenantContext tenant) : DbContext(options)
+public sealed class ProfilesDbContext(DbContextOptions<ProfilesDbContext> options, ITenantContext tenant)
+    : DbContext(options), ITenantScopedDbContext
 {
     public const string Schema = "profiles";
+
+    public Guid CurrentTenantId => tenant.TenantId;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(Schema);
         // Entity configurations are added by the Profiles plan.
-        modelBuilder.ApplyTenantFilters(tenant);
+        modelBuilder.ApplyTenantFilters(this);
     }
 }
 ```
@@ -1885,15 +1915,18 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Crm.Segmentation.Infrastructure;
 
-public sealed class SegmentationDbContext(DbContextOptions<SegmentationDbContext> options, ITenantContext tenant) : DbContext(options)
+public sealed class SegmentationDbContext(DbContextOptions<SegmentationDbContext> options, ITenantContext tenant)
+    : DbContext(options), ITenantScopedDbContext
 {
     public const string Schema = "segments";
+
+    public Guid CurrentTenantId => tenant.TenantId;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(Schema);
         // Entity configurations are added by the Segmentation plan.
-        modelBuilder.ApplyTenantFilters(tenant);
+        modelBuilder.ApplyTenantFilters(this);
     }
 }
 ```
