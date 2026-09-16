@@ -1,7 +1,10 @@
 # CRM platform — developer entry points.
 # Targets marked (plan A/B) are wired up by later plans; they fail loudly until then.
 
-COMPOSE      := docker-compose --project-directory deploy -f deploy/docker-compose.yml
+# Prefer the Compose plugin (docker compose) when present; fall back to the standalone
+# docker-compose binary otherwise. Keeps this Makefile working on either install.
+COMPOSE_BIN  ?= $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo docker-compose)
+COMPOSE      := $(COMPOSE_BIN) --project-directory deploy -f deploy/docker-compose.yml
 ENV_FILE     := deploy/.env
 ENV_EXAMPLE  := deploy/.env.example
 
@@ -38,10 +41,10 @@ else \
 fi
 endef
 
-.PHONY: help up down logs ps env tunnel tunnel-apps tunnel-down test-unit test-integration test docs-check seed migrate openapi web-dev web-install e2e
+.PHONY: help up down logs ps env tunnel tunnel-apps tunnel-down test-unit test-integration test docs-check compose-check seed migrate openapi web-dev web-install e2e
 
 help: ## list targets
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
+	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-18s %s\n", $$1, $$2}'
 
 env: ## create deploy/.env from the example when absent
 	@test -f $(ENV_FILE) || (cp $(ENV_EXAMPLE) $(ENV_FILE) && echo "created $(ENV_FILE) from example")
@@ -80,6 +83,9 @@ logs: ## follow logs
 
 docs-check: ## validate the documentation set
 	python3 tools/docs_check.py
+
+compose-check: ## validate compose services, ports and healthchecks (CT-005)
+	$(COMPOSE) config --format json | python3 tools/compose_check.py
 
 # --- wired by plan A -------------------------------------------------------
 

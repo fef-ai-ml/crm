@@ -10,7 +10,7 @@ Podman host reached over ssh; the same commands work with Docker Desktop.
 | .NET SDK | 10.0.400 (pinned in `global.json`) | `dotnet --version` |
 | Node | 22 LTS or newer | 26 works locally; the web image builds with 22 |
 | Container engine | Docker Desktop, a local Podman machine, or a remote Podman host over ssh (see Remote engine) | `docker context ls` shows which is active |
-| docker-compose | standalone v2/v5 binary, or the `docker compose` plugin | the Makefile calls `docker-compose` |
+| docker-compose | standalone v2/v5 binary, or the `docker compose` plugin | the Makefile detects whichever is installed and uses it |
 | sqlcmd | optional | for ad-hoc queries against `localhost,1433` |
 | k6 | optional (`brew install k6`) | load tests, later plan |
 

@@ -86,6 +86,6 @@ Architecture cases (`AT`) run with NetArchTest against the compiled solution on 
 ### CT-005 — compose configuration is valid and exposes the documented ports
 - Traces: NFR-10
 - Given `deploy/docker-compose.yml` and `deploy/docker-compose.observability.yml`
-- When `docker compose -f … config` runs in CI
-- Then both render without error, services `sqlserver`, `kafka`, `redis`, `api`, `worker`, `web` exist, `web` publishes 3000 and `api` publishes 8080, and every service has a healthcheck
-- Planned: .github/workflows/ci.yml step `compose-config`
+- When `docker compose -f … config` runs in CI, then its JSON output is piped into `tools/compose_check.py`
+- Then both render without error, services `sqlserver`, `kafka`, `kafka-init`, `redis`, `api`, `worker`, `web` exist, `web` publishes 3000, `api` publishes 8080, `worker` publishes 8081, `kafka` publishes 19092, `sqlserver`/`redis` publish their configurable host port onto container ports 1433/6379, every service but `web` has a healthcheck (web's readiness comes from its image), and `worker`'s `depends_on` requires `sqlserver`/`redis` healthy and `kafka-init` completed
+- Implemented: `tools/compose_check.py`, `make compose-check`, `.github/workflows/ci.yml` step `validate compose files`. `deploy/docker-compose.observability.yml` is added in plan C and checked by the same step once it exists.
