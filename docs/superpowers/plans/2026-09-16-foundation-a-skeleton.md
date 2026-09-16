@@ -2361,7 +2361,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `AddCrmSerilog`, `AddCrmOpenTelemetry`, `AddCrmHealthChecks`, `MapCrmHealth`, `MapCrmMetrics` (Task 6); `Add<Module>Module` ×4, `ProfilesDbContext`, `SegmentationDbContext` (Task 5); `TenantContext`, `ITenantContext`, `IClock`, `SystemClock`, `IIdGenerator`, `UuidV7IdGenerator`, `TenantSaveChangesInterceptor` (Tasks 2–3).
-- Produces: `public partial class Program` (for `WebApplicationFactory<Program>`); CLI `dotnet run --project src/Hosts/Crm.Api -- --export-openapi <path>`; route group `/v1` available to plan B via `app.MapGroup("/v1")` pattern shown below; OpenAPI document at `/openapi/v1.json`; Scalar UI at `/swagger` in Development.
+- Produces: `Crm.Api.Program` (namespaced class with `static Main`, for `WebApplicationFactory<Crm.Api.Program>`); CLI `dotnet run --project src/Hosts/Crm.Api -- --export-openapi <path>`; route group `/v1` available to plan B via `app.MapGroup("/v1")` pattern shown below; OpenAPI document at `/openapi/v1.json`; Scalar UI at `/swagger` in Development.
 
 - [ ] **Step 1: Write the failing test for the export argument parser**
 
@@ -2473,7 +2473,6 @@ If `IOpenApiDocumentProvider.GetOpenApiDocumentAsync` has a different parameter 
 
 ```csharp
 using System.Diagnostics;
-using Crm.Api;
 using Crm.Hosting;
 using Crm.Ingestion.Infrastructure;
 using Crm.Kernel.Data;
@@ -2487,66 +2486,75 @@ using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 using Serilog;
 
-var (exportPath, hostArgs) = OpenApiExport.Parse(args);
-var builder = WebApplication.CreateBuilder(hostArgs);
+namespace Crm.Api;
 
-builder.AddCrmSerilog("Crm.Api");
-builder.AddCrmOpenTelemetry("Crm.Api");
-
-builder.Services.AddCrmHealthChecks(builder.Configuration);
-builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = ctx =>
-    ctx.ProblemDetails.Extensions["traceId"] = Activity.Current?.Id ?? ctx.HttpContext.TraceIdentifier);
-builder.Services.AddOpenApi("v1");
-
-builder.Services.AddSingleton<IClock, SystemClock>();
-builder.Services.AddSingleton<IIdGenerator, UuidV7IdGenerator>();
-builder.Services.AddScoped<TenantContext>();
-builder.Services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
-builder.Services.AddScoped<TenantSaveChangesInterceptor>();
-
-builder.Services
-    .AddIngestionModule(builder.Configuration)
-    .AddProfilesModule(builder.Configuration)
-    .AddSegmentationModule(builder.Configuration)
-    .AddTenancyModule(builder.Configuration);
-
-var app = builder.Build();
-
-if (exportPath is not null)
+/// <summary>Namespaced entry point (not top-level statements) so tests can reference Crm.Api.Program unambiguously.</summary>
+public class Program
 {
-    await OpenApiExport.WriteAsync(app, exportPath);
-    Log.Information("OpenAPI document written to {Path}", exportPath);
-    return;
+    public static async Task Main(string[] args)
+    {
+        var (exportPath, hostArgs) = OpenApiExport.Parse(args);
+        var builder = WebApplication.CreateBuilder(hostArgs);
+
+        builder.AddCrmSerilog("Crm.Api");
+        builder.AddCrmOpenTelemetry("Crm.Api");
+
+        builder.Services.AddCrmHealthChecks(builder.Configuration);
+        builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = ctx =>
+            ctx.ProblemDetails.Extensions["traceId"] = Activity.Current?.Id ?? ctx.HttpContext.TraceIdentifier);
+        builder.Services.AddOpenApi("v1");
+
+        builder.Services.AddSingleton<IClock, SystemClock>();
+        builder.Services.AddSingleton<IIdGenerator, UuidV7IdGenerator>();
+        builder.Services.AddScoped<TenantContext>();
+        builder.Services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
+        builder.Services.AddScoped<TenantSaveChangesInterceptor>();
+
+        builder.Services
+            .AddIngestionModule(builder.Configuration)
+            .AddProfilesModule(builder.Configuration)
+            .AddSegmentationModule(builder.Configuration)
+            .AddTenancyModule(builder.Configuration);
+
+        var app = builder.Build();
+
+        if (exportPath is not null)
+        {
+            await OpenApiExport.WriteAsync(app, exportPath);
+            Log.Information("OpenAPI document written to {Path}", exportPath);
+            return;
+        }
+
+        app.UseExceptionHandler();
+        app.UseStatusCodePages();
+        app.UseSerilogRequestLogging();
+
+        app.MapOpenApi("/openapi/{documentName}.json");
+        if (app.Environment.IsDevelopment())
+        {
+            app.MapScalarApiReference("/swagger", options => options.WithOpenApiRoutePattern("/openapi/{documentName}.json"));
+        }
+
+        app.MapCrmHealth();
+        app.MapCrmMetrics();
+
+        var v1 = app.MapGroup("/v1");
+        _ = v1; // module endpoint groups (Tenancy, Ingestion, Profiles, Segments) attach here in later plans
+
+        if (app.Environment.IsDevelopment())
+        {
+            using var scope = app.Services.CreateScope();
+            scope.ServiceProvider.GetRequiredService<TenantContext>().Resolve(Guid.Parse("00000000-0000-0000-0000-000000000001"), null, TenantPrincipalKind.None);
+            await scope.ServiceProvider.GetRequiredService<ProfilesDbContext>().Database.MigrateAsync();
+            await scope.ServiceProvider.GetRequiredService<SegmentationDbContext>().Database.MigrateAsync();
+        }
+
+        await app.RunAsync();
+    }
 }
-
-app.UseExceptionHandler();
-app.UseStatusCodePages();
-app.UseSerilogRequestLogging();
-
-app.MapOpenApi("/openapi/{documentName}.json");
-if (app.Environment.IsDevelopment())
-{
-    app.MapScalarApiReference("/swagger", options => options.WithOpenApiRoutePattern("/openapi/{documentName}.json"));
-}
-
-app.MapCrmHealth();
-app.MapCrmMetrics();
-
-var v1 = app.MapGroup("/v1");
-_ = v1; // module endpoint groups (Tenancy, Ingestion, Profiles, Segments) attach here in later plans
-
-if (app.Environment.IsDevelopment())
-{
-    using var scope = app.Services.CreateScope();
-    scope.ServiceProvider.GetRequiredService<TenantContext>().Resolve(Guid.Parse("00000000-0000-0000-0000-000000000001"), null, TenantPrincipalKind.None);
-    await scope.ServiceProvider.GetRequiredService<ProfilesDbContext>().Database.MigrateAsync();
-    await scope.ServiceProvider.GetRequiredService<SegmentationDbContext>().Database.MigrateAsync();
-}
-
-await app.RunAsync();
-
-public partial class Program;
 ```
+
+Remove the `Skip` from the `Crm.Api` case of AT-005 in `tests/Crm.ArchTests/HostBoundaryTests.cs` (split the theory into two facts if needed so the Worker case can stay skipped until Task 8).
 
 Why the tenant resolve before `MigrateAsync`: migrations never touch tenant rows, but the DbContext constructor takes `ITenantContext` and `ApplyTenantFilters` only reads `TenantId` at query time; the resolve is a guard so any accidental query during startup fails loudly for a fake tenant rather than throwing `TenantContextMissingException` mid-migration. `MigrateAsync` on a context with no migrations creates the database and the module's history table, which is exactly what plan A needs for readiness.
 
@@ -2664,7 +2672,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: Task 6 hosting extensions; Task 5 `AddProfilesModule`, `AddSegmentationModule`; Task 2–3 kernel services.
-- Produces: `public partial class Program` in `Crm.Worker`; `Crm.Worker.StartupProbeService(IKafkaMetadataSource, ILogger<StartupProbeService>)`; `Crm.Worker.IKafkaMetadataSource` with `IReadOnlyList<string> GetBrokerNames(TimeSpan timeout)`; health on `http://+:8081`.
+- Produces: `Crm.Worker.Program` (namespaced class with `static Main`); `Crm.Worker.StartupProbeService(IKafkaMetadataSource, ILogger<StartupProbeService>)`; `Crm.Worker.IKafkaMetadataSource` with `IReadOnlyList<string> GetBrokerNames(TimeSpan timeout)`; health on `http://+:8081`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2773,38 +2781,46 @@ using Crm.Kernel.Tenancy;
 using Crm.Kernel.Time;
 using Crm.Profiles.Infrastructure;
 using Crm.Segmentation.Infrastructure;
-using Crm.Worker;
 using Serilog;
 
-var builder = WebApplication.CreateBuilder(args);
+namespace Crm.Worker;
 
-builder.AddCrmSerilog("Crm.Worker");
-builder.AddCrmOpenTelemetry("Crm.Worker");
-builder.Services.AddCrmHealthChecks(builder.Configuration);
+/// <summary>Namespaced entry point so tests can reference Crm.Worker.Program unambiguously.</summary>
+public class Program
+{
+    public static async Task Main(string[] args)
+    {
+        var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddSingleton<IClock, SystemClock>();
-builder.Services.AddSingleton<IIdGenerator, UuidV7IdGenerator>();
-builder.Services.AddScoped<TenantContext>();
-builder.Services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
-builder.Services.AddScoped<TenantSaveChangesInterceptor>();
+        builder.AddCrmSerilog("Crm.Worker");
+        builder.AddCrmOpenTelemetry("Crm.Worker");
+        builder.Services.AddCrmHealthChecks(builder.Configuration);
 
-builder.Services
-    .AddProfilesModule(builder.Configuration)
-    .AddSegmentationModule(builder.Configuration);
+        builder.Services.AddSingleton<IClock, SystemClock>();
+        builder.Services.AddSingleton<IIdGenerator, UuidV7IdGenerator>();
+        builder.Services.AddScoped<TenantContext>();
+        builder.Services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
+        builder.Services.AddScoped<TenantSaveChangesInterceptor>();
 
-builder.Services.AddSingleton<IKafkaMetadataSource>(sp => new AdminClientMetadataSource(sp.GetRequiredService<CrmHostingOptions>().KafkaBootstrapServers));
-builder.Services.AddHostedService<StartupProbeService>();
+        builder.Services
+            .AddProfilesModule(builder.Configuration)
+            .AddSegmentationModule(builder.Configuration);
 
-var app = builder.Build();
+        builder.Services.AddSingleton<IKafkaMetadataSource>(sp => new AdminClientMetadataSource(sp.GetRequiredService<CrmHostingOptions>().KafkaBootstrapServers));
+        builder.Services.AddHostedService<StartupProbeService>();
 
-app.UseSerilogRequestLogging();
-app.MapCrmHealth();
-app.MapCrmMetrics();
+        var app = builder.Build();
 
-await app.RunAsync();
+        app.UseSerilogRequestLogging();
+        app.MapCrmHealth();
+        app.MapCrmMetrics();
 
-public partial class Program;
+        await app.RunAsync();
+    }
+}
 ```
+
+Remove the remaining `Skip` on AT-005's `Crm.Worker` case in `tests/Crm.ArchTests/HostBoundaryTests.cs`; both host cases must now pass.
 
 `src/Hosts/Crm.Worker/appsettings.json` — identical to the API's `appsettings.json` from Task 7 plus `"Kestrel": { "Endpoints": { "Http": { "Url": "http://+:8081" } } }` as a top-level section.
 
