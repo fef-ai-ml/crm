@@ -1,0 +1,17 @@
+{
+  "tenantId": "11111111-2222-3333-4444-555555555555",
+  "profileId": "0192b1c4-0000-7000-8000-00000000aaaa",
+  "changedKeys": [
+    "plan",
+    "country"
+  ],
+  "profile": {
+    "externalId": "u-123",
+    "email": "a@b.com",
+    "attributes": {
+      "plan": "pro",
+      "country": "ID"
+    }
+  },
+  "occurredAt": "2026-09-16T08:00:01Z"
+}

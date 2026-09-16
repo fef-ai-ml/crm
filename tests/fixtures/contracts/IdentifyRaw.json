@@ -1,0 +1,11 @@
+{
+  "eventId": "0192b1c4-0000-7000-8000-000000000002",
+  "tenantId": "11111111-2222-3333-4444-555555555555",
+  "userId": "u-123",
+  "anonymousId": "anon-9f1",
+  "traits": {
+    "plan": "pro",
+    "country": "ID"
+  },
+  "receivedAt": "2026-09-16T08:00:01Z"
+}
