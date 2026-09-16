@@ -25,10 +25,12 @@ public static class HealthCheckExtensions
             return ConnectionMultiplexer.Connect(redisOptions);
         });
 
+        services.AddSingleton<Health.KafkaHealthCheck>();
+
         services.AddHealthChecks()
             .AddCheck("sqlserver", new Health.SqlServerHealthCheck(options.SqlConnectionString), HealthStatus.Unhealthy, [ReadyTag], TimeSpan.FromSeconds(3))
             .AddTypeActivatedCheck<Health.RedisHealthCheck>("redis", HealthStatus.Unhealthy, [ReadyTag], TimeSpan.FromSeconds(3))
-            .AddCheck("kafka", new Health.KafkaHealthCheck(options.KafkaBootstrapServers), HealthStatus.Unhealthy, [ReadyTag], TimeSpan.FromSeconds(5));
+            .AddCheck<Health.KafkaHealthCheck>("kafka", HealthStatus.Unhealthy, [ReadyTag], TimeSpan.FromSeconds(5));
 
         return services;
     }
