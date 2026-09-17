@@ -1,10 +1,14 @@
 using Crm.Kernel.Data;
 using Crm.Tenancy.Application;
+using Crm.Tenancy.Domain;
+using Crm.Tenancy.Infrastructure.Auth;
 using Crm.Tenancy.Infrastructure.Tokens;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Crm.Tenancy.Infrastructure;
 
@@ -38,6 +42,19 @@ public static class TenancyModule
             .Validate(o => o.IsValid(out _), $"Auth options are invalid: signing key must be at least {AuthOptions.MinSigningKeyBytes} bytes; issuer, audience and lifetimes are required.")
             .ValidateOnStart();
         services.AddSingleton<ITokenService, TokenService>();
+
+        services.AddAuthentication(AuthSchemes.Bearer).AddJwtBearer(AuthSchemes.Bearer, _ => { });
+        services.AddOptions<JwtBearerOptions>(AuthSchemes.Bearer)
+            .Configure<IOptions<AuthOptions>>((jwt, auth) =>
+            {
+                jwt.MapInboundClaims = false;
+                jwt.TokenValidationParameters = TokenService.CreateValidationParameters(auth.Value);
+            });
+
+        services.AddAuthorizationBuilder()
+            .AddPolicy(AuthPolicies.AdminOnly, p => p.RequireAuthenticatedUser().RequireRole(Roles.Admin))
+            .AddPolicy(AuthPolicies.AdminOrViewer, p => p.RequireAuthenticatedUser().RequireRole(Roles.Admin, Roles.Viewer))
+            .AddPolicy(AuthPolicies.IngestOnly, p => p.RequireAuthenticatedUser().RequireClaim(TenancyClaims.Kind, TenancyClaims.KindApiKey));
 
         return services;
     }

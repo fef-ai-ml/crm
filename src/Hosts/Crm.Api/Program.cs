@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Crm.Api.Problems;
 using Crm.Hosting;
 using Crm.Ingestion.Infrastructure;
@@ -9,6 +8,8 @@ using Crm.Kernel.Time;
 using Crm.Profiles.Infrastructure;
 using Crm.Segmentation.Infrastructure;
 using Crm.Tenancy.Infrastructure;
+using Crm.Tenancy.Infrastructure.Endpoints;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 using Serilog;
@@ -27,9 +28,9 @@ public class Program
         builder.AddCrmOpenTelemetry("Crm.Api");
 
         builder.Services.AddCrmHealthChecks(builder.Configuration);
-        builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = ctx =>
-            ctx.ProblemDetails.Extensions["traceId"] = Activity.Current?.Id ?? ctx.HttpContext.TraceIdentifier);
+        builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = ProblemDefaults.Apply);
         builder.Services.AddExceptionHandler<UnhandledExceptionHandler>();
+        builder.Services.Configure<ForwardedHeadersOptions>(o => o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto);
         builder.Services.AddOpenApi("v1");
 
         builder.Services.AddSingleton<IClock, SystemClock>();
@@ -55,7 +56,11 @@ public class Program
 
         app.UseExceptionHandler();
         app.UseStatusCodePages();
+        app.UseForwardedHeaders();
         app.UseSerilogRequestLogging();
+        app.UseAuthentication();
+        app.UseTenantResolution();
+        app.UseAuthorization();
 
         app.MapOpenApi("/openapi/{documentName}.json");
         if (app.Environment.IsDevelopment())
@@ -67,7 +72,10 @@ public class Program
         app.MapCrmMetrics();
 
         var v1 = app.MapGroup("/v1").AddEndpointFilter<ErrorResultFilter>();
-        _ = v1; // Tenancy endpoints attach in Tasks 5–8
+        if (app.Environment.IsEnvironment("Testing"))
+        {
+            v1.MapTenancyTestProbes();
+        }
 
         if (app.Environment.IsDevelopment())
         {
