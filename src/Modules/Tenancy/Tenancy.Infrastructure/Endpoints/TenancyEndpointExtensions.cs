@@ -20,4 +20,12 @@ public static class TenancyEndpointExtensions
         TestProbeEndpoints.Map(v1);
         return v1;
     }
+
+    /// <summary>Tenancy endpoints under the host's /v1 group (the group carries the Error → problem+json filter).</summary>
+    public static RouteGroupBuilder MapTenancyEndpoints(this RouteGroupBuilder v1)
+    {
+        ArgumentNullException.ThrowIfNull(v1);
+        AuthEndpoints.Map(v1);
+        return v1;
+    }
 }

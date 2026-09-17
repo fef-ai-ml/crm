@@ -50,6 +50,7 @@ public static class TenancyModule
 
         services.AddSingleton<ApiKeyUsageTracker>();
         services.AddScoped<IApiKeyAuthenticator, ApiKeyAuthenticator>();
+        services.AddScoped<AuthService>();
 
         services.AddAuthentication(AuthSchemes.Smart)
             .AddPolicyScheme(AuthSchemes.Smart, AuthSchemes.Smart, o => o.ForwardDefaultSelector = SelectScheme)

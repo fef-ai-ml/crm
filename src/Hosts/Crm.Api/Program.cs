@@ -73,6 +73,7 @@ public class Program
         app.MapCrmMetrics();
 
         var v1 = app.MapGroup("/v1").AddEndpointFilter<ErrorResultFilter>();
+        v1.MapTenancyEndpoints();
         if (app.Environment.IsEnvironment("Testing"))
         {
             v1.MapTenancyTestProbes();
