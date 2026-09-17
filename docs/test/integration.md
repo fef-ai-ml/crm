@@ -269,8 +269,8 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 ### IT-035 — ingest rate limit
 - Traces: NFR-07
 - Given one API key and a token bucket of 2,000 per minute
-- When 2,100 requests are sent within 10 s
-- Then at least 100 responses are `429` with `Retry-After`, no 5xx occurs, and a second key is unaffected
+- When 2,500 requests are sent within 10 s
+- Then at least 100 responses are `429` with `Retry-After`, accepted requests never exceed the bucket plus the tokens refilled during the burst (continuous refill at 2,000 per minute), no 5xx occurs, and a second key is unaffected
 - Planned: tests/Crm.IntegrationTests/Tenancy/RateLimitTests.cs
 
 ### IT-036 — login issues a JWT and a refresh cookie that rotates

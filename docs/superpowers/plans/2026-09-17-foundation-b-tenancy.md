@@ -44,7 +44,8 @@
 | P7 | OpenAPI export maps the Development-only bootstrap endpoint (condition: `IsDevelopment() || exportPath is not null`) and runs after endpoint mapping. | The committed document must not depend on the environment CI happens to export in; plan A exported before any endpoint was mapped. |
 | P8 | CT-001 in this plan asserts no drift plus an exact path set for the Tenancy endpoints; "exactly the endpoints in api/README.md" completes when the remaining modules land. | README already documents endpoints of later plans. |
 | P9 | The Development start-up block no longer resolves a magic tenant before `MigrateAsync()`. | Migrations never evaluate query filters; removes plan A review minor #10. |
-| P10 | IT-035 warms the rate-limit partition with one request before the 2,100-request burst; a one-time over-grant of a few dozen requests on a brand-new API key is accepted. | .NET's `PartitionedRateLimiter` creates per-key limiters lazily and races under concurrent first use (found in execution, Task 6); 2,100 − 2,000 left the original test zero tolerance. |
+| P10 | IT-035 sends 2,500 requests (not 2,100), warms the partition first, and bounds accepted requests by `2,000 + elapsed × 33.34/s`. | Found in execution (Task 6): inside a partitioned limiter .NET disables `AutoReplenishment` and a ~100 ms heartbeat calls `TryReplenish()`, so the bucket refills continuously at 2,000 per minute rather than in one step. The limiter is correct; a 2,100-request burst over 10 s could legitimately see zero rejections. `docs/test/integration.md` IT-035 is amended to match. |
+| P11 | `ApiKeyAuthenticator` treats an unparseable cache value as a miss (`ApiKeyCacheEntry.TryParse`), catches `RedisTimeoutException` as well as `RedisException` on cache read/write (eviction still throws), and writes `LastUsedAt` best-effort. The Task 6 code block below predates this; the committed code is authoritative. | Found in review (Task 6): `Convert.FromHexString` throws on a corrupt entry, and in StackExchange.Redis 3.x `RedisTimeoutException` derives from `TimeoutException`, so either condition would answer 500 on every ingest request instead of falling back to SQL. |
 
 ## File Structure
 
@@ -2360,7 +2361,7 @@ public sealed class RateLimitTests(CrmStackFixture stack) : IAsyncLifetime
 }
 ```
 
-`PartitionedRateLimiter` has a cold-start race: concurrent first requests on a brand-new key can construct a few extra bucket instances and over-grant by a few dozen requests once. That is accepted (abuse protection, not billing); the warm-up request keeps the test about the steady-state limit. The case says "within 10 s"; against a remote engine each request pays a Redis round trip, so the test asserts the property that matters — the burst fits in one 60 s replenishment period — and the report records the measured duration.
+Refill is continuous: `RateLimitPartition.GetTokenBucketLimiter` turns `AutoReplenishment` off and the partition heartbeat calls `TryReplenish()` about every 100 ms, adding 2,000/60 ≈ 33.34 tokens per second. The test therefore sends 2,500 requests, stops the clock after the burst, and asserts `accepted <= 2000 + ceil(elapsed × 33.34) + 5` and `rejected >= 100` with the burst inside 10 s (see ruling P10; the executed test file is authoritative for the exact code). The case says "within 10 s"; against a remote engine each request pays a Redis round trip, so the test asserts the property that matters — the burst fits in one 60 s replenishment period — and the report records the measured duration.
 
 Run → build errors (`ApiKeyUsageTracker`, `IApiKeyAuthenticator` missing).
 
