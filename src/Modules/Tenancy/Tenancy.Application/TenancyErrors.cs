@@ -18,11 +18,11 @@ public static class TenancyErrors
     public static Error Validation(IReadOnlyDictionary<string, string[]> fields)
         => Error.Validation("request.invalid", "The request is not valid.", fields);
 
-    public static Error IdentityFailure(IEnumerable<(string Code, string Description)> errors)
+    public static Error IdentityFailure(IEnumerable<(string Code, string Description)> errors, string passwordField = "password", string emailField = "email")
     {
         ArgumentNullException.ThrowIfNull(errors);
         var fields = errors
-            .GroupBy(e => e.Code.StartsWith("Password", StringComparison.Ordinal) ? "password" : "email")
+            .GroupBy(e => e.Code.StartsWith("Password", StringComparison.Ordinal) ? passwordField : emailField)
             .ToDictionary(g => g.Key, g => g.Select(e => e.Description).ToArray());
         return Validation(fields);
     }

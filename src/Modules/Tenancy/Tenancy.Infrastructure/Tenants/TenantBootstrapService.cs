@@ -41,13 +41,35 @@ public sealed class TenantBootstrapService(TenancyDbContext db, UserManager<AppU
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var tenant = created.Value;
         db.Tenants.Add(tenant);
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            // A concurrent bootstrap won the race on the same slug between the pre-check above and this
+            // insert; UX_Tenants_Slug is the only unique index this insert can violate.
+            await transaction.RollbackAsync(cancellationToken);
+            return TenancyErrors.SlugTaken;
+        }
+
         tenantContext.Resolve(tenant.Id, null, TenantPrincipalKind.None);
 
-        var failure = await CreateUserAsync(tenant.Id, command.AdminEmail, command.AdminPassword, Roles.Admin);
-        if (failure is null && command.ViewerEmail is not null && command.ViewerPassword is not null)
+        Error? failure;
+        try
         {
-            failure = await CreateUserAsync(tenant.Id, command.ViewerEmail, command.ViewerPassword, Roles.Viewer);
+            failure = await CreateUserAsync(tenant.Id, command.AdminEmail, command.AdminPassword, Roles.Admin, "adminPassword", "adminEmail");
+            if (failure is null && command.ViewerEmail is not null && command.ViewerPassword is not null)
+            {
+                failure = await CreateUserAsync(tenant.Id, command.ViewerEmail, command.ViewerPassword, Roles.Viewer, "viewerPassword", "viewerEmail");
+            }
+        }
+        catch (DbUpdateException)
+        {
+            // A concurrent bootstrap (racing on the same email) won between the pre-check above and
+            // Identity's own insert; EmailIndex is the unique index this can violate.
+            await transaction.RollbackAsync(cancellationToken);
+            return TenancyErrors.EmailTaken;
         }
 
         if (failure is not null)
@@ -60,7 +82,7 @@ public sealed class TenantBootstrapService(TenancyDbContext db, UserManager<AppU
         return tenant;
     }
 
-    private async Task<Error?> CreateUserAsync(Guid tenantId, string email, string password, string role)
+    private async Task<Error?> CreateUserAsync(Guid tenantId, string email, string password, string role, string passwordField, string emailField)
     {
         var user = new AppUser { TenantId = tenantId, UserName = email, Email = email, EmailConfirmed = true };
         var result = await users.CreateAsync(user, password);
@@ -69,6 +91,6 @@ public sealed class TenantBootstrapService(TenancyDbContext db, UserManager<AppU
             result = await users.AddToRoleAsync(user, role);
         }
 
-        return result.Succeeded ? null : TenancyErrors.IdentityFailure(result.Errors.Select(e => (e.Code, e.Description)));
+        return result.Succeeded ? null : TenancyErrors.IdentityFailure(result.Errors.Select(e => (e.Code, e.Description)), passwordField, emailField);
     }
 }

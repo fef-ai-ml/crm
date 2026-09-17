@@ -41,6 +41,11 @@ public sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> options,
             user.HasIndex(u => u.TenantId).HasDatabaseName("IX_AspNetUsers_TenantId");
             user.HasOne<Tenant>().WithMany().HasForeignKey(u => u.TenantId).OnDelete(DeleteBehavior.Restrict);
 
+            // Login (AuthService.LoginAsync) looks a user up by NormalizedEmail alone, across all tenants,
+            // before a tenant is resolved: this index makes that global uniqueness a schema guarantee instead
+            // of an undocumented coincidence of UserNameIndex. Replaces Identity's non-unique EmailIndex.
+            user.HasIndex(u => u.NormalizedEmail).HasDatabaseName("EmailIndex").IsUnique().HasFilter("[NormalizedEmail] IS NOT NULL");
+
             // AppUser is not a Kernel Entity, so ApplyTenantFilters skips it; the filter reads this context per query.
             user.HasQueryFilter(u => u.TenantId == CurrentTenantId);
         });

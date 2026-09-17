@@ -60,7 +60,7 @@ public sealed class BootstrapTests(CrmStackFixture stack)
         using var weakPassword = await client.PostAsJsonAsync("/v1/tenants", new { name = "X", slug, adminEmail = $"admin@{slug}.test", adminPassword = "short" });
         weakPassword.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         using var problem = JsonDocument.Parse(await weakPassword.Content.ReadAsStringAsync());
-        problem.RootElement.GetProperty("errors").TryGetProperty("password", out _).Should().BeTrue();
+        problem.RootElement.GetProperty("errors").TryGetProperty("adminPassword", out _).Should().BeTrue();
         (await TenantExistsAsync(factory, slug)).Should().BeFalse("the tenant row is rolled back when the admin cannot be created");
     }
 
