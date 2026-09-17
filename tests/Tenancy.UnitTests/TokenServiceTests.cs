@@ -1,3 +1,4 @@
+using System.Text;
 using Crm.Kernel.Ids;
 using Crm.Kernel.Time;
 using Crm.Tenancy.Application;
@@ -6,6 +7,7 @@ using Crm.Tenancy.Infrastructure.Tokens;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
 using NSubstitute;
 using Xunit;
 
@@ -65,6 +67,32 @@ public class TokenServiceTests
         var other = TokenService.CreateValidationParameters(new AuthOptions { SigningKey = "another-signing-key-0123456789abcdef0123456789ab" });
         other.ValidateLifetime = false;
         (await new JsonWebTokenHandler().ValidateTokenAsync(token.Value, other)).IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_token_signed_hs512_with_the_same_key_fails_validation()
+    {
+        // HS512 needs a key of at least 64 bytes, so this uses a longer key than the other tests; the point
+        // is that ValidAlgorithms rejects HS512 even though the same key could otherwise validate it.
+        var settings = new AuthOptions { SigningKey = "unit-test-signing-key-long-enough-for-hs512-0123456789abcdef0123456789" };
+        var handler = new JsonWebTokenHandler();
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(settings.SigningKey));
+        var descriptor = new SecurityTokenDescriptor
+        {
+            Issuer = settings.Issuer,
+            Audience = settings.Audience,
+            IssuedAt = T0,
+            NotBefore = T0,
+            Expires = T0.AddMinutes(15),
+            Claims = new Dictionary<string, object> { [TenancyClaims.Subject] = UserId },
+            SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha512),
+        };
+        var token = handler.CreateToken(descriptor);
+
+        var parameters = TokenService.CreateValidationParameters(settings);
+        var result = await handler.ValidateTokenAsync(token, parameters);
+
+        result.IsValid.Should().BeFalse();
     }
 
     [Fact]

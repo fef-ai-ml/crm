@@ -9,6 +9,9 @@
     <ProjectReference Include="..\Tenancy.Application\Tenancy.Application.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Tenancy.UnitTests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />

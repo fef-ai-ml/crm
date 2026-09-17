@@ -81,7 +81,7 @@ internal static class ApiKeyEndpoints
 
         key.Revoke(clock.UtcNow);
         await db.SaveChangesAsync(cancellationToken);
-        await authenticator.EvictAsync(key.Prefix);
+        await authenticator.EvictAsync(key.Prefix, cancellationToken);
         return TypedResults.NoContent();
     }
 }

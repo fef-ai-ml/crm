@@ -63,9 +63,9 @@ public static class ApiKeyCacheEntry
     }
 
     /// <summary>
-    /// The BCL exposes only throwing hex decoders (<see cref="Convert.FromHexString(string)"/>); this
-    /// decodes into a fixed-size buffer without ever throwing, so a corrupt cache value is rejected rather
-    /// than surfaced as an unhandled <see cref="FormatException"/>.
+    /// <see cref="Convert.FromHexString(ReadOnlySpan{char}, Span{byte}, out int, out int)"/> reports an
+    /// <see cref="System.Buffers.OperationStatus"/> instead of throwing, so a corrupt cache value is rejected
+    /// rather than surfaced as an unhandled <see cref="FormatException"/>.
     /// </summary>
     private static bool TryDecodeHex(string hex, Span<byte> destination)
     {
@@ -74,26 +74,7 @@ public static class ApiKeyCacheEntry
             return false;
         }
 
-        for (var i = 0; i < destination.Length; i++)
-        {
-            var high = HexValue(hex[i * 2]);
-            var low = HexValue(hex[(i * 2) + 1]);
-            if (high < 0 || low < 0)
-            {
-                return false;
-            }
-
-            destination[i] = (byte)((high << 4) | low);
-        }
-
-        return true;
-
-        static int HexValue(char c) => c switch
-        {
-            >= '0' and <= '9' => c - '0',
-            >= 'a' and <= 'f' => c - 'a' + 10,
-            >= 'A' and <= 'F' => c - 'A' + 10,
-            _ => -1,
-        };
+        var status = Convert.FromHexString(hex, destination, out var charsConsumed, out var bytesWritten);
+        return status == System.Buffers.OperationStatus.Done && charsConsumed == hex.Length && bytesWritten == destination.Length;
     }
 }

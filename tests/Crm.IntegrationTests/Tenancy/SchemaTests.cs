@@ -7,7 +7,7 @@ namespace Crm.IntegrationTests.Tenancy;
 
 [Collection(StackCollectionDefinition.Name)]
 [Trait("Category", "Integration")]
-public class SchemaTests(CrmStackFixture stack)
+public sealed class SchemaTests(CrmStackFixture stack)
 {
     [Fact]
     public async Task Migration_creates_identity_tables_indexes_roles_and_snapshot_isolation()

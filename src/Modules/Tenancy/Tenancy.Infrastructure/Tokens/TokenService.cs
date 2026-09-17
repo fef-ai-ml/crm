@@ -28,6 +28,7 @@ public sealed class TokenService(IOptions<AuthOptions> options, IClock clock, II
             ClockSkew = TimeSpan.FromSeconds(30),
             NameClaimType = TenancyClaims.Subject,
             RoleClaimType = TenancyClaims.Role,
+            ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
         };
     }
 

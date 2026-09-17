@@ -93,6 +93,4 @@ public sealed class ApiKey : Entity
     }
 
     public void Revoke(DateTime utcNow) => RevokedAt ??= utcNow;
-
-    public void Touch(DateTime utcNow) => LastUsedAt = utcNow;
 }

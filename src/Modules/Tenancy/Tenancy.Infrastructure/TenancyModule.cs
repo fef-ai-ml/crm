@@ -45,8 +45,8 @@ public static class TenancyModule
 
         services.AddOptions<AuthOptions>()
             .Bind(configuration.GetSection(AuthOptions.SectionName))
-            .Validate(o => o.IsValid(out _), $"Auth options are invalid: signing key must be at least {AuthOptions.MinSigningKeyBytes} bytes; issuer, audience and lifetimes are required.")
             .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<AuthOptions>, AuthOptionsValidator>();
         services.AddSingleton<ITokenService, TokenService>();
 
         services.AddSingleton<ApiKeyUsageTracker>();

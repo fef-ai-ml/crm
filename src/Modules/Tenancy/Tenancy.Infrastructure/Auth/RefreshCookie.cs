@@ -26,7 +26,10 @@ public static class RefreshCookie
     {
         var host = http.Request.Host.Host;
         var plainLocalhost = !http.Request.IsHttps
-            && (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) || host == "127.0.0.1");
+            && (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)
+                || host == "127.0.0.1"
+                || host == "::1"
+                || host == "[::1]");
         return new CookieOptions
         {
             HttpOnly = true,

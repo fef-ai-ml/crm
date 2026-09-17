@@ -15,7 +15,7 @@ public interface IApiKeyAuthenticator
 {
     Task<ApiKeyIdentity?> AuthenticateAsync(string? plaintext, CancellationToken cancellationToken);
 
-    Task EvictAsync(string prefix);
+    Task EvictAsync(string prefix, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Prefix → Redis (10 min) → SQL. The cache stores the key hash, so a hit still verifies the whole key in constant time.</summary>
@@ -62,7 +62,7 @@ public sealed partial class ApiKeyAuthenticator(
         return identity;
     }
 
-    public async Task EvictAsync(string prefix)
+    public async Task EvictAsync(string prefix, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(prefix);
 

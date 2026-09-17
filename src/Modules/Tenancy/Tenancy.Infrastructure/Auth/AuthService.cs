@@ -23,8 +23,11 @@ public sealed class AuthService(
     private static string? _dummyPasswordHash;
 
     /// <summary>A hash of a fixed, never-used password, computed once and reused so the timing-parity check in
-    /// <see cref="LoginAsync"/> never has to hash a real value.</summary>
-    private string DummyPasswordHash => _dummyPasswordHash ??= users.PasswordHasher.HashPassword(new AppUser(), "dummy-password-for-timing");
+    /// <see cref="LoginAsync"/> never has to hash a real value. <see cref="LazyInitializer"/> is used instead of a
+    /// static <see cref="Lazy{T}"/> because computing the value needs an instance <see cref="UserManager{TUser}"/>.</summary>
+    private string DummyPasswordHash => LazyInitializer.EnsureInitialized(
+        ref _dummyPasswordHash,
+        () => users.PasswordHasher.HashPassword(new AppUser(), "dummy-password-for-timing"));
 
     public async Task<Result<AuthSession>> LoginAsync(string email, string password, CancellationToken cancellationToken)
     {

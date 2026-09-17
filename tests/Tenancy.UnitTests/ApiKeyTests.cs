@@ -47,7 +47,16 @@ public partial class ApiKeyTests
     public void UT051_verify_uses_fixed_time_comparison()
     {
         var source = File.ReadAllText(Path.Combine(RepoRoot(), "src/Modules/Tenancy/Tenancy.Domain/ApiKey.cs"));
-        source.Should().Contain("CryptographicOperations.FixedTimeEquals");
+        const string start = "public ApiKeyVerification Verify";
+        var methodStart = source.IndexOf(start, StringComparison.Ordinal);
+        methodStart.Should().BeGreaterThanOrEqualTo(0, "the Verify method must exist");
+        var nextMember = source.IndexOf("public ", methodStart + start.Length, StringComparison.Ordinal);
+        var body = nextMember < 0 ? source[methodStart..] : source[methodStart..nextMember];
+
+        var callLine = body.Split('\n').FirstOrDefault(line => line.Contains("CryptographicOperations.FixedTimeEquals", StringComparison.Ordinal));
+
+        callLine.Should().NotBeNull("Verify must call FixedTimeEquals");
+        callLine!.TrimStart().Should().NotStartWith("//", "a commented-out call must not satisfy this test");
     }
 
     [Fact]
@@ -70,17 +79,6 @@ public partial class ApiKeyTests
     {
         ApiKey.TryParsePrefix(plaintext, out var actual).Should().Be(expected);
         actual.Should().Be(prefix);
-    }
-
-    [Fact]
-    public void Touch_records_last_use()
-    {
-        var generated = ApiKey.Generate("sdk", "user-1");
-        var now = new DateTime(2026, 9, 17, 8, 0, 0, DateTimeKind.Utc);
-
-        generated.Entity.Touch(now);
-
-        generated.Entity.LastUsedAt.Should().Be(now);
     }
 
     private static string RepoRoot()
