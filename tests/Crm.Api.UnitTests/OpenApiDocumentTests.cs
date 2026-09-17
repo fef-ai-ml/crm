@@ -43,10 +43,10 @@ public class OpenApiDocumentTests
 
     private static readonly ExpectedOperation[] ExpectedOperations =
     [
-        new("POST", "/v1/auth/login", ["200", "400", "401"], RequiresBearer: false),
-        new("POST", "/v1/auth/refresh", ["200", "401"], RequiresBearer: false),
+        new("POST", "/v1/auth/login", ["200", "400", "401", "429"], RequiresBearer: false),
+        new("POST", "/v1/auth/refresh", ["200", "401", "429"], RequiresBearer: false),
         new("POST", "/v1/auth/logout", ["204", "401", "403"], RequiresBearer: true),
-        new("POST", "/v1/tenants", ["201", "400", "409"], RequiresBearer: false),
+        new("POST", "/v1/tenants", ["201", "400", "409", "429"], RequiresBearer: false),
         new("GET", "/v1/api-keys", ["200", "401", "403"], RequiresBearer: true),
         new("POST", "/v1/api-keys", ["201", "400", "401", "403"], RequiresBearer: true),
         new("DELETE", "/v1/api-keys/{id}", ["204", "401", "403", "404"], RequiresBearer: true),

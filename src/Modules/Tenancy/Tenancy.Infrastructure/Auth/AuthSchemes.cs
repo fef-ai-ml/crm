@@ -18,6 +18,7 @@ public static class AuthPolicies
 public static class RateLimitPolicies
 {
     public const string Ingest = "ingest";
+    public const string Auth = "auth";
 }
 
 public static class EndpointTags

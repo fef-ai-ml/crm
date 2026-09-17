@@ -95,6 +95,22 @@ public static class TenancyModule
                         AutoReplenishment = true,
                     });
             });
+
+            // Credential endpoints (login, refresh, tenant bootstrap) are anonymous and expensive (a full
+            // PBKDF2 hash per login attempt, including unknown emails, by design of the timing mitigation in
+            // AuthService). Partitioned by client address so one caller cannot exhaust the budget for others;
+            // behind nginx this depends on ForwardedHeadersOptions trusting the compose network (see Program.cs).
+            limiter.AddPolicy(RateLimitPolicies.Auth, http =>
+                RateLimitPartition.GetTokenBucketLimiter(
+                    http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    _ => new TokenBucketRateLimiterOptions
+                    {
+                        TokenLimit = 20,
+                        TokensPerPeriod = 20,
+                        ReplenishmentPeriod = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                        AutoReplenishment = true,
+                    }));
         });
 
         return services;

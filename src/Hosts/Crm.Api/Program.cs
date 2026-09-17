@@ -31,7 +31,22 @@ public class Program
         builder.Services.AddCrmHealthChecks(builder.Configuration);
         builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = ProblemDefaults.Apply);
         builder.Services.AddExceptionHandler<UnhandledExceptionHandler>();
-        builder.Services.Configure<ForwardedHeadersOptions>(o => o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto);
+        builder.Services.Configure<ForwardedHeadersOptions>(o =>
+        {
+            o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+
+            // Trusted only from networks explicitly listed here (default: none, i.e. loopback only), so the
+            // per-client-address rate limiter on /auth (RateLimitPolicies.Auth) cannot be fooled by a
+            // caller-supplied X-Forwarded-For unless the proxy hop is a network we actually trust.
+            var knownNetworks = builder.Configuration["ForwardedHeaders:KnownNetworks"];
+            if (!string.IsNullOrWhiteSpace(knownNetworks))
+            {
+                foreach (var cidr in knownNetworks.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    o.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(cidr));
+                }
+            }
+        });
         builder.Services.AddOpenApi("v1", options => options
             .AddDocumentTransformer<CrmDocumentTransformer>()
             .AddOperationTransformer<CrmOperationTransformer>());

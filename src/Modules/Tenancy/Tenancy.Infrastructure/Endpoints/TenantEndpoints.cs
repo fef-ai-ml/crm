@@ -17,12 +17,14 @@ internal static class TenantEndpoints
     {
         v1.MapPost("/tenants", CreateAsync)
             .AllowAnonymous()
+            .RequireRateLimiting(RateLimitPolicies.Auth)
             .WithTags(EndpointTags.Tenancy)
             .WithName("BootstrapTenant")
             .WithSummary("Development only: bootstrap a tenant with its first Admin (and optionally a Viewer).")
             .Produces<TenantCreatedResponse>(StatusCodes.Status201Created)
             .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status409Conflict);
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
     }
 
     private static async Task<object> CreateAsync(BootstrapTenantRequest request, TenantBootstrapService service, CancellationToken cancellationToken)

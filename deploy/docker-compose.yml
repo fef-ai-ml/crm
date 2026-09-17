@@ -102,6 +102,9 @@ services:
       Auth__SigningKey: ${AUTH_SIGNING_KEY}
       Auth__Issuer: crm
       Auth__Audience: crm-api
+      # Trusts X-Forwarded-For/-Proto only from the private compose network, so the web nginx proxy's
+      # forwarded client address is honoured by the per-IP /auth rate limiter without trusting the internet.
+      ForwardedHeaders__KnownNetworks: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     ports:
       - "8080:8080"

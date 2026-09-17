@@ -137,6 +137,32 @@ public sealed class AuthTests(CrmStackFixture stack) : IAsyncLifetime
         }
     }
 
+    /// <summary>
+    /// The RateLimitPolicies.Auth token bucket allows 20 requests/minute per client address; 30 rapid,
+    /// deliberately-wrong logins against one CrmApiFactory (one client "address") must push some into 429.
+    /// </summary>
+    [Fact]
+    public async Task Login_is_rate_limited_per_client()
+    {
+        var tenant = await TenancySeed.CreateTenantAsync(_factory);
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 30).Select(_ => LoginAsync(tenant.AdminEmail, "Wrong-Passw0rd!")));
+        try
+        {
+            var tooManyRequests = responses.Where(r => r.StatusCode == HttpStatusCode.TooManyRequests).ToList();
+            tooManyRequests.Should().HaveCountGreaterThanOrEqualTo(5);
+            tooManyRequests.Should().OnlyContain(r => r.Headers.RetryAfter != null);
+            responses.Should().OnlyContain(r => r.StatusCode == HttpStatusCode.TooManyRequests || r.StatusCode == HttpStatusCode.Unauthorized);
+        }
+        finally
+        {
+            foreach (var response in responses)
+            {
+                response.Dispose();
+            }
+        }
+    }
+
     [Fact]
     public async Task Login_failures_are_indistinguishable()
     {
