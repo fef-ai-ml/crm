@@ -28,6 +28,10 @@ public sealed partial class Tenant
 
     public DateTime CreatedAt { get; private set; }
 
+    public void Suspend() => Status = TenantStatus.Suspended;
+
+    public void Activate() => Status = TenantStatus.Active;
+
     [GeneratedRegex("^[a-z0-9-]{3,64}$")]
     private static partial Regex SlugPattern();
 

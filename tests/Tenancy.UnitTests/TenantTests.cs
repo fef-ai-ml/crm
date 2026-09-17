@@ -22,6 +22,18 @@ public class TenantTests
         result.Value.Id.Should().NotBe(Guid.Empty);
     }
 
+    [Fact]
+    public void Suspend_and_activate_toggle_status()
+    {
+        var tenant = Tenant.Create("Demo Inc", "demo", T0).Value;
+
+        tenant.Suspend();
+        tenant.Status.Should().Be(TenantStatus.Suspended);
+
+        tenant.Activate();
+        tenant.Status.Should().Be(TenantStatus.Active);
+    }
+
     [Theory]
     [InlineData("", "demo", "name")]
     [InlineData("Demo", "ab", "slug")]

@@ -20,22 +20,35 @@ public sealed class AuthService(
     IOptions<AuthOptions> options,
     IClock clock)
 {
+    private static string? _dummyPasswordHash;
+
+    /// <summary>A hash of a fixed, never-used password, computed once and reused so the timing-parity check in
+    /// <see cref="LoginAsync"/> never has to hash a real value.</summary>
+    private string DummyPasswordHash => _dummyPasswordHash ??= users.PasswordHasher.HashPassword(new AppUser(), "dummy-password-for-timing");
+
     public async Task<Result<AuthSession>> LoginAsync(string email, string password, CancellationToken cancellationToken)
     {
         var normalized = users.NormalizeEmail(email);
         var user = await db.Users.IgnoreQueryFilters().SingleOrDefaultAsync(u => u.NormalizedEmail == normalized, cancellationToken);
-        if (user is null || !await users.CheckPasswordAsync(user, password))
+        if (user is null)
+        {
+            // Spend the same time as a real password check so an unknown email is not distinguishable from a
+            // wrong password by timing (spec §6.4). The result is discarded: this never authenticates anyone.
+            users.PasswordHasher.VerifyHashedPassword(new AppUser(), DummyPasswordHash, password);
+            return TenancyErrors.InvalidCredentials;
+        }
+
+        if (!await users.CheckPasswordAsync(user, password))
         {
             return TenancyErrors.InvalidCredentials;
         }
 
-        var active = await db.Tenants.AnyAsync(t => t.Id == user.TenantId && t.Status == TenantStatus.Active, cancellationToken);
-        if (!active || !EnterTenant(user))
+        if (!await IsTenantActiveAsync(user.TenantId, cancellationToken) || !EnterTenant(user))
         {
             return TenancyErrors.InvalidCredentials;
         }
 
-        return await IssueAsync(user, replaces: null, cancellationToken);
+        return await IssueAsync(user, cancellationToken);
     }
 
     public async Task<Result<AuthSession>> RefreshAsync(string? refreshToken, CancellationToken cancellationToken)
@@ -58,6 +71,11 @@ public sealed class AuthService(
             return TenancyErrors.InvalidRefreshToken;
         }
 
+        if (!await IsTenantActiveAsync(user.TenantId, cancellationToken))
+        {
+            return TenancyErrors.InvalidRefreshToken;
+        }
+
         var now = clock.UtcNow;
         if (!current.IsActive(now))
         {
@@ -70,11 +88,14 @@ public sealed class AuthService(
             return TenancyErrors.InvalidRefreshToken;
         }
 
-        return await IssueAsync(user, replaces: current, cancellationToken);
+        return await RotateAsync(user, current, cancellationToken);
     }
 
     public async Task LogoutAsync(string userId, CancellationToken cancellationToken)
         => await RevokeAllAsync(userId, clock.UtcNow, cancellationToken);
+
+    private async Task<bool> IsTenantActiveAsync(Guid tenantId, CancellationToken cancellationToken)
+        => await db.Tenants.AnyAsync(t => t.Id == tenantId && t.Status == TenantStatus.Active, cancellationToken);
 
     private bool EnterTenant(AppUser user)
     {
@@ -87,15 +108,52 @@ public sealed class AuthService(
         return true;
     }
 
-    private async Task<Result<AuthSession>> IssueAsync(AppUser user, RefreshToken? replaces, CancellationToken cancellationToken)
+    /// <summary>Login: no prior token to rotate, so a plain insert is enough.</summary>
+    private async Task<Result<AuthSession>> IssueAsync(AppUser user, CancellationToken cancellationToken)
     {
         var now = clock.UtcNow;
         var roles = await users.GetRolesAsync(user);
         var issued = RefreshToken.Issue(user.Id, now, options.Value.RefreshTokenLifetime);
         db.RefreshTokens.Add(issued.Entity);
-        replaces?.Revoke(now, issued.Entity.Id);
         await db.SaveChangesAsync(cancellationToken);
 
+        var access = tokens.IssueAccessToken(user.Id, user.TenantId, roles.ToArray());
+        return new AuthSession(access, issued.Plaintext, issued.Entity.ExpiresAt);
+    }
+
+    /// <summary>
+    /// Refresh: claims the old token with a single conditional UPDATE so two concurrent refreshes of the same
+    /// cookie cannot both rotate it. Whoever's UPDATE finds the row still un-revoked (claimed == 1) wins and
+    /// inserts the new token in the same transaction; the loser (claimed == 0) is treated as a concurrent
+    /// double-submit, not a replay, so the chain is left alone.
+    /// </summary>
+    private async Task<Result<AuthSession>> RotateAsync(AppUser user, RefreshToken current, CancellationToken cancellationToken)
+    {
+        var now = clock.UtcNow;
+        var issued = RefreshToken.Issue(user.Id, now, options.Value.RefreshTokenLifetime);
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        var claimed = await db.RefreshTokens
+            .Where(t => t.Id == current.Id && t.RevokedAt == null)
+            .ExecuteUpdateAsync(
+                s => s
+                    .SetProperty(t => t.RevokedAt, now)
+                    .SetProperty(t => t.ReplacedByTokenId, issued.Entity.Id)
+                    .SetProperty(t => t.UpdatedAt, now),
+                cancellationToken);
+
+        if (claimed == 0)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return TenancyErrors.InvalidRefreshToken;
+        }
+
+        db.RefreshTokens.Add(issued.Entity);
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        var roles = await users.GetRolesAsync(user);
         var access = tokens.IssueAccessToken(user.Id, user.TenantId, roles.ToArray());
         return new AuthSession(access, issued.Plaintext, issued.Entity.ExpiresAt);
     }

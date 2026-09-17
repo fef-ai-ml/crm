@@ -67,6 +67,77 @@ public sealed class AuthTests(CrmStackFixture stack) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Suspended_tenant_can_neither_log_in_nor_refresh()
+    {
+        var tenant = await TenancySeed.CreateTenantAsync(_factory);
+
+        using var login = await LoginAsync(tenant.AdminEmail, TenancySeed.Password);
+        login.StatusCode.Should().Be(HttpStatusCode.OK);
+        var cookie = CookieValue(login);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TenancyDbContext>();
+            var row = await db.Tenants.SingleAsync(t => t.Id == tenant.TenantId);
+            row.Suspend();
+            await db.SaveChangesAsync();
+        }
+
+        using var refresh = await RefreshAsync(cookie);
+        refresh.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        using var loginAfterSuspend = await LoginAsync(tenant.AdminEmail, TenancySeed.Password);
+        loginAfterSuspend.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    /// <summary>
+    /// Strict reuse detection means a client that double-submits a refresh may lose its session: a late
+    /// duplicate is indistinguishable, server-side, from a replay of a stolen token, so it is treated the
+    /// same way (spec §6.4). The guarantee under test is narrower but unconditional: one refresh token
+    /// never yields two descendants, however many callers race to rotate it. The web client must
+    /// single-flight its refresh call rather than rely on the server to make concurrent duplicates safe.
+    /// </summary>
+    [Fact]
+    public async Task Concurrent_refreshes_with_the_same_cookie_never_fork_the_chain()
+    {
+        var tenant = await TenancySeed.CreateTenantAsync(_factory);
+
+        using var login = await LoginAsync(tenant.AdminEmail, TenancySeed.Password);
+        var cookie = CookieValue(login);
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => RefreshAsync(cookie)));
+        try
+        {
+            var okCount = responses.Count(r => r.StatusCode == HttpStatusCode.OK);
+            var unauthorizedCount = responses.Count(r => r.StatusCode == HttpStatusCode.Unauthorized);
+            okCount.Should().Be(1, "the first claimant always wins the atomic rotation and its 200 is never revoked afterward");
+            unauthorizedCount.Should().Be(7);
+
+            using var scope = _factory.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<TenancyDbContext>();
+            var tokens = await db.RefreshTokens.IgnoreQueryFilters()
+                .Where(t => t.UserId == tenant.AdminUserId)
+                .ToListAsync();
+
+            tokens.Should().HaveCount(2, "the login token plus exactly one descendant: the chain must never fork");
+            var originalHash = RefreshToken.HashOf(cookie);
+            var original = tokens.Single(t => t.TokenHash.SequenceEqual(originalHash));
+            var descendant = tokens.Single(t => t.Id != original.Id);
+            original.ReplacedByTokenId.Should().Be(descendant.Id);
+
+            var liveCount = tokens.Count(t => t.RevokedAt is null);
+            liveCount.Should().BeLessThanOrEqualTo(1, "0 when a straggler triggered reuse detection, 1 when every loser lost at the claim");
+        }
+        finally
+        {
+            foreach (var response in responses)
+            {
+                response.Dispose();
+            }
+        }
+    }
+
+    [Fact]
     public async Task Login_failures_are_indistinguishable()
     {
         var tenant = await TenancySeed.CreateTenantAsync(_factory);
