@@ -10,7 +10,7 @@ Redis holds only rebuildable state ([ADR 0006](../adr/0006-redis-roles.md)). Kaf
 | `t:{tenantId}:seg:{segmentId}:members` | SET of ProfileId | none | Segmentation consumer (SADD/SREM); Segment Runner (DEL + SADD on batch finish) | Segments API (`GET /segments/{id}` realtimeMemberCount), Realtime Evaluator | Batch run or replay of `events.processed` |
 | `t:{tenantId}:seg:{segmentId}:ev:{eventName}:{window}:{profileId}` | string counter | = that leaf's window (e.g. 30 d) | Segmentation consumer (INCR + EXPIRE NX) | Realtime Evaluator | Replay of `events.processed` |
 | `t:{tenantId}:preview:{definitionHashHex}` | string count | 60 s | Segments API after a preview query | Segments API | Re-run preview |
-| `apikey:{prefix}` | string → TenantId | 10 min | Tenant middleware on SQL fallback; deleted on revoke | Tenant middleware | `identity.ApiKeys` |
+| `apikey:{prefix}` | string → `{tenantId:N}:{keyId:N}:{keyHashHex}` (a hit still verifies the full key in constant time) | 10 min | Tenant middleware on SQL fallback; deleted on revoke | Tenant middleware | `identity.ApiKeys` |
 | `segments:changed` | pub/sub channel | — | Segments API on save/archive (payload: tenantId) | Worker in-memory segment cache invalidation | — |
 
 Value encoding: GUIDs as 32 lower-case hex characters without dashes; counters as decimal strings.

@@ -100,6 +100,8 @@ services:
       Redis__Configuration: "redis:6379"
       Kafka__BootstrapServers: "kafka:9092"
       Auth__SigningKey: ${AUTH_SIGNING_KEY}
+      Auth__Issuer: crm
+      Auth__Audience: crm-api
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     ports:
       - "8080:8080"

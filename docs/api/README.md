@@ -38,6 +38,8 @@ Every error is `application/problem+json` (RFC 9457):
 | 503 | Kafka unavailable at ingest; retry after `Retry-After` seconds |
 | 500 | Unexpected error; `traceId` identifies the trace |
 
+Every problem body also carries `code`, a stable machine-readable error code (for example `auth.invalid_credentials`, `auth.invalid_refresh_token`, `tenant.slug_taken`), safe to branch on in client code.
+
 ## Pagination
 
 List endpoints accept `limit` (default 50, max 200) and `cursor` (opaque string from the previous response). Responses have the shape `{ "items": [...], "nextCursor": "..." | null }`. Offsets are not supported.
@@ -136,10 +138,13 @@ Validation: depth ≤ 5, leaves ≤ 20, `key` matches `[A-Za-z0-9_]{1,64}`, `win
 |---|---|---|---|
 | POST | `/auth/login` | none | Body `{ email, password }`; returns `{ accessToken, expiresIn }` and sets the `crm_refresh` cookie (httpOnly, Secure, `SameSite=Strict`, path `/v1/auth`) |
 | POST | `/auth/refresh` | none | No body; reads the `crm_refresh` cookie, rotates it, and returns `{ accessToken, expiresIn }` |
-| POST | `/tenants` | none, development only | Body `{ name, slug, adminEmail, adminPassword }`; bootstraps a tenant and its first Admin |
-| GET | `/api-keys` | JWT Admin | List: `id`, `name`, `prefix`, `createdAt`, `lastUsedAt`, `revokedAt` |
+| POST | `/auth/logout` | JWT | Revokes the caller's refresh tokens, clears the cookie, 204 |
+| POST | `/tenants` | none, development only | Body `{ name, slug, adminEmail, adminPassword }`; bootstraps a tenant and its first Admin; optional `viewerEmail` + `viewerPassword` also create a Viewer |
+| GET | `/api-keys` | JWT Admin | Returns `{ items, nextCursor }`; each item: `id`, `name`, `prefix`, `createdAt`, `lastUsedAt`, `revokedAt` |
 | POST | `/api-keys` | JWT Admin | Body `{ name }`; returns the full key once: `{ id, name, prefix, key }` |
-| DELETE | `/api-keys/{id}` | JWT Admin | Revoke |
+| DELETE | `/api-keys/{id}` | JWT Admin | Revoke; takes effect immediately (cache eviction) |
+
+Protected operations document `bearer` security and their `401`/`403` problem responses in `openapi.json`.
 
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8080/v1/auth/login \

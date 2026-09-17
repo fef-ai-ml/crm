@@ -100,24 +100,29 @@ Tests: CT-004 snapshot tests in `Crm.Contracts.UnitTests` against `tests/fixture
 
 Exactly the [identity data dictionary](../../data-dictionary/identity.md): ASP.NET Core Identity tables via `IdentityDbContext<AppUser, IdentityRole, string>` with `AppUser { Guid TenantId; string? DisplayName }`, plus `Tenant`, `ApiKey`, `RefreshToken` entities. `Tenant` is the one aggregate not derived from `Entity` (it has no `TenantId`). Identity tables are excluded from `ApplyTenantFilters`; `AppUser`, `ApiKey`, `RefreshToken` are filtered.
 
-First migration `0001_InitialIdentity` creates the schema, tables, indexes (`UX_Tenants_Slug`, `UX_ApiKeys_Prefix`, `IX_ApiKeys_TenantId`, `IX_AspNetUsers_TenantId`, `UX_RefreshTokens_TokenHash`, `IX_RefreshTokens_UserId`) and seeds roles `Admin`, `Viewer`.
+First migration class `InitialIdentity` (file `<timestamp>_InitialIdentity.cs`; C# identifiers cannot start with a digit, so the spec's earlier `0001_` label is descriptive only — ruling P5) creates the schema, tables, indexes (`UX_Tenants_Slug`, `UX_ApiKeys_Prefix`, `IX_ApiKeys_TenantId`, `IX_AspNetUsers_TenantId`, `UX_RefreshTokens_TokenHash`, `IX_RefreshTokens_UserId`) and seeds roles `Admin`, `Viewer`.
 
 ### 6.2 Tenant resolution middleware
 
 Order in the pipeline: exception handler → HTTPS/forwarded headers → authentication → **tenant resolution** → rate limiter → authorization → endpoints.
 
+API-key lookup and verification happen inside an authentication handler (the `ApiKey` scheme), not in `TenantResolutionMiddleware`: authorization policies need an authenticated principal before the middleware runs, and this keeps the observable behaviour below unchanged (ruling P1).
+
 1. If the request carries a validated JWT: `TenantId = tenant_id claim`, `UserId = sub`, `Kind = User`. A JWT without `tenant_id` leaves the context unresolved.
-2. Else if `X-Api-Key` is present: parse `crm_live_<32>`; look up `apikey:{prefix}` in Redis; on miss load `ApiKeys` by `Prefix`, compare SHA-256 in constant time, cache `TenantId` for 10 min; reject when revoked or mismatched → 401. `Kind = ApiKey`. Update `LastUsedAt` at most once per minute (in-memory last-write timestamp per prefix).
+2. Else if `X-Api-Key` is present: parse `crm_live_<32>`; look up `apikey:{prefix}` in Redis; on miss load `ApiKeys` by `Prefix`, compare SHA-256 in constant time, cache `"{tenantId:N}:{keyId:N}:{keyHashHex}"` for 10 min (not the bare tenant id — a cache hit still verifies the full key in constant time, otherwise a key with a changed suffix would authenticate; ruling P2); reject when revoked or mismatched → 401. `Kind = ApiKey`. Update `LastUsedAt` at most once per minute (in-memory last-write timestamp per prefix).
 3. Else unresolved. Endpoints marked `AllowAnonymous` (login, refresh, tenants bootstrap, health) proceed; everything else returns 401.
 4. Any data access on an unresolved context throws `TenantContextMissingException` → 500 with `traceId`, logged at Error (IT-032).
 
 API-key principals may call only endpoints tagged `Ingest`; calling anything else returns 403 (IT-033).
+
+Cache-read resilience (ruling P11, found in review of Task 6): an unparseable cache entry (`ApiKeyCacheEntry.TryParse` failure, e.g. a corrupt or foreign value) is treated as a cache miss and falls through to SQL, not as an error. `RedisTimeoutException` is caught alongside `RedisException` on cache read and write, since in StackExchange.Redis 3.x it derives from `TimeoutException` and would otherwise answer 500 on every ingest request instead of falling back to SQL. `LastUsedAt` writes are best-effort (failures are swallowed). Cache *eviction* on revoke is not swallowed: a failure there surfaces, because a stale cache entry after revoke would let a revoked key keep authenticating.
 
 ### 6.3 Authentication and tokens
 
 - JWT bearer, HS256 in Development with `Auth:SigningKey` from configuration (compose supplies a fixed dev key); the validation parameters are configuration-driven so RS256 can replace it without code changes. Access token 15 min; claims `sub`, `tenant_id`, `role`, `jti`.
 - Refresh token: 32 random bytes, base64url, stored as SHA-256 in `RefreshTokens`, expiry 7 d, delivered as cookie `crm_refresh` with `HttpOnly; Secure; SameSite=Strict; Path=/v1/auth`. `Secure` is relaxed to `false` only when `ASPNETCORE_ENVIRONMENT=Development` and the request is plain HTTP on localhost. Refresh rotates: old token gets `RevokedAt` and `ReplacedByTokenId`; presenting a revoked token returns 401 and revokes the whole chain for that user (reuse detection).
 - Roles as JWT `role` claim; authorization policies `AdminOnly`, `AdminOrViewer`, `IngestOnly`.
+- Ruling P12 (found in review of Task 7 — the block above predates it; the committed code is authoritative): `AuthService.RefreshAsync` also checks that the tenant is `Active` — a suspended tenant could otherwise keep minting access tokens for up to 7 d from a token issued before suspension — and rotation claims the old token with one conditional update (`WHERE RevokedAt IS NULL`) in the same transaction as the insert, so two concurrent refreshes of one cookie cannot fork the chain. A caller that loses that claim gets 401. Reuse detection has no grace window: a token already revoked when read revokes the whole chain, and this includes a late duplicate of an honest double-submit, which is indistinguishable from a replay — the guarantee is that one refresh token never yields two descendants, so web clients must single-flight their refresh call. Unknown emails verify a dummy hash so login timing does not reveal which accounts exist. `Tenant` gains `Suspend()` / `Activate()`.
 
 ### 6.4 Endpoints (all under `/v1`, problem+json errors)
 
@@ -126,12 +131,14 @@ API-key principals may call only endpoints tagged `Ingest`; calling anything els
 | `POST /auth/login` | anonymous | `{ email, password }` → `200 { accessToken, expiresIn: 900 }` + `crm_refresh` cookie; 401 on bad credentials (same message for unknown email and wrong password) |
 | `POST /auth/refresh` | anonymous, cookie | rotates; `200 { accessToken, expiresIn }` + new cookie; 401 on missing/expired/revoked |
 | `POST /auth/logout` | JWT | revokes the current refresh chain, clears cookie, 204 |
-| `POST /tenants` | anonymous, **Development only** | `{ name, slug, adminEmail, adminPassword }` → `201 { tenantId, slug }`; creates tenant + Admin user; 404 in any other environment (endpoint not mapped) |
-| `GET /api-keys` | Admin | list `{ id, name, prefix, createdAt, lastUsedAt, revokedAt }` |
+| `POST /tenants` | anonymous, **Development only** | `{ name, slug, adminEmail, adminPassword }` → `201 { tenantId, slug }`; creates tenant + Admin user; optional `viewerEmail` + `viewerPassword` also create a Viewer (ruling P6 — the spec defines no separate user-management endpoint, and `make seed` needs a Viewer); 404 in any other environment (endpoint not mapped) |
+| `GET /api-keys` | Admin | `200 { items, nextCursor }`; each item `{ id, name, prefix, createdAt, lastUsedAt, revokedAt }` |
 | `POST /api-keys` | Admin | `{ name }` → `201 { id, name, prefix, key }`; `key` never retrievable again |
 | `DELETE /api-keys/{id}` | Admin | sets `RevokedAt`, deletes `apikey:{prefix}` from Redis, 204 |
 
-Rate limiting: ASP.NET `RateLimiter` with a token-bucket policy `ingest` partitioned by API-key prefix (2,000 tokens, replenish 2,000 per minute); 429 responses carry `Retry-After`. The policy is applied to endpoints tagged `Ingest`; in this phase no such endpoint exists yet, so IT-035 targets a test-only `POST /v1/_test/ingest-probe` endpoint mapped only in the `Testing` environment and removed when the real `/track` lands.
+Rate limiting: ASP.NET `RateLimiter` with a token-bucket policy `ingest` partitioned by API-key prefix (2,000 tokens, replenish 2,000 per minute); 429 responses carry `Retry-After`. The policy is applied to endpoints tagged `Ingest`; in this phase no such endpoint exists yet, so IT-035 targets a test-only `POST /v1/_test/ingest-probe` endpoint mapped only in the `Testing` environment and removed when the real `/track` lands. Inside a partitioned limiter .NET disables `AutoReplenishment` and instead runs a ~100 ms heartbeat calling `TryReplenish()`, so the bucket refills continuously at 2,000 per minute (≈33 tokens/s) rather than all at once at the top of the minute (ruling P10, found in execution of Task 6); IT-035 is sized accordingly.
+
+Ruling P4 (test-only probes standing in for endpoints from later plans): cases that name endpoints this plan does not implement yet are exercised through probes mapped only in the `Testing` environment and excluded from OpenAPI — `POST /v1/_test/ingest-probe` (Ingest, 202) stands in for `POST /v1/track`; `GET /v1/_test/read-probe` (AdminOrViewer, reads tenant data) for `GET /v1/segments`; `POST /v1/_test/write-probe` (AdminOnly) for `POST /v1/segments` and `/run`. The Ingestion and Segmentation plans repoint these tests to the real endpoints and delete the probes.
 
 ### 6.5 Tests
 
@@ -144,8 +151,8 @@ UT-050…UT-053 (`Tenancy.UnitTests`), UT-054, UT-055, UT-057 (`Crm.Kernel.UnitT
 ### 7.1 Crm.Api
 
 - Minimal APIs grouped per module (`MapTenancyEndpoints(RouteGroupBuilder)` etc.), versioned under `/v1`.
-- OpenAPI via `Microsoft.AspNetCore.OpenApi` (`AddOpenApi`), Scalar UI served at `/swagger` in Development. CLI mode `dotnet run --project src/Hosts/Crm.Api -- --export-openapi <path>` builds the app, writes the document, exits 0 (CT-001). `docs/api/openapi.json` is committed from this export.
-- Problem details: `IProblemDetailsService` + custom mapper `ResultProblemMapper` (`Error` → status/type/`errors`) and a global exception handler adding `traceId`; `type` is `https://crm.example/problems/<kind-lowercase>`.
+- OpenAPI via `Microsoft.AspNetCore.OpenApi` (`AddOpenApi`), Scalar UI served at `/swagger` in Development. CLI mode `dotnet run --project src/Hosts/Crm.Api -- --export-openapi <path>` builds the app, writes the document, exits 0 (CT-001). `docs/api/openapi.json` is committed from this export. The Development-only tenant bootstrap endpoint is mapped whenever `IsDevelopment() || exportPath is not null` (ruling P7), and export maps every endpoint group before writing the document, so the committed file does not depend on which environment CI happens to export in. The export briefly starts the host on an OS-assigned loopback port — ASP.NET Core only finalizes the endpoint metadata the OpenAPI generator reads once routing starts — and needs no database, Redis, or Kafka connection. `dotnet run --project <dir>` resolves a relative `--export-openapi` path against the *project* directory, not the caller's working directory, so `make openapi` and CI both pass an absolute path.
+- Problem details: `IProblemDetailsService` + custom mapper `ResultProblemMapper` (`Error` → status/type/`errors`) and a global exception handler adding `traceId`; `type` is `https://crm.example/problems/<kind-lowercase>`. Endpoint handlers return either an `IResult` or a Kernel `Error`; the `ErrorResultFilter` endpoint filter on the `/v1` route group turns an `Error` into the problem+json response.
 - Serilog (console JSON sink, enrichers `TenantId`, `TraceId`, `UserId`), OpenTelemetry traces + metrics (ASP.NET Core, HttpClient, EF Core, runtime) with OTLP exporter configured by `OTEL_EXPORTER_OTLP_ENDPOINT` (no-op when unset), Prometheus scraping endpoint `/metrics` via `OpenTelemetry.Exporter.Prometheus.AspNetCore`.
 - Health: `/health/live` (self), `/health/ready` (SQL Server `SELECT 1`, Redis `PING`, Kafka admin `GetMetadata` with 3 s timeout). Both outside `/v1`, anonymous.
 - Startup in Development: `MigrateAsync()` for every module `DbContext`. Other environments: migrations are applied by `make migrate` (`dotnet ef database update` per context) — never at startup.

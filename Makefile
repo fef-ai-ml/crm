@@ -1,5 +1,5 @@
 # CRM platform — developer entry points.
-# Targets marked (plan A/B) are wired up by later plans; they fail loudly until then.
+# Targets marked (plan A/B) are wired up by later plans; targets not yet wired fail loudly.
 
 # Prefer the Compose plugin (docker compose) when present; fall back to the standalone
 # docker-compose binary otherwise. Keeps this Makefile working on either install.
@@ -111,11 +111,17 @@ openapi: ## export docs/api/openapi.json from the API project (CT-001)
 	Auth__SigningKey="openapi-export-only-0123456789abcdef0123456789" \
 	dotnet run --project src/Hosts/Crm.Api -c Release --no-launch-profile -- --export-openapi $(CURDIR)/docs/api/openapi.json
 
-migrate: ## apply EF Core migrations for every module (plan B)
-	@echo "wired by plan B" && exit 1
+CRM_CONNECTION_STRING ?= Server=localhost,1433;Database=crm;User Id=sa;Password=$(MSSQL_SA_PASSWORD);TrustServerCertificate=True;Encrypt=False
 
-seed: ## bootstrap the demo tenant, users and API key (plan B)
-	@echo "wired by plan B" && exit 1
+migrate: env ## apply EF Core migrations (module contexts with migrations: Tenancy)
+	dotnet tool restore
+	ConnectionStrings__Crm="$(CRM_CONNECTION_STRING)" dotnet ef database update \
+		--project src/Modules/Tenancy/Tenancy.Infrastructure \
+		--startup-project src/Modules/Tenancy/Tenancy.Infrastructure \
+		--context TenancyDbContext
+
+seed: ## bootstrap the demo tenant, Admin + Viewer users and an API key (API must run in Development)
+	python3 tools/seed.py
 
 web-dev: ## run the React dev server
 	cd src/Hosts/Crm.Web && npm run dev

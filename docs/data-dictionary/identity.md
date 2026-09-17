@@ -21,12 +21,15 @@ Indexes: `PK_Tenants (Id)`; `UX_Tenants_Slug (Slug)` unique.
 | Column | Type | Null | Description |
 |---|---|---|---|
 | Id | uniqueidentifier | no | Primary key |
+| TenantId | uniqueidentifier | no | Kernel `Entity`; tenant-filtered |
 | Name | nvarchar(128) | no | Label chosen by the admin |
 | Prefix | char(8) | no | First 8 characters after `crm_live_`; shown in the UI and used as cache key |
 | KeyHash | binary(32) | no | SHA-256 of the full key; the plaintext is never stored |
 | CreatedByUserId | nvarchar(450) | no | FK to AspNetUsers(Id) |
 | RevokedAt | datetime2(3) | yes | Non-null means the key is rejected |
 | LastUsedAt | datetime2(3) | yes | Updated at most once per minute |
+| CreatedAt | datetime2(3) | no | Kernel `Entity` |
+| UpdatedAt | datetime2(3) | no | Kernel `Entity` |
 
 Indexes: `PK_ApiKeys (Id)`; `UX_ApiKeys_Prefix (Prefix)` unique; `IX_ApiKeys_TenantId (TenantId)`.
 
@@ -53,5 +56,12 @@ Roles: `Admin` (full access), `Viewer` (read-only on profiles and segments). Ind
 | ExpiresAt | datetime2(3) | no | Issued + 7 d |
 | RevokedAt | datetime2(3) | yes | Set on rotation or logout |
 | ReplacedByTokenId | uniqueidentifier | yes | Rotation chain |
+| TenantId | uniqueidentifier | no | Kernel `Entity`; tenant-filtered |
+| CreatedAt | datetime2(3) | no | Kernel `Entity` |
+| UpdatedAt | datetime2(3) | no | Kernel `Entity` |
 
 Indexes: `PK_RefreshTokens (Id)`; `UX_RefreshTokens_TokenHash (TokenHash)` unique; `IX_RefreshTokens_UserId (UserId)`.
+
+Roles are seeded with fixed ids so they are stable across environments: `Admin` = `0192f0a0-0000-7000-8000-000000000001`, `Viewer` = `0192f0a0-0000-7000-8000-000000000002` (`TenancyDbContext.AdminRoleId` / `ViewerRoleId`).
+
+Migration history for this schema lives in its own table, `identity.__EFMigrationsHistory_identity`, separate from other modules' history tables.

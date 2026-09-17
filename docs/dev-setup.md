@@ -63,13 +63,26 @@ When the container engine runs on another machine (a home-lab box running Podman
 | `make test-integration` | Testcontainers suite (minutes; first run pulls images) |
 | `make test` | both |
 | `make docs-check` | documentation checker |
-| `make openapi` | regenerate `docs/api/openapi.json` (commit the result) |
+| `make migrate` | apply EF Core migrations (module contexts with migrations: Tenancy) against `localhost,1433` |
+| `make seed` | bootstrap the demo tenant, Admin + Viewer users, and an API key against a running Development API; writes `CRM_API_KEY` to `.env.local` (git-ignored); idempotent |
+| `make openapi` | regenerate `docs/api/openapi.json` (commit the result). `dotnet run --project <dir>` resolves a relative `--export-openapi` path against the *project* directory, not your shell's working directory, so this target (and CI) pass an absolute path |
 | `make web-dev` | Vite dev server on 5173 proxying `/v1` and `/health` to `localhost:8080` |
 | `make tunnel` | ssh tunnel to a remote engine: podman socket + infrastructure ports |
 | `make tunnel-apps` | like `tunnel`, also forwards api/worker/web ports for a compose stack running remotely |
 | `make e2e` | Playwright against the compose stack |
 | `make logs` | follow api and worker logs |
 | `make down` | stop and delete volumes (`KEEP=1 make down` keeps data) |
+
+## Logging in
+
+After `make seed`, log in as the seeded Admin and call an authenticated endpoint:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@demo.local","password":"Demo-Passw0rd!"}' | jq -r .accessToken)
+curl -s http://localhost:8080/v1/api-keys -H "Authorization: Bearer $TOKEN"
+```
 
 ## Running hosts from the IDE
 

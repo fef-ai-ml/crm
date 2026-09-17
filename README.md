@@ -15,7 +15,7 @@ Slice 1 (events → profiles → segments) has its foundation skeleton implement
 | Design spec | Approved |
 | Documentation (BRD, ADRs, architecture, data dictionary, API reference) | Complete |
 | Implementation: solution skeleton, Kernel, Contracts, hosts, web shell, CI | Complete |
-| Implementation: Tenancy | Planned |
+| Implementation: Tenancy | Complete |
 | Implementation: Ingestion, Profiles pipeline | Planned |
 | Implementation: Segmentation | Planned |
 | Implementation: Web dashboard | Planned |
@@ -45,6 +45,7 @@ python3 tools/docs_check.py
 
 ```bash
 make up                         # infrastructure + api + worker + web, waits until healthy
+make seed                       # bootstrap the demo tenant, Admin + Viewer users, and an API key
 open http://localhost:3000      # web shell shows readiness of SQL, Kafka, Redis
 open http://localhost:8080/swagger
 ```
