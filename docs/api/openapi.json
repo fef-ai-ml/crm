@@ -93,14 +93,6 @@
         ],
         "operationId": "Logout",
         "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": { }
-              }
-            }
-          },
           "204": {
             "description": "No Content"
           },
@@ -113,8 +105,23 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "The caller is not allowed to do this.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearer": [ ]
+          }
+        ]
       }
     },
     "/v1/api-keys": {
@@ -133,8 +140,33 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication is required.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is not allowed to do this.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearer": [ ]
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -153,14 +185,6 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": { }
-              }
-            }
-          },
           "201": {
             "description": "Created",
             "content": {
@@ -180,8 +204,33 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication is required.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is not allowed to do this.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearer": [ ]
+          }
+        ]
       }
     },
     "/v1/api-keys/{id}": {
@@ -202,16 +251,28 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "OK",
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Authentication is required.",
             "content": {
-              "application/json": {
-                "schema": { }
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
               }
             }
           },
-          "204": {
-            "description": "No Content"
+          "403": {
+            "description": "The caller is not allowed to do this.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           },
           "404": {
             "description": "Not Found",
@@ -223,7 +284,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearer": [ ]
+          }
+        ]
       }
     },
     "/v1/tenants": {
@@ -244,14 +310,6 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": { }
-              }
-            }
-          },
           "201": {
             "description": "Created",
             "content": {

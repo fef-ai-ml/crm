@@ -32,7 +32,9 @@ public class Program
         builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = ProblemDefaults.Apply);
         builder.Services.AddExceptionHandler<UnhandledExceptionHandler>();
         builder.Services.Configure<ForwardedHeadersOptions>(o => o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto);
-        builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer<CrmDocumentTransformer>());
+        builder.Services.AddOpenApi("v1", options => options
+            .AddDocumentTransformer<CrmDocumentTransformer>()
+            .AddOperationTransformer<CrmOperationTransformer>());
 
         builder.Services.AddSingleton<IClock, SystemClock>();
         builder.Services.AddSingleton<IIdGenerator, UuidV7IdGenerator>();
