@@ -37,6 +37,7 @@ public sealed class IsolationTests(CrmStackFixture stack) : IAsyncLifetime
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         body.RootElement.GetProperty("type").GetString().Should().Be("https://crm.example/problems/unauthorized");
         body.RootElement.GetProperty("traceId").GetString().Should().NotBeNullOrWhiteSpace();
+        body.RootElement.GetProperty("code").GetString().Should().Be("auth.unauthorized");
     }
 
     [Fact]
@@ -53,6 +54,7 @@ public sealed class IsolationTests(CrmStackFixture stack) : IAsyncLifetime
         using var body = JsonDocument.Parse(text);
         body.RootElement.GetProperty("type").GetString().Should().Be("https://crm.example/problems/unexpected");
         body.RootElement.GetProperty("traceId").GetString().Should().NotBeNullOrWhiteSpace();
+        body.RootElement.GetProperty("code").GetString().Should().Be("server.unexpected");
         text.Should().NotContain("count", "no rows may be returned without a tenant");
     }
 

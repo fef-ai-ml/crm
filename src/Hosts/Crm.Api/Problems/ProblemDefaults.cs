@@ -10,12 +10,16 @@ public static class ProblemDefaults
         ArgumentNullException.ThrowIfNull(context);
 
         var problem = context.ProblemDetails;
+        var status = problem.Status ?? context.HttpContext.Response.StatusCode;
         problem.Extensions["traceId"] = Activity.Current?.Id ?? context.HttpContext.TraceIdentifier;
         problem.Instance ??= context.HttpContext.Request.Path;
         if (problem.Type is null || !problem.Type.StartsWith(ResultProblemMapper.TypeBase, StringComparison.Ordinal))
         {
-            problem.Type = ResultProblemMapper.TypeFor(SlugFor(problem.Status ?? context.HttpContext.Response.StatusCode));
+            problem.Type = ResultProblemMapper.TypeFor(SlugFor(status));
         }
+
+        // TryAdd: a code already set by ResultProblemMapper.Map is never overwritten.
+        problem.Extensions.TryAdd("code", CodeFor(status));
     }
 
     private static string SlugFor(int status) => status switch
@@ -28,5 +32,17 @@ public static class ProblemDefaults
         StatusCodes.Status429TooManyRequests => "ratelimited",
         StatusCodes.Status503ServiceUnavailable => "unavailable",
         _ => "unexpected",
+    };
+
+    private static string CodeFor(int status) => status switch
+    {
+        StatusCodes.Status400BadRequest => "request.invalid",
+        StatusCodes.Status401Unauthorized => "auth.unauthorized",
+        StatusCodes.Status403Forbidden => "auth.forbidden",
+        StatusCodes.Status404NotFound => "resource.not_found",
+        StatusCodes.Status409Conflict => "request.conflict",
+        StatusCodes.Status429TooManyRequests => "rate_limit.exceeded",
+        StatusCodes.Status503ServiceUnavailable => "service.unavailable",
+        _ => "server.unexpected",
     };
 }

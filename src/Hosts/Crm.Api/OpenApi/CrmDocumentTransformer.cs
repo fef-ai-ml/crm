@@ -20,14 +20,14 @@ public sealed class CrmDocumentTransformer : IOpenApiDocumentTransformer
 
         document.Components ??= new OpenApiComponents();
         document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
-        document.Components.SecuritySchemes["bearer"] = new OpenApiSecurityScheme
+        document.Components.SecuritySchemes[OpenApiSchemeIds.Bearer] = new OpenApiSecurityScheme
         {
             Type = SecuritySchemeType.Http,
             Scheme = "bearer",
             BearerFormat = "JWT",
             Description = "Dashboard users: 15-minute access token from POST /v1/auth/login.",
         };
-        document.Components.SecuritySchemes["apiKey"] = new OpenApiSecurityScheme
+        document.Components.SecuritySchemes[OpenApiSchemeIds.ApiKey] = new OpenApiSecurityScheme
         {
             Type = SecuritySchemeType.ApiKey,
             In = ParameterLocation.Header,

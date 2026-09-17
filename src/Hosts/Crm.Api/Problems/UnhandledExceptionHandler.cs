@@ -11,6 +11,11 @@ public sealed partial class UnhandledExceptionHandler(IProblemDetailsService pro
         ArgumentNullException.ThrowIfNull(httpContext);
         ArgumentNullException.ThrowIfNull(exception);
 
+        if (exception is OperationCanceledException && httpContext.RequestAborted.IsCancellationRequested)
+        {
+            return false;
+        }
+
         LogUnhandled(logger, exception, exception.GetType().Name, httpContext.Request.Path);
 
         httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;

@@ -71,8 +71,8 @@ public sealed class CrmOperationTransformer : IOpenApiOperationTransformer
     private static void AddSecurity(OpenApiOperation operation, OpenApiResponses responses, OpenApiOperationTransformerContext context, List<IAuthorizeData> authorizeData)
     {
         var schemeId = authorizeData.Any(a => string.Equals(a.Policy, AuthPolicies.IngestOnly, StringComparison.Ordinal))
-            ? "apiKey"
-            : "bearer";
+            ? OpenApiSchemeIds.ApiKey
+            : OpenApiSchemeIds.Bearer;
 
         operation.Security = [new OpenApiSecurityRequirement { [new OpenApiSecuritySchemeReference(schemeId, context.Document)] = [] }];
 

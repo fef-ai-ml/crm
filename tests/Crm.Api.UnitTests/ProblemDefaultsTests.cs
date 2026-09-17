@@ -9,12 +9,15 @@ namespace Crm.Api.UnitTests;
 public class ProblemDefaultsTests
 {
     [Theory]
-    [InlineData(401, "unauthorized")]
-    [InlineData(403, "forbidden")]
-    [InlineData(404, "notfound")]
-    [InlineData(429, "ratelimited")]
-    [InlineData(500, "unexpected")]
-    public void Status_code_problems_get_a_crm_type_trace_id_and_instance(int status, string slug)
+    [InlineData(400, "validation", "request.invalid")]
+    [InlineData(401, "unauthorized", "auth.unauthorized")]
+    [InlineData(403, "forbidden", "auth.forbidden")]
+    [InlineData(404, "notfound", "resource.not_found")]
+    [InlineData(409, "conflict", "request.conflict")]
+    [InlineData(429, "ratelimited", "rate_limit.exceeded")]
+    [InlineData(503, "unavailable", "service.unavailable")]
+    [InlineData(500, "unexpected", "server.unexpected")]
+    public void Status_code_problems_get_a_crm_type_trace_id_instance_and_code(int status, string slug, string code)
     {
         var http = new DefaultHttpContext();
         http.Request.Path = "/v1/api-keys";
@@ -25,6 +28,7 @@ public class ProblemDefaultsTests
         context.ProblemDetails.Type.Should().Be($"https://crm.example/problems/{slug}");
         context.ProblemDetails.Instance.Should().Be("/v1/api-keys");
         context.ProblemDetails.Extensions["traceId"].Should().NotBeNull();
+        context.ProblemDetails.Extensions["code"].Should().Be(code);
     }
 
     [Fact]
@@ -39,5 +43,20 @@ public class ProblemDefaultsTests
         ProblemDefaults.Apply(context);
 
         context.ProblemDetails.Type.Should().Be("https://crm.example/problems/conflict");
+    }
+
+    [Fact]
+    public void A_code_set_by_the_mapper_is_not_overwritten()
+    {
+        var context = new ProblemDetailsContext
+        {
+            HttpContext = new DefaultHttpContext(),
+            ProblemDetails = new ProblemDetails { Status = 409, Type = ResultProblemMapper.TypeFor("conflict") },
+        };
+        context.ProblemDetails.Extensions["code"] = "tenancy.slug_taken";
+
+        ProblemDefaults.Apply(context);
+
+        context.ProblemDetails.Extensions["code"].Should().Be("tenancy.slug_taken");
     }
 }
