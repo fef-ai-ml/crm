@@ -8,7 +8,7 @@ Stack: .NET 10 modular monolith (API + Worker), React 19 dashboard, SQL Server 2
 
 ## Status
 
-Slice 1 (events → profiles → segments) has its foundation skeleton implemented and running: solution structure, Kernel, Contracts, the API/Worker/Web hosts, tenancy scaffolding, and CI. Tenancy, Ingestion, Profiles and Segmentation land next, each behind its own plan under `docs/superpowers/plans/`.
+Slice 1 (events → profiles → segments) has its foundation skeleton and Tenancy implemented and running: solution structure, Kernel, Contracts, the API/Worker/Web hosts, multi-tenant auth and CI. Ingestion, Profiles and Segmentation land next, each behind its own plan under `docs/superpowers/plans/`.
 
 | Phase | State |
 |---|---|

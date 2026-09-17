@@ -11,6 +11,10 @@ Base URL locally: `http://localhost:8080/v1`. All request and response bodies ar
 
 Roles: `Admin` may do everything; `Viewer` may only read profiles and segments. API keys can only call Ingest endpoints. Keys are rate limited with a token bucket of 2,000 requests per minute; exceeding it returns `429` with `Retry-After`.
 
+`POST /auth/login`, `POST /auth/refresh` and `POST /tenants` are anonymous and rate limited per client address (policy `auth`): a token bucket of 20 requests per minute; exceeding it returns `429` with `Retry-After`. Behind the bundled nginx proxy this depends on `ForwardedHeaders:KnownNetworks` trusting the proxy's network (set to the compose network in `deploy/docker-compose.yml`); a caller-supplied `X-Forwarded-For` is only honoured from a network listed there.
+
+An access token issued before logout or a tenant suspension stays valid until it expires (at most 15 minutes) — only the refresh token is revoked immediately.
+
 ## Errors
 
 Every error is `application/problem+json` (RFC 9457):
@@ -38,7 +42,7 @@ Every error is `application/problem+json` (RFC 9457):
 | 503 | Kafka unavailable at ingest; retry after `Retry-After` seconds |
 | 500 | Unexpected error; `traceId` identifies the trace |
 
-Every problem body also carries `code`, a stable machine-readable error code (for example `auth.invalid_credentials`, `auth.invalid_refresh_token`, `tenant.slug_taken`), safe to branch on in client code.
+Every problem body also carries `code`, a stable machine-readable error code, safe to branch on in client code. A specific failure (for example `auth.invalid_credentials`, `tenant.slug_taken`, `user.email_taken`) gets its own code; anything else falls back to one derived from the status: `request.invalid` (400), `auth.unauthorized` (401), `auth.forbidden` (403), `resource.not_found` (404), `request.conflict` (409), `rate_limit.exceeded` (429), `service.unavailable` (503), `server.unexpected` (otherwise).
 
 ## Pagination
 
@@ -140,11 +144,15 @@ Validation: depth ≤ 5, leaves ≤ 20, `key` matches `[A-Za-z0-9_]{1,64}`, `win
 | POST | `/auth/refresh` | none | No body; reads the `crm_refresh` cookie, rotates it, and returns `{ accessToken, expiresIn }` |
 | POST | `/auth/logout` | JWT | Revokes the caller's refresh tokens, clears the cookie, 204 |
 | POST | `/tenants` | none, development only | Body `{ name, slug, adminEmail, adminPassword }`; bootstraps a tenant and its first Admin; optional `viewerEmail` + `viewerPassword` also create a Viewer |
-| GET | `/api-keys` | JWT Admin | Returns `{ items, nextCursor }`; each item: `id`, `name`, `prefix`, `createdAt`, `lastUsedAt`, `revokedAt` |
+| GET | `/api-keys` | JWT Admin | Returns every key of the tenant as `{ items, nextCursor }`; each item: `id`, `name`, `prefix`, `createdAt`, `lastUsedAt`, `revokedAt` |
 | POST | `/api-keys` | JWT Admin | Body `{ name }`; returns the full key once: `{ id, name, prefix, key }` |
 | DELETE | `/api-keys/{id}` | JWT Admin | Revoke; takes effect immediately (cache eviction) |
 
-Protected operations document `bearer` security and their `401`/`403` problem responses in `openapi.json`.
+`GET /api-keys` does not accept `limit` or `cursor` (unlike the paginated lists above): it always returns the tenant's full key list, and `nextCursor` is always `null`.
+
+`DELETE /api-keys/{id}` is idempotent: the key is revoked in SQL before the cache is evicted, so a `5xx` from a failed eviction still means the revocation is recorded; retrying the same request completes the cache eviction without side effects.
+
+Protected operations document `bearer` security and their `401`/`403` problem responses in `openapi.json`. The `apiKey` security scheme is also declared in `openapi.json` for the ingest endpoints (`POST /track`, `/identify`, `/batch`) that arrive with the Ingestion plan; no currently-documented operation references it yet.
 
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8080/v1/auth/login \

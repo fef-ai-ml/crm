@@ -44,7 +44,7 @@ Key format: `crm_live_` + 32 base62 characters. Verification: look up by prefix,
 | TenantId | uniqueidentifier | no | FK to Tenants(Id); a user belongs to exactly one tenant |
 | DisplayName | nvarchar(128) | yes | |
 
-Roles: `Admin` (full access), `Viewer` (read-only on profiles and segments). Index: `IX_AspNetUsers_TenantId (TenantId)`.
+Roles: `Admin` (full access), `Viewer` (read-only on profiles and segments). Indexes: `IX_AspNetUsers_TenantId (TenantId)`; `EmailIndex (NormalizedEmail)` unique, filtered on `[NormalizedEmail] IS NOT NULL` (migration `EnforceUniqueEmail`). Emails are unique across all tenants, not just within one: login (`AuthService.LoginAsync`) looks a user up by normalized email alone, before a tenant is known.
 
 ## RefreshTokens
 
