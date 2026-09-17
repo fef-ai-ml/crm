@@ -5,7 +5,11 @@ namespace Crm.Api;
 
 /// <summary>
 /// CLI mode: `dotnet run --project src/Hosts/Crm.Api -- --export-openapi docs/api/openapi.json`
-/// builds the app, writes the OpenAPI 3.x document, and exits without listening. CI diffs the result (CT-001).
+/// builds the app, writes the OpenAPI 3.x document, and exits. CI diffs the result (CT-001).
+/// The ASP.NET Core endpoint metadata that the OpenAPI generator reads (via <see cref="Microsoft.AspNetCore.Mvc.ApiExplorer.IApiDescriptionGroupCollectionProvider"/>)
+/// is only wired up once the host actually starts (routing finalizes its endpoint data source then), so this briefly
+/// starts Kestrel bound to an OS-assigned loopback port (never a fixed/external one) purely to trigger that wiring,
+/// then stops it immediately; no request is ever served and no database/Redis/Kafka connection is required.
 /// </summary>
 public static class OpenApiExport
 {
@@ -32,8 +36,19 @@ public static class OpenApiExport
     public static async Task WriteAsync(WebApplication app, string path, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(app);
-        var provider = app.Services.GetRequiredKeyedService<IOpenApiDocumentProvider>("v1");
-        var document = await provider.GetOpenApiDocumentAsync(cancellationToken);
+        app.Urls.Clear();
+        app.Urls.Add("http://127.0.0.1:0");
+        await app.StartAsync(cancellationToken);
+        OpenApiDocument document;
+        try
+        {
+            var provider = app.Services.GetRequiredKeyedService<IOpenApiDocumentProvider>("v1");
+            document = await provider.GetOpenApiDocumentAsync(cancellationToken);
+        }
+        finally
+        {
+            await app.StopAsync(cancellationToken);
+        }
 
         var directory = Path.GetDirectoryName(Path.GetFullPath(path));
         if (!string.IsNullOrEmpty(directory))

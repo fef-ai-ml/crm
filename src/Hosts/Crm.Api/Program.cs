@@ -1,3 +1,4 @@
+using Crm.Api.OpenApi;
 using Crm.Api.Problems;
 using Crm.Hosting;
 using Crm.Ingestion.Infrastructure;
@@ -31,7 +32,7 @@ public class Program
         builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = ProblemDefaults.Apply);
         builder.Services.AddExceptionHandler<UnhandledExceptionHandler>();
         builder.Services.Configure<ForwardedHeadersOptions>(o => o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto);
-        builder.Services.AddOpenApi("v1");
+        builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer<CrmDocumentTransformer>());
 
         builder.Services.AddSingleton<IClock, SystemClock>();
         builder.Services.AddSingleton<IIdGenerator, UuidV7IdGenerator>();
@@ -46,13 +47,6 @@ public class Program
             .AddTenancyModule(builder.Configuration);
 
         var app = builder.Build();
-
-        if (exportPath is not null)
-        {
-            await OpenApiExport.WriteAsync(app, exportPath);
-            Log.Information("OpenAPI document written to {Path}", exportPath);
-            return;
-        }
 
         app.UseExceptionHandler();
         app.UseStatusCodePages();
@@ -74,14 +68,21 @@ public class Program
 
         var v1 = app.MapGroup("/v1").AddEndpointFilter<ErrorResultFilter>();
         v1.MapTenancyEndpoints();
-        if (app.Environment.IsDevelopment())
+        if (app.Environment.IsDevelopment() || exportPath is not null)
         {
-            v1.MapTenancyBootstrap();
+            v1.MapTenancyBootstrap(); // in the exported contract regardless of the exporting environment
         }
 
         if (app.Environment.IsEnvironment("Testing"))
         {
             v1.MapTenancyTestProbes();
+        }
+
+        if (exportPath is not null)
+        {
+            await OpenApiExport.WriteAsync(app, exportPath);
+            Log.Information("OpenAPI document written to {Path}", exportPath);
+            return;
         }
 
         if (app.Environment.IsDevelopment())

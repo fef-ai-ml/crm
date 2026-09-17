@@ -23,6 +23,9 @@ bld/
 [Ll]og/
 [Ll]ogs/
 
+# CT-001: scratch OpenAPI export used by CI drift diff (the committed copy lives in docs/api/)
+/build/
+
 # .NET Core
 project.lock.json
 project.fragment.lock.json

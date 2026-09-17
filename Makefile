@@ -105,8 +105,11 @@ test-integration: env ## run the Testcontainers suite against the active engine 
 
 test: test-unit test-integration ## run everything
 
-openapi: ## export docs/api/openapi.json from the API project
-	dotnet run --project src/Hosts/Crm.Api -- --export-openapi docs/api/openapi.json
+openapi: ## export docs/api/openapi.json from the API project (CT-001)
+	ConnectionStrings__Crm="Server=localhost;Database=crm;User Id=sa;Password=unused;TrustServerCertificate=True" \
+	Redis__Configuration="localhost:6379" Kafka__BootstrapServers="localhost:9092" \
+	Auth__SigningKey="openapi-export-only-0123456789abcdef0123456789" \
+	dotnet run --project src/Hosts/Crm.Api -c Release --no-launch-profile -- --export-openapi $(CURDIR)/docs/api/openapi.json
 
 migrate: ## apply EF Core migrations for every module (plan B)
 	@echo "wired by plan B" && exit 1
