@@ -1,5 +1,4 @@
 # CRM platform — developer entry points.
-# Targets marked (plan A/B) are wired up by later plans; targets not yet wired fail loudly.
 
 # Prefer the Compose plugin (docker compose) when present; fall back to the standalone
 # docker-compose binary otherwise. Keeps this Makefile working on either install.
@@ -41,7 +40,7 @@ else \
 fi
 endef
 
-.PHONY: help up down logs ps env tunnel tunnel-apps tunnel-down test-unit test-integration test docs-check compose-check seed migrate openapi web-dev web-install e2e
+.PHONY: help up down logs ps env tunnel tunnel-apps tunnel-down test-unit test-integration test-integration-run test docs-check compose-check seed migrate migrate-run openapi web-dev web-install e2e
 
 help: ## list targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -58,8 +57,8 @@ tunnel-apps: ## like tunnel, also forwards api/worker/web ports 8080 8081 3000 (
 tunnel-down: ## close the ssh tunnel
 	@pkill -f "ssh -fNT .*$(ENGINE_SOCK)" && echo "tunnel closed" || echo "no tunnel running"
 
-up: env ## start the stack (infrastructure now; api/worker/web after plan A)
-	$(COMPOSE) up -d --wait
+up: env ## start the stack: infrastructure, api, worker, web (builds images)
+	$(COMPOSE) up -d --build --wait
 	@echo ""
 	@echo "SQL Server  localhost:1433  (sa / see deploy/.env; engine-side port $(MSSQL_HOST_PORT))"
 	@echo "Kafka       localhost:19092 (external listener)"
@@ -97,6 +96,12 @@ test-unit: ## run unit + architecture + contract tests
 TESTCONTAINERS_HOST_OVERRIDE ?=
 
 test-integration: env ## run the Testcontainers suite against the active engine (see docs/dev-setup.md)
+	@$(MAKE) --no-print-directory test-integration-run
+
+# -include deploy/.env (top of file) is evaluated when make parses the Makefile, before the `env`
+# prerequisite above creates the file on a fresh clone; MSSQL_IMAGE below would resolve empty on that
+# first invocation. The sub-make re-parses the (now-existing) file, so this target sees the real value.
+test-integration-run:
 	DOCKER_HOST=$${DOCKER_HOST:-$$(docker context inspect --format '{{.Endpoints.docker.Host}}')} \
 	TESTCONTAINERS_RYUK_DISABLED=true \
 	MSSQL_IMAGE=$(MSSQL_IMAGE) \
@@ -114,6 +119,13 @@ openapi: ## export docs/api/openapi.json from the API project (CT-001)
 CRM_CONNECTION_STRING ?= Server=localhost,1433;Database=crm;User Id=sa;Password=$(MSSQL_SA_PASSWORD);TrustServerCertificate=True;Encrypt=False
 
 migrate: env ## apply EF Core migrations (module contexts with migrations: Tenancy)
+	@$(MAKE) --no-print-directory migrate-run
+
+# -include deploy/.env (top of file) is evaluated when make parses the Makefile, before the `env`
+# prerequisite above creates the file on a fresh clone; MSSQL_SA_PASSWORD (and so
+# CRM_CONNECTION_STRING) below would resolve empty on that first invocation. The sub-make re-parses
+# the (now-existing) file, so this target sees the real password.
+migrate-run:
 	dotnet tool restore
 	ConnectionStrings__Crm="$(CRM_CONNECTION_STRING)" dotnet ef database update \
 		--project src/Modules/Tenancy/Tenancy.Infrastructure \

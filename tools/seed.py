@@ -15,6 +15,15 @@ ENV_LOCAL = os.environ.get("CRM_ENV_LOCAL", ".env.local")
 ADMIN_EMAIL, VIEWER_EMAIL, PASSWORD = "admin@demo.local", "viewer@demo.local", "Demo-Passw0rd!"
 
 
+def parse(raw):
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {"detail": raw.decode(errors="replace")[:200]}
+
+
 def call(method, path, body=None, token=None):
     data = json.dumps(body).encode() if body is not None else None
     request = urllib.request.Request(BASE + path, data=data, method=method)
@@ -23,11 +32,11 @@ def call(method, path, body=None, token=None):
         request.add_header("Authorization", "Bearer " + token)
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            raw = response.read()
-            return response.status, json.loads(raw) if raw else None
+            return response.status, parse(response.read())
     except urllib.error.HTTPError as error:
-        raw = error.read()
-        return error.code, json.loads(raw) if raw else None
+        return error.code, parse(error.read())
+    except urllib.error.URLError as error:
+        sys.exit(f"seed: cannot reach {BASE}: {error.reason}")
 
 
 def fail(step, status, body):
