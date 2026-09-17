@@ -186,6 +186,34 @@ public sealed class AuthTests(CrmStackFixture stack) : IAsyncLifetime
         anonymousLogout.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
+    [Fact]
+    public async Task IT037_viewer_role_is_read_only()
+    {
+        var tenant = await TenancySeed.CreateTenantAsync(_factory);
+        var viewer = TenancySeed.AccessToken(_factory, tenant.ViewerUserId, tenant.TenantId, Roles.Viewer);
+
+        (await StatusAsync(HttpMethod.Get, "/v1/_test/read-probe", viewer)).Should().Be(HttpStatusCode.OK);
+        (await StatusAsync(HttpMethod.Post, "/v1/_test/write-probe", viewer)).Should().Be(HttpStatusCode.Forbidden);
+        (await StatusAsync(HttpMethod.Post, "/v1/api-keys", viewer)).Should().Be(HttpStatusCode.Forbidden);
+        (await StatusAsync(HttpMethod.Get, "/v1/api-keys", viewer)).Should().Be(HttpStatusCode.Forbidden);
+
+        var admin = TenancySeed.AccessToken(_factory, tenant.AdminUserId, tenant.TenantId, Roles.Admin);
+        (await StatusAsync(HttpMethod.Post, "/v1/_test/write-probe", admin)).Should().Be(HttpStatusCode.OK);
+    }
+
+    private async Task<HttpStatusCode> StatusAsync(HttpMethod method, string path, string bearer)
+    {
+        using var request = new HttpRequestMessage(method, path);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
+        if (method == HttpMethod.Post)
+        {
+            request.Content = JsonContent.Create(new { name = "sdk" });
+        }
+
+        using var response = await _client.SendAsync(request);
+        return response.StatusCode;
+    }
+
     private Task<HttpResponseMessage> LoginAsync(string email, string password)
         => _client.PostAsJsonAsync("/v1/auth/login", new { email, password });
 

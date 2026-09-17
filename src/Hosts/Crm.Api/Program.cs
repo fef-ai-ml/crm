@@ -74,6 +74,11 @@ public class Program
 
         var v1 = app.MapGroup("/v1").AddEndpointFilter<ErrorResultFilter>();
         v1.MapTenancyEndpoints();
+        if (app.Environment.IsDevelopment())
+        {
+            v1.MapTenancyBootstrap();
+        }
+
         if (app.Environment.IsEnvironment("Testing"))
         {
             v1.MapTenancyTestProbes();

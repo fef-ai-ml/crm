@@ -1,0 +1,74 @@
+using Crm.Kernel;
+using Crm.Kernel.Tenancy;
+using Crm.Kernel.Time;
+using Crm.Tenancy.Application;
+using Crm.Tenancy.Domain;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+
+namespace Crm.Tenancy.Infrastructure.Tenants;
+
+public sealed record BootstrapTenantCommand(string Name, string Slug, string AdminEmail, string AdminPassword, string? ViewerEmail, string? ViewerPassword);
+
+/// <summary>Development-only: one transaction creates the tenant, its Admin and, optionally, a Viewer.</summary>
+public sealed class TenantBootstrapService(TenancyDbContext db, UserManager<AppUser> users, TenantContext tenantContext, IClock clock)
+{
+    public async Task<Result<Tenant>> CreateAsync(BootstrapTenantCommand command, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        if (tenantContext.IsResolved)
+        {
+            return Error.Forbidden("tenant.bootstrap_authenticated", "Bootstrap must be called without credentials.");
+        }
+
+        var created = Tenant.Create(command.Name, command.Slug, clock.UtcNow);
+        if (created.IsFailure)
+        {
+            return created.Error!;
+        }
+
+        if (await db.Tenants.AnyAsync(t => t.Slug == command.Slug, cancellationToken))
+        {
+            return TenancyErrors.SlugTaken;
+        }
+
+        var emails = new[] { command.AdminEmail, command.ViewerEmail }.Where(e => e is not null).Select(e => users.NormalizeEmail(e)).ToList();
+        if (await db.Users.IgnoreQueryFilters().AnyAsync(u => emails.Contains(u.NormalizedEmail), cancellationToken))
+        {
+            return TenancyErrors.EmailTaken;
+        }
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var tenant = created.Value;
+        db.Tenants.Add(tenant);
+        await db.SaveChangesAsync(cancellationToken);
+        tenantContext.Resolve(tenant.Id, null, TenantPrincipalKind.None);
+
+        var failure = await CreateUserAsync(tenant.Id, command.AdminEmail, command.AdminPassword, Roles.Admin);
+        if (failure is null && command.ViewerEmail is not null && command.ViewerPassword is not null)
+        {
+            failure = await CreateUserAsync(tenant.Id, command.ViewerEmail, command.ViewerPassword, Roles.Viewer);
+        }
+
+        if (failure is not null)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return failure;
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return tenant;
+    }
+
+    private async Task<Error?> CreateUserAsync(Guid tenantId, string email, string password, string role)
+    {
+        var user = new AppUser { TenantId = tenantId, UserName = email, Email = email, EmailConfirmed = true };
+        var result = await users.CreateAsync(user, password);
+        if (result.Succeeded)
+        {
+            result = await users.AddToRoleAsync(user, role);
+        }
+
+        return result.Succeeded ? null : TenancyErrors.IdentityFailure(result.Errors.Select(e => (e.Code, e.Description)));
+    }
+}

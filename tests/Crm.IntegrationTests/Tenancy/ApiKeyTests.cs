@@ -1,6 +1,10 @@
 using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
 using Crm.IntegrationTests.Fixtures;
 using Crm.Kernel.Tenancy;
+using Crm.Tenancy.Domain;
 using Crm.Tenancy.Infrastructure;
 using Crm.Tenancy.Infrastructure.Auth;
 using FluentAssertions;
@@ -99,6 +103,61 @@ public sealed class ApiKeyTests(CrmStackFixture stack) : IAsyncLifetime
         {
             await stack.UnpauseRedisAsync();
         }
+    }
+
+    [Fact]
+    public async Task IT034_full_key_is_shown_once_and_revocation_is_immediate()
+    {
+        var tenant = await TenancySeed.CreateTenantAsync(_factory);
+        var other = await TenancySeed.CreateTenantAsync(_factory);
+        var admin = TenancySeed.AccessToken(_factory, tenant.AdminUserId, tenant.TenantId, Roles.Admin);
+
+        using var created = await SendJsonAsync(HttpMethod.Post, "/v1/api-keys", admin, new { name = "sdk" });
+        created.StatusCode.Should().Be(HttpStatusCode.Created);
+        using var createdBody = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        var key = createdBody.RootElement.GetProperty("key").GetString()!;
+        var id = createdBody.RootElement.GetProperty("id").GetGuid();
+        key.Should().MatchRegex("^crm_live_[0-9A-Za-z]{32}$");
+        createdBody.RootElement.GetProperty("prefix").GetString().Should().Be(key.Substring("crm_live_".Length, 8));
+
+        using var list = await SendJsonAsync(HttpMethod.Get, "/v1/api-keys", admin, null);
+        list.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var listBody = JsonDocument.Parse(await list.Content.ReadAsStringAsync());
+        var item = listBody.RootElement.GetProperty("items").EnumerateArray().Single();
+        item.GetProperty("prefix").GetString().Should().HaveLength(8);
+        item.TryGetProperty("key", out _).Should().BeFalse();
+        item.TryGetProperty("keyHash", out _).Should().BeFalse();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var row = await scope.ServiceProvider.GetRequiredService<TenancyDbContext>().ApiKeys.IgnoreQueryFilters().AsNoTracking().SingleAsync(k => k.Id == id);
+            row.KeyHash.Should().Equal(ApiKey.Hash(key));
+        }
+
+        (await SendAsync(HttpMethod.Post, IngestProbe, key)).Should().Be(HttpStatusCode.Accepted);
+
+        var otherAdmin = TenancySeed.AccessToken(_factory, other.AdminUserId, other.TenantId, Roles.Admin);
+        using var foreignDelete = await SendJsonAsync(HttpMethod.Delete, $"/v1/api-keys/{id}", otherAdmin, null);
+        foreignDelete.StatusCode.Should().Be(HttpStatusCode.NotFound, "another tenant cannot see the key");
+
+        using var deleted = await SendJsonAsync(HttpMethod.Delete, $"/v1/api-keys/{id}", admin, null);
+        deleted.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await SendAsync(HttpMethod.Post, IngestProbe, key)).Should().Be(HttpStatusCode.Unauthorized, "revoke evicts the cache entry");
+
+        using var blankName = await SendJsonAsync(HttpMethod.Post, "/v1/api-keys", admin, new { name = " " });
+        blankName.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    private async Task<HttpResponseMessage> SendJsonAsync(HttpMethod method, string path, string bearer, object? body)
+    {
+        using var request = new HttpRequestMessage(method, path);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
+        if (body is not null)
+        {
+            request.Content = JsonContent.Create(body);
+        }
+
+        return await _client.SendAsync(request);
     }
 
     private async Task<HttpStatusCode> SendAsync(HttpMethod method, string path, string apiKey)

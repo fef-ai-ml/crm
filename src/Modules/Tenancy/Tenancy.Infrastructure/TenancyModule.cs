@@ -4,6 +4,7 @@ using Crm.Kernel.Data;
 using Crm.Tenancy.Application;
 using Crm.Tenancy.Domain;
 using Crm.Tenancy.Infrastructure.Auth;
+using Crm.Tenancy.Infrastructure.Tenants;
 using Crm.Tenancy.Infrastructure.Tokens;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -51,6 +52,7 @@ public static class TenancyModule
         services.AddSingleton<ApiKeyUsageTracker>();
         services.AddScoped<IApiKeyAuthenticator, ApiKeyAuthenticator>();
         services.AddScoped<AuthService>();
+        services.AddScoped<TenantBootstrapService>();
 
         services.AddAuthentication(AuthSchemes.Smart)
             .AddPolicyScheme(AuthSchemes.Smart, AuthSchemes.Smart, o => o.ForwardDefaultSelector = SelectScheme)
