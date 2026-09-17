@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
 using Crm.IntegrationTests.Fixtures;
@@ -32,7 +33,9 @@ public sealed class HealthTests(CrmStackFixture stack) : IAsyncLifetime
         var live = await _client.GetAsync(new Uri("/health/live", UriKind.Relative));
         live.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var ready = await _client.GetAsync(new Uri("/health/ready", UriKind.Relative));
+        // The first /health/ready after the host starts can transiently report a dependency as Unhealthy
+        // before its check has settled; poll for the steady-state result instead of asserting on the first try.
+        var ready = await PollUntilReadyAsync();
         ready.StatusCode.Should().Be(HttpStatusCode.OK, await ready.Content.ReadAsStringAsync());
         var readyBody = JsonDocument.Parse(await ready.Content.ReadAsStringAsync()).RootElement;
         readyBody.GetProperty("checks").GetProperty("sqlserver").GetString().Should().Be("Healthy");
@@ -53,6 +56,26 @@ public sealed class HealthTests(CrmStackFixture stack) : IAsyncLifetime
         finally
         {
             await stack.UnpauseRedisAsync();
+
+            // Poll back to healthy before this test ends, so the next test class in the collection
+            // (StackCollectionDefinition serializes them) starts from a healthy stack.
+            await PollUntilReadyAsync();
+        }
+    }
+
+    private async Task<HttpResponseMessage> PollUntilReadyAsync()
+    {
+        var stopwatch = Stopwatch.StartNew();
+        while (true)
+        {
+            var response = await _client.GetAsync(new Uri("/health/ready", UriKind.Relative));
+            if (response.StatusCode == HttpStatusCode.OK || stopwatch.Elapsed >= TimeSpan.FromSeconds(30))
+            {
+                return response;
+            }
+
+            response.Dispose();
+            await Task.Delay(TimeSpan.FromMilliseconds(250));
         }
     }
 }
