@@ -70,7 +70,7 @@ public class Program
         if (app.Environment.IsDevelopment())
         {
             using var scope = app.Services.CreateScope();
-            scope.ServiceProvider.GetRequiredService<TenantContext>().Resolve(Guid.Parse("00000000-0000-0000-0000-000000000001"), null, TenantPrincipalKind.None);
+            await scope.ServiceProvider.GetRequiredService<TenancyDbContext>().Database.MigrateAsync();
             await scope.ServiceProvider.GetRequiredService<ProfilesDbContext>().Database.MigrateAsync();
             await scope.ServiceProvider.GetRequiredService<SegmentationDbContext>().Database.MigrateAsync();
         }

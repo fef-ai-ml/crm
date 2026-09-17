@@ -26,3 +26,6 @@ dotnet_naming_symbols.private_fields.applicable_accessibilities = private
 dotnet_naming_style.underscore_camel.capitalization = camel_case
 dotnet_naming_style.underscore_camel.required_prefix = _
 dotnet_diagnostic.IDE0005.severity = warning
+
+[**/Migrations/*.cs]
+generated_code = true

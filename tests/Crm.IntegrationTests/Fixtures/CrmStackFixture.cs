@@ -1,6 +1,9 @@
+using Crm.Kernel.Tenancy;
+using Crm.Tenancy.Infrastructure;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
 using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
 using Testcontainers.Kafka;
 using Testcontainers.Redis;
 using Xunit;
@@ -43,6 +46,7 @@ public sealed class CrmStackFixture : IAsyncLifetime
 
         await WaitForSqlLoginAsync(TimeSpan.FromSeconds(90));
         await EnsureDatabaseAsync("crm_test");
+        await MigrateTenancyAsync();
     }
 
     /// <summary>The API only auto-migrates in Development; tests run as "Testing", so the fixture creates the database itself.</summary>
@@ -54,6 +58,16 @@ public sealed class CrmStackFixture : IAsyncLifetime
         await using var command = connection.CreateCommand();
         command.CommandText = $"IF DB_ID(N'{name}') IS NULL CREATE DATABASE [{name}];";
         await command.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>Tests run as "Testing", where the API does not auto-migrate; the fixture owns the schema.</summary>
+    private async Task MigrateTenancyAsync()
+    {
+        var options = new DbContextOptionsBuilder<TenancyDbContext>()
+            .UseSqlServer(SqlConnectionString, sql => sql.MigrationsHistoryTable(TenancyDbContext.MigrationsHistoryTable, TenancyDbContext.Schema))
+            .Options;
+        await using var db = new TenancyDbContext(options, new TenantContext());
+        await db.Database.MigrateAsync();
     }
 
     public async Task DisposeAsync()
