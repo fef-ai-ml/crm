@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Crm.Api.Problems;
 using Crm.Hosting;
 using Crm.Ingestion.Infrastructure;
 using Crm.Kernel.Data;
@@ -28,6 +29,7 @@ public class Program
         builder.Services.AddCrmHealthChecks(builder.Configuration);
         builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = ctx =>
             ctx.ProblemDetails.Extensions["traceId"] = Activity.Current?.Id ?? ctx.HttpContext.TraceIdentifier);
+        builder.Services.AddExceptionHandler<UnhandledExceptionHandler>();
         builder.Services.AddOpenApi("v1");
 
         builder.Services.AddSingleton<IClock, SystemClock>();
@@ -64,8 +66,8 @@ public class Program
         app.MapCrmHealth();
         app.MapCrmMetrics();
 
-        var v1 = app.MapGroup("/v1");
-        _ = v1; // module endpoint groups (Tenancy, Ingestion, Profiles, Segments) attach here in later plans
+        var v1 = app.MapGroup("/v1").AddEndpointFilter<ErrorResultFilter>();
+        _ = v1; // Tenancy endpoints attach in Tasks 5–8
 
         if (app.Environment.IsDevelopment())
         {
