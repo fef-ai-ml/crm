@@ -19,6 +19,11 @@ internal static class TestProbeEndpoints
 
         probes.MapPost("/write-probe", () => TypedResults.Ok())
             .RequireAuthorization(AuthPolicies.AdminOnly);
+
+        probes.MapPost("/ingest-probe", () => TypedResults.Accepted((string?)null))
+            .RequireAuthorization(AuthPolicies.IngestOnly)
+            .RequireRateLimiting(RateLimitPolicies.Ingest)
+            .WithTags(EndpointTags.Ingest);
     }
 
     internal sealed record ProbeCount(int Count);

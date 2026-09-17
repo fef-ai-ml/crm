@@ -60,6 +60,7 @@ public class Program
         app.UseSerilogRequestLogging();
         app.UseAuthentication();
         app.UseTenantResolution();
+        app.UseRateLimiter();
         app.UseAuthorization();
 
         app.MapOpenApi("/openapi/{documentName}.json");

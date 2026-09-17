@@ -1,9 +1,14 @@
+using System.Globalization;
+using System.Threading.RateLimiting;
 using Crm.Kernel.Data;
 using Crm.Tenancy.Application;
 using Crm.Tenancy.Domain;
 using Crm.Tenancy.Infrastructure.Auth;
 using Crm.Tenancy.Infrastructure.Tokens;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -43,7 +48,13 @@ public static class TenancyModule
             .ValidateOnStart();
         services.AddSingleton<ITokenService, TokenService>();
 
-        services.AddAuthentication(AuthSchemes.Bearer).AddJwtBearer(AuthSchemes.Bearer, _ => { });
+        services.AddSingleton<ApiKeyUsageTracker>();
+        services.AddScoped<IApiKeyAuthenticator, ApiKeyAuthenticator>();
+
+        services.AddAuthentication(AuthSchemes.Smart)
+            .AddPolicyScheme(AuthSchemes.Smart, AuthSchemes.Smart, o => o.ForwardDefaultSelector = SelectScheme)
+            .AddJwtBearer(AuthSchemes.Bearer, _ => { })
+            .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(AuthSchemes.ApiKey, _ => { });
         services.AddOptions<JwtBearerOptions>(AuthSchemes.Bearer)
             .Configure<IOptions<AuthOptions>>((jwt, auth) =>
             {
@@ -56,6 +67,44 @@ public static class TenancyModule
             .AddPolicy(AuthPolicies.AdminOrViewer, p => p.RequireAuthenticatedUser().RequireRole(Roles.Admin, Roles.Viewer))
             .AddPolicy(AuthPolicies.IngestOnly, p => p.RequireAuthenticatedUser().RequireClaim(TenancyClaims.Kind, TenancyClaims.KindApiKey));
 
+        services.AddRateLimiter(limiter =>
+        {
+            limiter.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            limiter.OnRejected = (context, _) =>
+            {
+                var seconds = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter)
+                    ? Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds))
+                    : 60;
+                context.HttpContext.Response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
+                return ValueTask.CompletedTask;
+            };
+            limiter.AddPolicy(RateLimitPolicies.Ingest, http =>
+            {
+                var prefix = http.User.FindFirst(TenancyClaims.KeyPrefix)?.Value;
+                return prefix is null
+                    ? RateLimitPartition.GetNoLimiter("no-api-key")
+                    : RateLimitPartition.GetTokenBucketLimiter(prefix, _ => new TokenBucketRateLimiterOptions
+                    {
+                        TokenLimit = 2000,
+                        TokensPerPeriod = 2000,
+                        ReplenishmentPeriod = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                        AutoReplenishment = true,
+                    });
+            });
+        });
+
         return services;
+    }
+
+    private static string SelectScheme(HttpContext context)
+    {
+        var authorization = context.Request.Headers.Authorization.ToString();
+        if (authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            return AuthSchemes.Bearer;
+        }
+
+        return context.Request.Headers.ContainsKey(AuthSchemes.ApiKeyHeader) ? AuthSchemes.ApiKey : AuthSchemes.Bearer;
     }
 }
