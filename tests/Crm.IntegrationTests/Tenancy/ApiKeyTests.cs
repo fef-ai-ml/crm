@@ -81,6 +81,26 @@ public sealed class ApiKeyTests(CrmStackFixture stack) : IAsyncLifetime
         (await SendAsync(HttpMethod.Post, IngestProbe, key.Plaintext)).Should().Be(HttpStatusCode.Unauthorized);
     }
 
+    [Fact]
+    public async Task Api_key_authentication_falls_back_to_sql_while_redis_is_unavailable()
+    {
+        var tenant = await TenancySeed.CreateTenantAsync(_factory);
+        var key = await TenancySeed.AddApiKeyAsync(_factory, tenant);
+        var last = key.Plaintext[^1];
+        var tampered = key.Plaintext[..^1] + (last == 'a' ? 'b' : 'a');
+
+        await stack.PauseRedisAsync();
+        try
+        {
+            (await SendAsync(HttpMethod.Post, IngestProbe, key.Plaintext)).Should().Be(HttpStatusCode.Accepted, "authentication must fall back to SQL while Redis is unreachable");
+            (await SendAsync(HttpMethod.Post, IngestProbe, tampered)).Should().Be(HttpStatusCode.Unauthorized);
+        }
+        finally
+        {
+            await stack.UnpauseRedisAsync();
+        }
+    }
+
     private async Task<HttpStatusCode> SendAsync(HttpMethod method, string path, string apiKey)
     {
         using var request = new HttpRequestMessage(method, path);
