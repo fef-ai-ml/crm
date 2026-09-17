@@ -1,4 +1,6 @@
 using Crm.Kernel.Data;
+using Crm.Tenancy.Application;
+using Crm.Tenancy.Infrastructure.Tokens;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -30,6 +32,12 @@ public static class TenancyModule
             })
             .AddRoles<IdentityRole>()
             .AddEntityFrameworkStores<TenancyDbContext>();
+
+        services.AddOptions<AuthOptions>()
+            .Bind(configuration.GetSection(AuthOptions.SectionName))
+            .Validate(o => o.IsValid(out _), $"Auth options are invalid: signing key must be at least {AuthOptions.MinSigningKeyBytes} bytes; issuer, audience and lifetimes are required.")
+            .ValidateOnStart();
+        services.AddSingleton<ITokenService, TokenService>();
 
         return services;
     }

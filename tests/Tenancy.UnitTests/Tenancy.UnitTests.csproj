@@ -12,5 +12,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Modules\Tenancy\Tenancy.Application\Tenancy.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Tenancy\Tenancy.Infrastructure\Tenancy.Infrastructure.csproj" />
   </ItemGroup>
 </Project>
