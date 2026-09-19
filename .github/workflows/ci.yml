@@ -67,6 +67,8 @@ jobs:
         with:
           global-json-file: global.json
       - run: python3 tools/docs_check.py
+      - name: tooling unit tests (compose_check, observability assets, image pins)
+        run: python3 -m unittest discover -s tools/tests -v
       - name: export OpenAPI and diff against committed document (CT-001)
         run: |
           mkdir -p build
