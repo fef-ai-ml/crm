@@ -2,6 +2,7 @@ using Crm.Api.OpenApi;
 using Crm.Api.Problems;
 using Crm.Hosting;
 using Crm.Ingestion.Infrastructure;
+using Crm.Ingestion.Infrastructure.Endpoints;
 using Crm.Kernel.Data;
 using Crm.Kernel.Ids;
 using Crm.Kernel.Tenancy;
@@ -9,6 +10,7 @@ using Crm.Kernel.Time;
 using Crm.Profiles.Infrastructure;
 using Crm.Segmentation.Infrastructure;
 using Crm.Tenancy.Infrastructure;
+using Crm.Tenancy.Infrastructure.Auth;
 using Crm.Tenancy.Infrastructure.Endpoints;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
@@ -85,6 +87,14 @@ public class Program
 
         var v1 = app.MapGroup("/v1").AddEndpointFilter<ErrorResultFilter>();
         v1.MapTenancyEndpoints();
+
+        // Composition root: Ingestion may not reference Tenancy, so the policy, limiter and tag are applied here.
+        v1.MapGroup(string.Empty)
+            .RequireAuthorization(AuthPolicies.IngestOnly)
+            .RequireRateLimiting(RateLimitPolicies.Ingest)
+            .WithTags(EndpointTags.Ingest)
+            .MapIngestionEndpoints();
+
         if (app.Environment.IsDevelopment() || exportPath is not null)
         {
             v1.MapTenancyBootstrap(); // in the exported contract regardless of the exporting environment

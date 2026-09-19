@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Crm.Api.UnitTests;
 
-/// <summary>CT-001 (plan B scope): the committed document lists exactly the Tenancy operations. Freshness is enforced by the CI drift step.</summary>
+/// <summary>CT-001: the committed document lists exactly the implemented operations. Freshness is enforced by the CI drift step.</summary>
 public class OpenApiDocumentTests
 {
     private static readonly string[] Expected =
@@ -15,11 +15,14 @@ public class OpenApiDocumentTests
         "POST /v1/auth/login",
         "POST /v1/auth/logout",
         "POST /v1/auth/refresh",
+        "POST /v1/batch",
+        "POST /v1/identify",
         "POST /v1/tenants",
+        "POST /v1/track",
     ];
 
     [Fact]
-    public void CT001_committed_document_lists_exactly_the_tenancy_operations()
+    public void CT001_committed_document_lists_exactly_the_implemented_operations()
     {
         using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(RepoRoot(), "docs/api/openapi.json")));
 
@@ -43,13 +46,16 @@ public class OpenApiDocumentTests
 
     private static readonly ExpectedOperation[] ExpectedOperations =
     [
-        new("POST", "/v1/auth/login", ["200", "400", "401", "429"], RequiresBearer: false),
-        new("POST", "/v1/auth/refresh", ["200", "401", "429"], RequiresBearer: false),
-        new("POST", "/v1/auth/logout", ["204", "401", "403"], RequiresBearer: true),
-        new("POST", "/v1/tenants", ["201", "400", "409", "429"], RequiresBearer: false),
-        new("GET", "/v1/api-keys", ["200", "401", "403"], RequiresBearer: true),
-        new("POST", "/v1/api-keys", ["201", "400", "401", "403"], RequiresBearer: true),
-        new("DELETE", "/v1/api-keys/{id}", ["204", "401", "403", "404"], RequiresBearer: true),
+        new("POST", "/v1/auth/login", ["200", "400", "401", "429"], Security: null),
+        new("POST", "/v1/auth/refresh", ["200", "401", "429"], Security: null),
+        new("POST", "/v1/auth/logout", ["204", "401", "403"], Security: "bearer"),
+        new("POST", "/v1/tenants", ["201", "400", "409", "429"], Security: null),
+        new("GET", "/v1/api-keys", ["200", "401", "403"], Security: "bearer"),
+        new("POST", "/v1/api-keys", ["201", "400", "401", "403"], Security: "bearer"),
+        new("DELETE", "/v1/api-keys/{id}", ["204", "401", "403", "404"], Security: "bearer"),
+        new("POST", "/v1/track", ["202", "400", "401", "403", "429", "503"], Security: "apiKey"),
+        new("POST", "/v1/identify", ["202", "400", "401", "403", "429", "503"], Security: "apiKey"),
+        new("POST", "/v1/batch", ["202", "400", "401", "403", "429", "503"], Security: "apiKey"),
     ];
 
     [Fact]
@@ -67,19 +73,19 @@ public class OpenApiDocumentTests
             statusCodes.Should().Equal(expected.StatusCodes.Order(StringComparer.Ordinal), $"{expected.Method} {expected.Path}");
 
             var hasSecurity = operation.TryGetProperty("security", out var security);
-            if (expected.RequiresBearer)
+            if (expected.Security is { } scheme)
             {
                 hasSecurity.Should().BeTrue($"{expected.Method} {expected.Path} should require authentication");
                 security.GetArrayLength().Should().Be(1);
                 var requirement = security.EnumerateArray().Single();
-                requirement.EnumerateObject().Select(p => p.Name).Should().Equal("bearer");
+                requirement.EnumerateObject().Select(p => p.Name).Should().Equal(scheme);
             }
             else
             {
                 hasSecurity.Should().BeFalse($"{expected.Method} {expected.Path} should be anonymous");
             }
 
-            foreach (var response in responses.EnumerateObject().Where(r => r.Name.StartsWith('4')))
+            foreach (var response in responses.EnumerateObject().Where(r => r.Name.StartsWith('4') || r.Name.StartsWith('5')))
             {
                 response.Value.TryGetProperty("content", out var content)
                     .Should().BeTrue($"{expected.Method} {expected.Path} {response.Name} should have a body");
@@ -128,5 +134,5 @@ public class OpenApiDocumentTests
         return dir?.FullName ?? throw new InvalidOperationException("Crm.sln not found above the test directory.");
     }
 
-    private sealed record ExpectedOperation(string Method, string Path, string[] StatusCodes, bool RequiresBearer);
+    private sealed record ExpectedOperation(string Method, string Path, string[] StatusCodes, string? Security);
 }
