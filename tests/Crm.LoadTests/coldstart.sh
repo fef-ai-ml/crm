@@ -10,6 +10,8 @@
 #
 # Preconditions: no container of the compose project is running (`make down` first), and with a remote
 # engine the app tunnel is already up (`make tunnel-apps`), because seeding and the probe use localhost.
+#
+# Exit codes: 0 within budgets, 1 over budget or on a `make`/probe failure, 2 when the stack is already running.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -27,18 +29,27 @@ fi
 now() { date +%s; }
 
 started=$(now)
-make up "$@"
+make up "$@" || { echo "LT-005: 'make up' failed" >&2; exit 1; }
 up_seconds=$(( $(now) - started ))
 
 started=$(now)
-make seed "$@"
+make seed "$@" || { echo "LT-005: 'make seed' failed" >&2; exit 1; }
 seed_seconds=$(( $(now) - started ))
 
-token=$(curl -fsS -X POST "$BASE_URL/v1/auth/login" \
+# Nothing in the probe may trip `set -e`: a failed login still has to print the result row and exit 1.
+token=$(curl -sS -X POST "$BASE_URL/v1/auth/login" \
   -H 'Content-Type: application/json' \
   -d '{"email":"admin@demo.local","password":"Demo-Passw0rd!"}' \
-  | python3 -c 'import json, sys; print(json.load(sys.stdin)["accessToken"])')
-probe_status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/v1/api-keys" -H "Authorization: Bearer $token")
+  | python3 -c 'import json, sys
+try:
+    print(json.load(sys.stdin)["accessToken"])
+except Exception:
+    pass' || true)
+if [ -n "$token" ]; then
+  probe_status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/v1/api-keys" -H "Authorization: Bearer $token" || true)
+else
+  probe_status="login-failed"
+fi
 
 verdict=pass
 [ "$up_seconds" -le "$UP_BUDGET" ] || verdict=fail
