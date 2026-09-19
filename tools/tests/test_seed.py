@@ -11,16 +11,48 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import seed  # noqa: E402
 
 
+class KeyPrefixTests(unittest.TestCase):
+    def test_valid_key_returns_first_eight_chars_of_secret(self):
+        self.assertEqual(seed.key_prefix("crm_live_abcdefghijklmnopqrstuvwxyz012345"), "abcdefgh")
+
+    def test_wrong_scheme_returns_none(self):
+        self.assertIsNone(seed.key_prefix("sk_live_abcdefghijklmnop"))
+
+    def test_secret_shorter_than_eight_returns_none(self):
+        self.assertIsNone(seed.key_prefix("crm_live_abc"))
+
+    def test_none_input_returns_none(self):
+        self.assertIsNone(seed.key_prefix(None))
+
+
+class ActivePrefixesTests(unittest.TestCase):
+    def test_revoked_items_are_excluded(self):
+        items = [
+            {"prefix": "abcdefgh", "revokedAt": "2024-01-01T00:00:00Z"},
+            {"prefix": "ijklmnop", "revokedAt": None},
+        ]
+        self.assertEqual(seed.active_prefixes(items), {"ijklmnop"})
+
+    def test_missing_revoked_at_is_treated_as_active(self):
+        items = [{"prefix": "qrstuvwx"}]
+        self.assertEqual(seed.active_prefixes(items), {"qrstuvwx"})
+
+
 class ShouldMintTests(unittest.TestCase):
-    def test_fresh_tenant_means_stale_key_so_mint(self):
-        self.assertTrue(seed.should_mint(True, "crm_live_old"))
+    def test_no_stored_key_mints(self):
+        self.assertTrue(seed.should_mint(None, {"abcdefgh"}))
+        self.assertTrue(seed.should_mint("", {"abcdefgh"}))
 
-    def test_existing_tenant_with_key_does_not_mint(self):
-        self.assertFalse(seed.should_mint(False, "crm_live_old"))
+    def test_stored_key_not_parseable_mints(self):
+        self.assertTrue(seed.should_mint("not-a-key", {"abcdefgh"}))
 
-    def test_existing_tenant_without_key_mints(self):
-        self.assertTrue(seed.should_mint(False, None))
-        self.assertTrue(seed.should_mint(False, ""))
+    def test_stored_key_prefix_not_active_mints(self):
+        stored = "crm_live_zzzzzzzzijklmnopqrstuvwxyz012345"
+        self.assertTrue(seed.should_mint(stored, {"abcdefgh"}))
+
+    def test_stored_key_prefix_active_keeps_it(self):
+        stored = "crm_live_abcdefghijklmnopqrstuvwxyz012345"
+        self.assertFalse(seed.should_mint(stored, {"abcdefgh"}))
 
 
 class WriteKeyTests(unittest.TestCase):

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Bootstrap the demo tenant against a running Development API (make seed).
 
-Idempotent: an existing tenant (409) is reused, keeping any API key already in
-.env.local; a freshly created tenant (201) means the stored key is stale, so a
-new one is minted and replaces it. Standard library only.
+Idempotent: an existing tenant (409) is reused. The CRM_API_KEY stored in
+.env.local is kept only when it is an active (non-revoked) key of the tenant,
+per GET /v1/api-keys; otherwise (no stored key, an unparsable one, or one
+belonging to a deleted or revoked key) a new key is minted and replaces it.
+Standard library only.
 """
 import json
 import os
@@ -14,6 +16,8 @@ import urllib.request
 BASE = os.environ.get("CRM_API_URL", "http://localhost:8080").rstrip("/")
 ENV_LOCAL = os.environ.get("CRM_ENV_LOCAL", ".env.local")
 ADMIN_EMAIL, VIEWER_EMAIL, PASSWORD = "admin@demo.local", "viewer@demo.local", "Demo-Passw0rd!"
+KEY_SCHEME = "crm_live_"
+PREFIX_LENGTH = 8
 
 
 def parse(raw):
@@ -55,8 +59,22 @@ def existing_key(path: str = ENV_LOCAL):
     return None
 
 
-def should_mint(tenant_created: bool, stored_key) -> bool:
-    return tenant_created or not stored_key
+def key_prefix(key):
+    if not key or not key.startswith(KEY_SCHEME):
+        return None
+    secret = key[len(KEY_SCHEME):]
+    if len(secret) < PREFIX_LENGTH:
+        return None
+    return secret[:PREFIX_LENGTH]
+
+
+def active_prefixes(items) -> set:
+    return {item["prefix"] for item in items if not item.get("revokedAt")}
+
+
+def should_mint(stored_key, active_prefixes: set) -> bool:
+    prefix = key_prefix(stored_key)
+    return not stored_key or prefix is None or prefix not in active_prefixes
 
 
 def write_key(path: str, key: str) -> None:
@@ -88,7 +106,6 @@ def main():
         "adminEmail": ADMIN_EMAIL, "adminPassword": PASSWORD,
         "viewerEmail": VIEWER_EMAIL, "viewerPassword": PASSWORD,
     })
-    tenant_created = status == 201
     if status == 201:
         print(f"seed: created tenant demo ({body['tenantId']})")
     elif status == 409:
@@ -104,12 +121,25 @@ def main():
     token = body["accessToken"]
     print(f"seed: login ok as {ADMIN_EMAIL} (expires in {body['expiresIn']} s)")
 
+    items = []
+    cursor = None
+    while True:
+        path = "/v1/api-keys" + (f"?cursor={cursor}" if cursor else "")
+        status, body = call("GET", path, token=token)
+        if status != 200:
+            fail("list api keys", status, body)
+        items.extend(body["items"])
+        cursor = body.get("nextCursor")
+        if not cursor:
+            break
+
     stored = existing_key()
-    if not should_mint(tenant_created, stored):
+    if not should_mint(stored, active_prefixes(items)):
         print(f"seed: {ENV_LOCAL} already holds CRM_API_KEY; not minting another")
         return
     if stored:
-        print(f"seed: tenant was just created, so the CRM_API_KEY in {ENV_LOCAL} is stale; replacing it")
+        print(f"seed: the CRM_API_KEY in {ENV_LOCAL} is not an active key of this tenant "
+              f"(database recreated or key revoked); replacing it")
 
     status, body = call("POST", "/v1/api-keys", {"name": "sdk"}, token)
     if status != 201:
