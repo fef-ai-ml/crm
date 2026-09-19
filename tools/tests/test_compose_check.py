@@ -11,10 +11,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import compose_check  # noqa: E402
 
 
-def svc(target: int | None = None, published: str | None = None, healthcheck: bool = False, **extra) -> dict:
+def svc(
+    target: int | None = None,
+    published: str | None = None,
+    healthcheck: bool = False,
+    host_ip: str | None = None,
+    **extra,
+) -> dict:
     service: dict = dict(extra)
     if target is not None:
-        service["ports"] = [{"target": target, "published": published or str(target)}]
+        port: dict = {"target": target, "published": published or str(target)}
+        if host_ip is not None:
+            port["host_ip"] = host_ip
+        service["ports"] = [port]
     if healthcheck:
         service["healthcheck"] = {"test": ["CMD", "true"]}
     return service
@@ -42,9 +51,9 @@ def base_config() -> dict:
 def observability_config() -> dict:
     config = base_config()
     services = config["services"]
-    services["prometheus"] = svc(9090, healthcheck=True)
-    services["grafana"] = svc(3000, "3001", healthcheck=True)
-    services["jaeger"] = svc(16686)
+    services["prometheus"] = svc(9090, healthcheck=True, host_ip="127.0.0.1", profiles=["observability"])
+    services["grafana"] = svc(3000, "3001", healthcheck=True, host_ip="127.0.0.1", profiles=["observability"])
+    services["jaeger"] = svc(16686, host_ip="127.0.0.1", profiles=["observability"])
     for name in ("api", "worker"):
         services[name]["environment"]["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://jaeger:4317"
     return config
@@ -107,6 +116,30 @@ class ObservabilityModeTests(unittest.TestCase):
         snapshot = copy.deepcopy(config)
         compose_check.check(config, observability=True)
         self.assertEqual(config, snapshot)
+
+    def test_prometheus_not_bound_to_loopback_is_reported(self):
+        config = observability_config()
+        config["services"]["prometheus"]["ports"][0]["host_ip"] = "0.0.0.0"
+        errors = compose_check.check(config, observability=True)
+        self.assertTrue(any(e.startswith("prometheus:") and "127.0.0.1" in e for e in errors), errors)
+
+    def test_grafana_missing_host_ip_is_reported(self):
+        config = observability_config()
+        del config["services"]["grafana"]["ports"][0]["host_ip"]
+        errors = compose_check.check(config, observability=True)
+        self.assertTrue(any(e.startswith("grafana:") and "127.0.0.1" in e for e in errors), errors)
+
+    def test_jaeger_publishing_the_otlp_port_is_reported(self):
+        config = observability_config()
+        config["services"]["jaeger"]["ports"].append({"target": 4317, "published": "4317", "host_ip": "127.0.0.1"})
+        errors = compose_check.check(config, observability=True)
+        self.assertTrue(any(e.startswith("jaeger:") and "4317" in e for e in errors), errors)
+
+    def test_service_without_the_observability_profile_is_reported(self):
+        config = observability_config()
+        config["services"]["grafana"]["profiles"] = []
+        errors = compose_check.check(config, observability=True)
+        self.assertTrue(any(e.startswith("grafana:") and "profile" in e for e in errors), errors)
 
 
 if __name__ == "__main__":

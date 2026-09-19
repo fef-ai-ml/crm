@@ -18,7 +18,11 @@ Asserts (see docs/test/architecture-contract.md CT-005):
   ships no shell to run one)
 - worker's depends_on matches the infrastructure-only wiring: sqlserver and redis healthy,
   kafka-init completed successfully
-- with --observability: api and worker export OTLP to http://jaeger:4317
+- with --observability: api and worker export OTLP to http://jaeger:4317; prometheus, grafana and
+  jaeger publish their host port on 127.0.0.1 only (anonymous Grafana and unauthenticated
+  Prometheus/Jaeger must not face the LAN on a remote engine); jaeger does not publish container
+  port 4317 (OTLP stays compose-network-only); prometheus, grafana and jaeger each carry
+  `profiles: [observability]`
 
 Exits non-zero with a message naming every mismatch found.
 """
@@ -57,6 +61,13 @@ WORKER_DEPENDS_ON = {
 OTLP_VARIABLE = "OTEL_EXPORTER_OTLP_ENDPOINT"
 OTLP_ENDPOINT = "http://jaeger:4317"
 OTLP_SERVICES = ("api", "worker")
+
+# I3: the observability profile's published ports must bind to the engine's loopback, not every
+# interface — the ssh tunnel's `-L …:localhost:PORT` still reaches them because `localhost` there
+# resolves on the engine.
+OBSERVABILITY_LOOPBACK_HOST_IP = "127.0.0.1"
+JAEGER_OTLP_TARGET = 4317
+OBSERVABILITY_PROFILE = "observability"
 
 
 def find_port(service: dict, target: int) -> dict | None:
@@ -144,6 +155,27 @@ def check(config: dict, observability: bool = False) -> list[str]:
             actual = environment_of(service).get(OTLP_VARIABLE, "")
             if actual != OTLP_ENDPOINT:
                 errors.append(f"{name}: expected {OTLP_VARIABLE}={OTLP_ENDPOINT}, got {actual!r}")
+
+        for name in sorted(OBSERVABILITY_SERVICES):
+            service = services.get(name)
+            if service is None:
+                continue  # already reported as missing above
+
+            target = OBSERVABILITY_PORTS[name][0]
+            port = find_port(service, target)
+            if port is not None and port.get("host_ip") != OBSERVABILITY_LOOPBACK_HOST_IP:
+                errors.append(
+                    f"{name}: published port {target} must bind to {OBSERVABILITY_LOOPBACK_HOST_IP} "
+                    f"(anonymous/unauthenticated access must not face the LAN), got host_ip {port.get('host_ip')!r}"
+                )
+
+            profiles = service.get("profiles") or []
+            if OBSERVABILITY_PROFILE not in profiles:
+                errors.append(f"{name}: missing profile {OBSERVABILITY_PROFILE!r}")
+
+        jaeger = services.get("jaeger")
+        if jaeger is not None and find_port(jaeger, JAEGER_OTLP_TARGET) is not None:
+            errors.append(f"jaeger: OTLP port {JAEGER_OTLP_TARGET} must not be published (compose network only)")
 
     return errors
 

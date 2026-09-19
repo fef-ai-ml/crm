@@ -34,9 +34,12 @@ TUNNEL_PORTS     := -L 1433:localhost:$(MSSQL_HOST_PORT) -L 6380:localhost:$(RED
 TUNNEL_APP_PORTS := -L 8080:localhost:8080 -L 8081:localhost:8081 -L 3000:localhost:3000
 TUNNEL_OBS_PORTS := -L 9090:localhost:$(PROMETHEUS_HOST_PORT) -L 3001:localhost:$(GRAFANA_HOST_PORT) -L 16686:localhost:$(JAEGER_HOST_PORT)
 
-# $(call open_tunnel,<-L flags>,<probe port>,<label>) — no-op when a tunnel forwarding <probe port> is already up.
+# $(call open_tunnel,<-L flags>,<forward spec>,<label>) — no-op when a tunnel already forwarding the
+# full <forward spec> (e.g. "9090:localhost:9090") is up; the trailing space anchors the match so a
+# changed engine-side port (e.g. "9090:localhost:19090") does not match a shorter existing forward,
+# because the forward list is always followed by another " -L …" or the host name.
 define open_tunnel
-if DOCKER_HOST=unix://$(ENGINE_SOCK) docker version >/dev/null 2>&1 && pgrep -f "ssh -fNT .*-L $(2):localhost" >/dev/null; then \
+if DOCKER_HOST=unix://$(ENGINE_SOCK) docker version >/dev/null 2>&1 && pgrep -f "ssh -fNT .*-L $(2) " >/dev/null; then \
 	echo "tunnel to $(ENGINE_SSH_HOST) already up ($(3))"; \
 else \
 	pkill -f "ssh -fNT .*$(ENGINE_SOCK)" 2>/dev/null || true; sleep 1; \
@@ -56,13 +59,13 @@ env: ## create deploy/.env from the example when absent
 	@test -f $(ENV_FILE) || (cp $(ENV_EXAMPLE) $(ENV_FILE) && echo "created $(ENV_FILE) from example")
 
 tunnel: ## ssh tunnel to the remote engine: podman socket + infra ports (1433, 6380, 19092)
-	@$(call open_tunnel,$(TUNNEL_PORTS),1433,localhost:1433->$(MSSQL_HOST_PORT) 6380 19092)
+	@$(call open_tunnel,$(TUNNEL_PORTS),1433:localhost:$(MSSQL_HOST_PORT),localhost:1433->$(MSSQL_HOST_PORT) 6380 19092)
 
 tunnel-apps: ## like tunnel, also forwards api/worker/web ports 8080 8081 3000 (apps running in compose)
-	@$(call open_tunnel,$(TUNNEL_PORTS) $(TUNNEL_APP_PORTS),8080,localhost:1433->$(MSSQL_HOST_PORT) 6380 19092 8080 8081 3000)
+	@$(call open_tunnel,$(TUNNEL_PORTS) $(TUNNEL_APP_PORTS),8080:localhost:8080,localhost:1433->$(MSSQL_HOST_PORT) 6380 19092 8080 8081 3000)
 
 tunnel-observability: ## like tunnel-apps, also forwards Prometheus 9090, Grafana 3001, Jaeger 16686
-	@$(call open_tunnel,$(TUNNEL_PORTS) $(TUNNEL_APP_PORTS) $(TUNNEL_OBS_PORTS),9090,localhost:1433->$(MSSQL_HOST_PORT) 6380 19092 8080 8081 3000 9090 3001 16686)
+	@$(call open_tunnel,$(TUNNEL_PORTS) $(TUNNEL_APP_PORTS) $(TUNNEL_OBS_PORTS),9090:localhost:$(PROMETHEUS_HOST_PORT),localhost:1433->$(MSSQL_HOST_PORT) 6380 19092 8080 8081 3000 9090 3001 16686)
 
 tunnel-down: ## close the ssh tunnel
 	@pkill -f "ssh -fNT .*$(ENGINE_SOCK)" && echo "tunnel closed" || echo "no tunnel running"
@@ -80,9 +83,9 @@ up: env ## start the stack: infrastructure, api, worker, web (builds images)
 up-observability: env ## start the stack plus Prometheus, Grafana and Jaeger (api/worker export OTLP to Jaeger)
 	$(COMPOSE_OBS) up -d --build --wait
 	@echo ""
-	@echo "Prometheus  http://localhost:9090   (targets: api:8080/metrics, worker:8081/metrics)"
-	@echo "Grafana     http://localhost:3001   (dashboard: CRM overview, anonymous Viewer)"
-	@echo "Jaeger      http://localhost:16686  (services Crm.Api, Crm.Worker)"
+	@echo "Prometheus  http://localhost:9090   (targets: api:8080/metrics, worker:8081/metrics; engine-side port $(PROMETHEUS_HOST_PORT))"
+	@echo "Grafana     http://localhost:3001   (dashboard: CRM overview, anonymous Viewer; engine-side port $(GRAFANA_HOST_PORT))"
+	@echo "Jaeger      http://localhost:16686  (services Crm.Api, Crm.Worker; engine-side port $(JAEGER_HOST_PORT))"
 
 down: ## stop the stack (observability included) and remove volumes (KEEP=1 keeps data)
 ifeq ($(KEEP),1)
