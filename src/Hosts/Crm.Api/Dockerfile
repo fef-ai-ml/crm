@@ -5,6 +5,10 @@ COPY src/ src/
 RUN find src -type f ! \( -name '*.csproj' -o -name '*.props' -o -name '*.targets' \) -delete
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# Opt-in for hosts whose IPv6 route is broken (DNS answers with AAAA records, connections time out):
+# `dotnet restore` then hangs on nuget.org with NU1301. 1 = .NET uses IPv4 sockets only. Build stage only.
+ARG DOTNET_SYSTEM_NET_DISABLEIPV6=0
+ENV DOTNET_SYSTEM_NET_DISABLEIPV6=${DOTNET_SYSTEM_NET_DISABLEIPV6}
 WORKDIR /src
 COPY --from=projfiles /src/ ./
 # Keep this Dockerfile identical to Crm.Worker/Dockerfile up to and including this restore line: a differing

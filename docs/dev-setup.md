@@ -29,6 +29,7 @@ open http://localhost:8080/swagger # API reference (Development only)
 - Redis is published on host port 6380 (`REDIS_HOST_PORT`) because 6379 is frequently taken by other local projects.
 - Testcontainers needs the engine socket and no Ryuk: `make test-integration` uses `DOCKER_HOST` when set (e.g. the ssh tunnel socket), else the active docker context; it also sets `TESTCONTAINERS_RYUK_DISABLED=true` and `MSSQL_IMAGE` from `deploy/.env`. Run it directly with those variables set if you bypass the Makefile.
 - Port conflicts show up as `proxy already running` from the Podman API. Check `docker ps -a --format '{{.Names}} {{.Ports}}'` for the container holding the port and change the host port in `deploy/.env`.
+- `NU1301 … api.nuget.org … timed out after 100000ms` during `make up`, for many minutes, means the engine host resolves nuget.org to an IPv6 address but has a dead IPv6 route. Fix with `make up DOTNET_SYSTEM_NET_DISABLEIPV6=1`, or set `DOTNET_SYSTEM_NET_DISABLEIPV6=1` in `deploy/.env`; it is a build argument of the api and worker images and affects the build stage only. Changing the value rebuilds the restore layer once.
 
 ## Remote engine (ssh tunnel)
 

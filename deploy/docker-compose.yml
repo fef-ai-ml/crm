@@ -94,6 +94,9 @@ services:
     build:
       context: ..
       dockerfile: src/Hosts/Crm.Api/Dockerfile
+      args:
+        # `make up DOTNET_SYSTEM_NET_DISABLEIPV6=1` when the engine host cannot reach nuget.org over IPv6.
+        DOTNET_SYSTEM_NET_DISABLEIPV6: ${DOTNET_SYSTEM_NET_DISABLEIPV6:-0}
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Crm: "Server=sqlserver,1433;Database=crm;User Id=sa;Password=${MSSQL_SA_PASSWORD};TrustServerCertificate=True;Encrypt=False"
@@ -126,6 +129,9 @@ services:
     build:
       context: ..
       dockerfile: src/Hosts/Crm.Worker/Dockerfile
+      args:
+        # `make up DOTNET_SYSTEM_NET_DISABLEIPV6=1` when the engine host cannot reach nuget.org over IPv6.
+        DOTNET_SYSTEM_NET_DISABLEIPV6: ${DOTNET_SYSTEM_NET_DISABLEIPV6:-0}
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Crm: "Server=sqlserver,1433;Database=crm;User Id=sa;Password=${MSSQL_SA_PASSWORD};TrustServerCertificate=True;Encrypt=False"
