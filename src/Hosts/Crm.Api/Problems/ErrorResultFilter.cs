@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using Crm.Kernel;
 
 namespace Crm.Api.Problems;
@@ -18,6 +19,11 @@ public sealed class ErrorResultFilter : IEndpointFilter
         }
 
         var http = context.HttpContext;
+        if (error.Kind == ErrorKind.Unavailable)
+        {
+            http.Response.Headers.RetryAfter = ResultProblemMapper.RetryAfterSeconds.ToString(CultureInfo.InvariantCulture);
+        }
+
         var traceId = Activity.Current?.Id ?? http.TraceIdentifier;
         return Results.Problem(ResultProblemMapper.Map(error, traceId, http.Request.Path));
     }

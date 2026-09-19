@@ -16,6 +16,27 @@ public sealed partial class UnhandledExceptionHandler(IProblemDetailsService pro
             return false;
         }
 
+        if (exception is BadHttpRequestException bad)
+        {
+            var path = httpContext.Request.Path;
+            LogBadRequest(logger, bad);
+
+            httpContext.Response.StatusCode = bad.StatusCode;
+            return await problems.TryWriteAsync(new ProblemDetailsContext
+            {
+                HttpContext = httpContext,
+                Exception = exception,
+                ProblemDetails = new ProblemDetails
+                {
+                    Status = bad.StatusCode,
+                    Type = ResultProblemMapper.TypeFor("validation"),
+                    Title = "The request could not be read.",
+                    Detail = bad.Message,
+                    Instance = path,
+                },
+            });
+        }
+
         LogUnhandled(logger, exception, exception.GetType().Name, httpContext.Request.Path);
 
         httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;
@@ -35,4 +56,7 @@ public sealed partial class UnhandledExceptionHandler(IProblemDetailsService pro
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Unhandled {ExceptionType} on {Path}")]
     private static partial void LogUnhandled(ILogger logger, Exception exception, string exceptionType, string path);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Bad request")]
+    private static partial void LogBadRequest(ILogger logger, Exception exception);
 }

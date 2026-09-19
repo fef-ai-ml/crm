@@ -9,6 +9,7 @@ public enum ErrorKind
     Conflict,
     Forbidden,
     Unauthorized,
+    Unavailable,
     Unexpected,
 }
 
@@ -29,6 +30,8 @@ public sealed record Error(
     public static Error Forbidden(string code, string message) => new(ErrorKind.Forbidden, code, message);
 
     public static Error Unauthorized(string code, string message) => new(ErrorKind.Unauthorized, code, message);
+
+    public static Error Unavailable(string code, string message) => new(ErrorKind.Unavailable, code, message);
 
     public static Error Unexpected(string code, string message) => new(ErrorKind.Unexpected, code, message);
 }

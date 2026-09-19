@@ -7,6 +7,7 @@ namespace Crm.Api.Problems;
 public static class ResultProblemMapper
 {
     public const string TypeBase = "https://crm.example/problems/";
+    public const int RetryAfterSeconds = 5;
 
     public static int StatusFor(ErrorKind kind) => kind switch
     {
@@ -15,6 +16,7 @@ public static class ResultProblemMapper
         ErrorKind.Forbidden => StatusCodes.Status403Forbidden,
         ErrorKind.NotFound => StatusCodes.Status404NotFound,
         ErrorKind.Conflict => StatusCodes.Status409Conflict,
+        ErrorKind.Unavailable => StatusCodes.Status503ServiceUnavailable,
         _ => StatusCodes.Status500InternalServerError,
     };
 
@@ -49,6 +51,7 @@ public static class ResultProblemMapper
         ErrorKind.Forbidden => "forbidden",
         ErrorKind.NotFound => "notfound",
         ErrorKind.Conflict => "conflict",
+        ErrorKind.Unavailable => "unavailable",
         _ => "unexpected",
     };
 
@@ -59,6 +62,7 @@ public static class ResultProblemMapper
         ErrorKind.Forbidden => "The caller is not allowed to do this.",
         ErrorKind.NotFound => "The resource was not found.",
         ErrorKind.Conflict => "The request conflicts with the current state.",
+        ErrorKind.Unavailable => "The service is temporarily unavailable.",
         _ => "An unexpected error occurred.",
     };
 }

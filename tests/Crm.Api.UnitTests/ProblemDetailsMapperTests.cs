@@ -60,4 +60,29 @@ public class ProblemDetailsMapperTests
         var untouched = await filter.InvokeAsync(context, _ => ValueTask.FromResult<object?>(ok));
         untouched.Should().BeSameAs(ok);
     }
+
+    [Fact]
+    public void Unavailable_maps_to_503_with_its_own_type_and_code()
+    {
+        var problem = ResultProblemMapper.Map(Error.Unavailable("ingest.unavailable", "The event stream is unavailable."), "trace-1", "/v1/track");
+
+        problem.Status.Should().Be(StatusCodes.Status503ServiceUnavailable);
+        problem.Type.Should().Be("https://crm.example/problems/unavailable");
+        problem.Title.Should().Be("The service is temporarily unavailable.");
+        problem.Extensions["code"].Should().Be("ingest.unavailable");
+        problem.Extensions.Should().NotContainKey("errors");
+    }
+
+    [Fact]
+    public async Task An_Unavailable_error_sets_retry_after()
+    {
+        var http = new DefaultHttpContext();
+        var context = EndpointFilterInvocationContext.Create(http);
+
+        var result = await new ErrorResultFilter().InvokeAsync(
+            context, _ => ValueTask.FromResult<object?>(Error.Unavailable("ingest.unavailable", "down")));
+
+        result.Should().BeOfType<ProblemHttpResult>().Which.StatusCode.Should().Be(StatusCodes.Status503ServiceUnavailable);
+        http.Response.Headers.RetryAfter.ToString().Should().Be("5");
+    }
 }
