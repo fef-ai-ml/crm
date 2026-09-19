@@ -9,7 +9,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given a tenant with API key `K`
 - When `POST /v1/track` `{userId: "u1", event: "purchase", properties: {amount: 49.9}}` with `X-Api-Key: K`
 - Then the response is `202 {eventId}` within 50 ms (p95 over 20 calls), and `GET /v1/profiles?q=u1` then `/events` shows the event with the same id within 2 s
-- Plan D note: the ingest half (202, record on `events.raw`) is implemented in tests/Crm.IntegrationTests/Ingestion/{TrackTests,IdentifyAndBatchTests}.cs; the profile and timeline half arrives with the Profiles plan.
+- Plan D note: the ingest half (202, record on `events.raw`) is implemented in tests/Crm.IntegrationTests/Ingestion/{TrackTests,IdentifyAndBatchTests}.cs; the profile and timeline half arrives with the Profiles plan. The 50 ms p95 budget is a local-Docker figure only: it relaxes to 250 ms in CI (`CI=true`) and 500 ms against the remote engine (`TESTCONTAINERS_HOST_OVERRIDE` set); NFR-02 itself is measured by the load tests (LT-001).
 - Planned: tests/Crm.IntegrationTests/Ingestion/TrackRoundTripTests.cs
 
 ### IT-002 — identify creates a profile and applies traits
@@ -239,7 +239,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given tenants A and B each with a profile and a segment
 - When A's JWT requests B's `GET /v1/profiles/{id}`, `/segments/{id}`, `/segments/{id}/members`, and A's API key tracks an event for B's user id
 - Then the reads return 404, the event lands in A's tenant only, and B's data is unchanged
-- Planned: tests/Crm.IntegrationTests/Tenancy/IsolationTests.cs
+- Implemented: tests/Crm.IntegrationTests/Tenancy/IsolationTests.cs
 
 ### IT-031 — tenant isolation through the query filter
 - Traces: FR-24, NFR-03
@@ -254,7 +254,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - When executed
 - Then the response is 401; a request with a JWT lacking `tenant_id` returns 500 with a `traceId` and a logged `TenantContextMissingException`, and no rows are returned
 - Plan B note: exercised through the Testing-only probes (/v1/_test/read-probe, write-probe) until /v1/segments exists; the ingest-probe was removed by plan D now that /v1/track exists.
-- Planned: tests/Crm.IntegrationTests/Tenancy/IsolationTests.cs
+- Implemented: tests/Crm.IntegrationTests/Tenancy/IsolationTests.cs
 
 ### IT-033 — API key authentication
 - Traces: FR-23, NFR-07
@@ -262,14 +262,14 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - When each calls `POST /v1/track` and the valid key calls `GET /v1/segments`
 - Then 202, 401, 401, and 403 respectively; `LastUsedAt` on the valid key is set once even after 10 calls within a minute
 - Plan B note: `POST /v1/track` now runs directly (plan D, ruling D12); `GET /v1/segments` is still exercised through the Testing-only probes (/v1/_test/read-probe, write-probe) until /v1/segments exists.
-- Planned: tests/Crm.IntegrationTests/Tenancy/ApiKeyTests.cs
+- Implemented: tests/Crm.IntegrationTests/Tenancy/ApiKeyTests.cs
 
 ### IT-034 — full key is shown once
 - Traces: FR-23
 - Given an Admin JWT
 - When `POST /v1/api-keys {name: "sdk"}` then `GET /v1/api-keys`
 - Then the create response contains `key` matching `^crm_live_`, the list response has `prefix` (8 chars) and no `key` field, and the database row has `KeyHash` only
-- Planned: tests/Crm.IntegrationTests/Tenancy/ApiKeyTests.cs
+- Implemented: tests/Crm.IntegrationTests/Tenancy/ApiKeyTests.cs
 
 ### IT-035 — ingest rate limit
 - Traces: NFR-07
@@ -277,14 +277,14 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - When 2,500 requests are sent within 10 s
 - Then at least 100 responses are `429` with `Retry-After`, accepted requests never exceed the bucket plus the tokens refilled during the burst (continuous refill at 2,000 per minute), no 5xx occurs, and a second key is unaffected
 - Plan D note: the burst now runs against `/v1/track` (the ingest-probe was removed, ruling D12); the accepted-count ceiling is measured from just before the warm-up request, because the limiter credits idle time since its last replenishment at the first tick after the burst starts, and the warm-up against `/v1/track` is a real Kafka round trip (~1 s). Observed on the remote engine: about 2,090–2,115 accepted and 385–410 rejected of 2,500.
-- Planned: tests/Crm.IntegrationTests/Tenancy/RateLimitTests.cs
+- Implemented: tests/Crm.IntegrationTests/Tenancy/RateLimitTests.cs
 
 ### IT-036 — login issues a JWT and a refresh cookie that rotates
 - Traces: FR-19, NFR-07
 - Given a seeded Admin user
 - When `POST /v1/auth/login`, then `POST /v1/auth/refresh` twice reusing the first cookie the second time
 - Then login returns `{accessToken, expiresIn: 900}` and a `Set-Cookie: crm_refresh=…; HttpOnly; Secure; SameSite=Strict; Path=/v1/auth`; the first refresh returns a new pair and revokes the old token (`RevokedAt`, `ReplacedByTokenId` set); the reuse attempt returns 401
-- Planned: tests/Crm.IntegrationTests/Tenancy/AuthTests.cs
+- Implemented: tests/Crm.IntegrationTests/Tenancy/AuthTests.cs
 
 ### IT-037 — Viewer role is read-only
 - Traces: FR-19
@@ -292,14 +292,14 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - When it calls `GET /v1/segments`, `POST /v1/segments`, `POST /v1/segments/{id}/run`, `POST /v1/api-keys`
 - Then 200, 403, 403, 403
 - Plan B note: exercised through the Testing-only probes (/v1/_test/read-probe, write-probe) until /v1/segments exists; the ingest-probe was removed by plan D now that /v1/track exists.
-- Planned: tests/Crm.IntegrationTests/Tenancy/AuthTests.cs
+- Implemented: tests/Crm.IntegrationTests/Tenancy/AuthTests.cs
 
 ### IT-038 — tenant bootstrap is development-only
 - Traces: FR-25
 - Given the API in `Development` and in `Production` environment
 - When `POST /v1/tenants {name, slug, adminEmail, adminPassword}`
 - Then Development returns 201 with a tenant, an Admin user, and login succeeds; Production returns 404 and no rows are written
-- Planned: tests/Crm.IntegrationTests/Tenancy/BootstrapTests.cs
+- Implemented: tests/Crm.IntegrationTests/Tenancy/BootstrapTests.cs
 
 ## Observability and operations
 
@@ -315,4 +315,4 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given all containers running, then Redis paused
 - When `GET /health/live` and `GET /health/ready`
 - Then live is 200 both times; ready is 200 then 503 with `redis: Unhealthy` in the body
-- Planned: tests/Crm.IntegrationTests/Ops/HealthTests.cs
+- Implemented: tests/Crm.IntegrationTests/Ops/HealthTests.cs

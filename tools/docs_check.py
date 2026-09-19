@@ -107,6 +107,7 @@ TEST_CASE_DOCS = (
 )
 TEST_CASE_HEADING_RE = re.compile(r"^### ((?:UT|IT|AT|CT|E2E|LT)-\d{3}) — ", re.MULTILINE)
 TEST_CASE_ID_RE = re.compile(r"\b((?:UT|IT|AT|CT|E2E|LT)-\d{3})\b")
+PLANNED_RE = re.compile(r"^- Planned: (\S.*)$")
 for number, slug in ADRS:
     REQUIRED[f"docs/adr/{number:04d}-{slug}.md"] = ["# "] + MADR
 
@@ -257,6 +258,24 @@ def check_test_case_doc(text: str) -> list[str]:
     return errors
 
 
+def check_planned_tags(root: Path, text: str) -> list[str]:
+    """A `- Planned: <path>` bullet under a test-case heading whose path already exists on disk should be
+    `- Implemented: <path>` instead — otherwise the tag rots as soon as the file is written."""
+    errors: list[str] = []
+    current_case: str | None = None
+    for line in text.splitlines():
+        heading = TEST_CASE_HEADING_RE.match(line)
+        if heading:
+            current_case = heading.group(1)
+            continue
+        planned = PLANNED_RE.match(line.strip())
+        if planned and current_case is not None:
+            target = planned.group(1).strip()
+            if (root / target).exists():
+                errors.append(f"{current_case} is tagged Planned but {target} exists — tag it Implemented")
+    return errors
+
+
 def parse_argv(argv: list[str]) -> str | None:
     """Return the --only prefix (or None), exiting with usage on any other shape."""
     args = argv[1:]
@@ -308,6 +327,7 @@ def main(argv: list[str]) -> int:
             errors += check_traceability_content(text)
         if rel in TEST_CASE_DOCS:
             errors += check_test_case_doc(text)
+            errors += check_planned_tags(ROOT, text)
         for message in errors:
             print(f"ERROR {rel}: {message}")
             total_errors += 1

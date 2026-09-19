@@ -217,7 +217,7 @@ Rulings (plan C): configuration is baked into images built from `deploy/observab
 `.github/workflows/ci.yml`, trigger: pull requests and pushes to `main`. Jobs on `ubuntu-latest`:
 
 1. **dotnet** — setup .NET 10.0.400, restore (cached), build with warnings as errors, `dotnet test --filter "Category!=Integration"` with TRX upload.
-2. **integration** — needs docker (default on the runner); `dotnet test --filter Category=Integration`; 25 min timeout.
+2. **integration** — needs docker (default on the runner); `dotnet test --filter Category=Integration`; 35 min timeout (34 test cases, one of which performs ~2,100 real Kafka produces).
 3. **contracts** — `python3 tools/docs_check.py`; OpenAPI export and `diff -u docs/api/openapi.json build/openapi.json` (the exported document against the committed one); `docker compose -f deploy/docker-compose.yml config -q` and the observability file; `python3 -m unittest discover -s tools/tests` (compose_check, observability assets, Testcontainers image pins).
 4. **web** — Node 22, `npm ci`, `npm run lint`, `npm run typecheck`, `npm test -- --run`.
 

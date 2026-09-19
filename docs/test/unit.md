@@ -65,7 +65,7 @@ Pure tests: no database, no Kafka, no Redis. Fakes for `IClock`, `ITenantContext
 - Given `Result` failures of kinds Validation (with field errors), NotFound, Conflict, Forbidden
 - When the problem-details mapper runs
 - Then statuses are 400, 404, 409, 403, `type` ends with `/problems/<kind>`, `traceId` is present, and Validation carries `errors` keyed by field path
-- Planned: tests/Crm.Api.UnitTests/ProblemDetailsMapperTests.cs
+- Implemented: tests/Crm.Api.UnitTests/ProblemDetailsMapperTests.cs
 
 ## Identity and profiles
 
@@ -378,35 +378,35 @@ Each case loads `tests/fixtures/rules/valid/<name>.json`, compiles it for tenant
 - Given `ApiKey.Generate()`
 - When called 1,000 times
 - Then every key matches `^crm_live_[0-9A-Za-z]{32}$`, `Prefix` equals the 8 characters after `crm_live_`, and all prefixes are distinct
-- Planned: tests/Tenancy.UnitTests/ApiKeyTests.cs
+- Implemented: tests/Tenancy.UnitTests/ApiKeyTests.cs
 
 ### UT-051 — API key is stored hashed and compared in constant time
 - Traces: FR-23, NFR-07
 - Given a generated key
 - When persisted
 - Then `KeyHash` equals SHA-256 of the full key, the plaintext is not retained on the entity, and `Verify` uses `CryptographicOperations.FixedTimeEquals`
-- Planned: tests/Tenancy.UnitTests/ApiKeyTests.cs
+- Implemented: tests/Tenancy.UnitTests/ApiKeyTests.cs
 
 ### UT-052 — revoked key is rejected
 - Traces: FR-23
 - Given a key with `RevokedAt` set
 - When `Verify(plaintext)` runs with the correct plaintext
 - Then it returns `Revoked`, not `Valid`
-- Planned: tests/Tenancy.UnitTests/ApiKeyTests.cs
+- Implemented: tests/Tenancy.UnitTests/ApiKeyTests.cs
 
 ### UT-053 — JWT claims and lifetime
 - Traces: FR-19, NFR-07
 - Given user `u` in tenant `T` with role Admin and clock `T0`
 - When an access token is issued
 - Then claims are `sub = u`, `tenant_id = T`, `role = Admin`, `exp = T0 + 15 min`; the refresh token expires at `T0 + 7 d`
-- Planned: tests/Tenancy.UnitTests/TokenServiceTests.cs
+- Implemented: tests/Tenancy.UnitTests/TokenServiceTests.cs
 
 ### UT-054 — missing tenant context throws
 - Traces: FR-24
 - Given an `ITenantContext` with no tenant resolved
 - When any repository query executes
 - Then `TenantContextMissingException` is thrown before SQL is built
-- Planned: tests/Crm.Kernel.UnitTests/TenantContextTests.cs
+- Implemented: tests/Crm.Kernel.UnitTests/TenantContextTests.cs
 
 ### UT-055 — save interceptor stamps and verifies TenantId
 - Traces: FR-24

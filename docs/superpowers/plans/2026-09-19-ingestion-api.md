@@ -50,6 +50,8 @@
 | D11 | A malformed JSON body must be `400` problem+json in every environment. In Development minimal APIs throw `BadHttpRequestException`, which today becomes a `500`; `UnhandledExceptionHandler` maps it to its own status code instead. |
 | D12 | The Testing-only `ingest-probe` is deleted; IT-033 and IT-035 call `/v1/track`. `read-probe` and `write-probe` stay until the Segmentation plan. |
 | D13 | LT-005's quickstart probe becomes the README's track curl → `202` (plan C ruling C3). The seed volume still belongs to the Profiles plan. |
+| D14 | The `ingest` rate-limit policy charges one token per request by design (spec: "rate limit per key: token bucket 2,000 req/min"); a `/batch` of up to 500 events still counts as one request, so the effective ceiling is 1,000,000 events per minute per key. Known limitation, not fixed here; per-event quotas are future work. |
+| D15 | A request with a missing or bogus API key bypasses the `ingest` limiter (no key prefix → no partition) while still costing a Redis GET and a SQL SELECT. Mitigated today only by the API-key cache; to be fixed with a per-client-address limiter in the Tenancy hardening backlog before any public exposure. |
 
 ## Test cases in scope
 

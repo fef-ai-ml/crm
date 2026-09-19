@@ -9,42 +9,42 @@ Architecture cases (`AT`) run with NetArchTest against the compiled solution on 
 - Given assemblies `Ingestion.*`, `Profiles.*`, `Segmentation.*`, `Tenancy.*`
 - When NetArchTest evaluates `ShouldNot().HaveDependencyOnAny(<other module namespaces>)`
 - Then every module assembly passes; the only allowed cross-module references are `Crm.Kernel` and `Crm.Contracts`
-- Planned: tests/Crm.ArchTests/ModuleBoundaryTests.cs
+- Implemented: tests/Crm.ArchTests/ModuleBoundaryTests.cs
 
 ### AT-002 — Segmentation does not reference Profiles assemblies
 - Traces: NFR-08
 - Given `Segmentation.Domain`, `Segmentation.Application`, `Segmentation.Infrastructure`
 - When dependencies on `Profiles.*` are checked
 - Then none exist, even though Segmentation reads `profiles.*` tables by SQL (ADR 0009)
-- Planned: tests/Crm.ArchTests/ModuleBoundaryTests.cs
+- Implemented: tests/Crm.ArchTests/ModuleBoundaryTests.cs
 
 ### AT-003 — Ingestion has no database dependency
 - Traces: NFR-08
 - Given `Ingestion.Application` and `Ingestion.Infrastructure`
 - When dependencies on `Microsoft.EntityFrameworkCore`, `Microsoft.Data.SqlClient`, `StackExchange.Redis` are checked
 - Then none exist; the only infrastructure dependency is `Confluent.Kafka`
-- Planned: tests/Crm.ArchTests/ModuleBoundaryTests.cs
+- Implemented: tests/Crm.ArchTests/ModuleBoundaryTests.cs
 
 ### AT-004 — no module references a host
 - Traces: NFR-08
 - Given all module assemblies
 - When dependencies on `Crm.Api` and `Crm.Worker` are checked
 - Then none exist
-- Planned: tests/Crm.ArchTests/ModuleBoundaryTests.cs
+- Implemented: tests/Crm.ArchTests/ModuleBoundaryTests.cs
 
 ### AT-005 — hosts reference only module Infrastructure projects
 - Traces: NFR-08
 - Given `Crm.Api` and `Crm.Worker`
 - When their module references are enumerated
 - Then each is a `*.Infrastructure` assembly (for DI registration) and no host type calls a `*.Application` or `*.Domain` type directly except through registered interfaces
-- Planned: tests/Crm.ArchTests/HostBoundaryTests.cs
+- Implemented: tests/Crm.ArchTests/HostBoundaryTests.cs
 
 ### AT-006 — every entity is tenant-scoped
 - Traces: FR-24, NFR-03
 - Given every EF Core entity type in every module DbContext except `identity.Tenants` and the ASP.NET Identity tables
 - When the model is inspected
 - Then each has a `TenantId` property and a global query filter referencing `ITenantContext`, and the save interceptor is registered on every DbContext
-- Planned: tests/Crm.ArchTests/TenantScopingTests.cs
+- Implemented: tests/Crm.ArchTests/TenantScopingTests.cs
 
 ### AT-007 — Segmentation SQL touches only the sanctioned profile tables
 - Traces: NFR-08
@@ -81,7 +81,7 @@ Architecture cases (`AT`) run with NetArchTest against the compiled solution on 
 - Given `TrackEventRaw`, `IdentifyRaw`, `EventTracked`, `ProfileUpdated`, `ProfileMerged` in `Crm.Contracts`
 - When each is serialized with the production JSON options and compared to `tests/fixtures/contracts/<type>.json`
 - Then field names are camelCase and match the contract table in [redis-and-kafka.md](../data-dictionary/redis-and-kafka.md); any change requires updating the snapshot deliberately
-- Planned: tests/Crm.Contracts.UnitTests/ContractSnapshotTests.cs
+- Implemented: tests/Crm.Contracts.UnitTests/ContractSnapshotTests.cs
 
 ### CT-005 — compose configuration is valid and exposes the documented ports
 - Traces: NFR-10

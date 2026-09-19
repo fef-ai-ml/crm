@@ -9,7 +9,7 @@ Base URL locally: `http://localhost:8080/v1`. All request and response bodies ar
 | Ingest clients | Tenant API key, format `crm_live_<32 base62>` | `X-Api-Key: crm_live_...` |
 | Dashboard users | JWT bearer (15 min access, 7 d refresh) with claims `sub`, `tenant_id`, `role` | `Authorization: Bearer <token>` |
 
-Roles: `Admin` may do everything; `Viewer` may only read profiles and segments. API keys can only call Ingest endpoints. Keys are rate limited with a token bucket of 2,000 requests per minute; exceeding it returns `429` with `Retry-After`.
+Roles: `Admin` may do everything; `Viewer` may only read profiles and segments. API keys can only call Ingest endpoints. Keys are rate limited with a token bucket of 2,000 requests per minute; exceeding it returns `429` with `Retry-After`. The budget is per request, not per event: a `/batch` call of up to 500 events still costs one token, so the effective ceiling is 1,000,000 events per minute per key (a known limitation; per-event quotas are future work).
 
 `POST /auth/login`, `POST /auth/refresh` and `POST /tenants` are anonymous and rate limited per client address (policy `auth`): a token bucket of 20 requests per minute; exceeding it returns `429` with `Retry-After`. Behind the bundled nginx proxy this depends on `ForwardedHeaders:KnownNetworks` trusting the proxy's network (set to the compose network in `deploy/docker-compose.yml`); a caller-supplied `X-Forwarded-For` is only honoured from a network listed there.
 
@@ -38,6 +38,7 @@ Every error is `application/problem+json` (RFC 9457):
 | 403 | Role not allowed, or API key used on a non-ingest endpoint |
 | 404 | Resource not found within the caller's tenant |
 | 409 | Conflict, for example duplicate segment name |
+| 413 | Request body too large |
 | 429 | Rate limit exceeded |
 | 503 | Kafka unavailable at ingest; retry after `Retry-After` seconds |
 | 500 | Unexpected error; `traceId` identifies the trace |
@@ -52,7 +53,7 @@ List endpoints accept `limit` (default 50, max 200) and `cursor` (opaque string 
 
 Auth: `X-Api-Key`. All ingest endpoints return `202 Accepted` after the event is durably written to Kafka; nothing touches the database on this path. The event id in every response is a UUIDv7 whose time component is the receive time, so ids sort in receive order.
 
-Limits, beyond what each endpoint states below: `userId` ≤ 128 characters, `anonymousId` ≤ 256 characters, `properties`/`traits` are JSON objects when present and serialize to ≤ 32 KB. A blank (empty or whitespace-only) `userId` or `anonymousId` counts as absent.
+Limits, beyond what each endpoint states below: `userId` ≤ 128 characters, `anonymousId` ≤ 256 characters, `properties`/`traits` are JSON objects when present and serialize to ≤ 32 KB. A blank (empty or whitespace-only) `userId` or `anonymousId` counts as absent. Request bodies are capped by Kestrel: `/track` and `/identify` at 256 KB, `/batch` at 20 MB (a maximal valid batch of 500 items is ≈ 16.5 MB); exceeding the cap returns `413` before the body is buffered.
 
 Error codes: `ingest.invalid` (`400`, field errors in `errors`), `ingest.unavailable` (`503`, `Retry-After: 5`). A `503` means the event is *unconfirmed, not absent*: a request the broker received just before it failed to acknowledge may still be appended. Retry, but only when the business event warrants a duplicate — the pipeline tolerates a retried request as a separate event rather than deduplicating client retries (redelivery of the same message is deduplicated downstream; a second client retry is not).
 
