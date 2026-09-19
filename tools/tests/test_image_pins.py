@@ -17,7 +17,12 @@ class ImagePinTests(unittest.TestCase):
         literals = re.findall(r'new (?:Kafka|Redis)Builder\("([^"]+)"\)', fixture)
         self.assertEqual(len(literals), 2, f"expected one Kafka and one Redis builder literal, found {literals}")
         for image in literals:
-            self.assertIn(f"image: {image}", compose, f"{image} is not an image of deploy/docker-compose.yml")
+            self.assertIn(
+                f"image: {image}", compose,
+                f"{image} is not an image of deploy/docker-compose.yml — likely a Dependabot compose "
+                f"bump; update deploy/docker-compose.yml and the builder literal in "
+                f"tests/Crm.IntegrationTests/Fixtures/CrmStackFixture.cs together",
+            )
 
 
 if __name__ == "__main__":

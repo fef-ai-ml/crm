@@ -72,9 +72,9 @@ def active_prefixes(items) -> set:
     return {item["prefix"] for item in items if not item.get("revokedAt")}
 
 
-def should_mint(stored_key, active_prefixes: set) -> bool:
+def should_mint(stored_key, active: set) -> bool:
     prefix = key_prefix(stored_key)
-    return not stored_key or prefix is None or prefix not in active_prefixes
+    return not stored_key or prefix is None or prefix not in active
 
 
 def write_key(path: str, key: str) -> None:
@@ -121,17 +121,16 @@ def main():
     token = body["accessToken"]
     print(f"seed: login ok as {ADMIN_EMAIL} (expires in {body['expiresIn']} s)")
 
-    items = []
-    cursor = None
-    while True:
-        path = "/v1/api-keys" + (f"?cursor={cursor}" if cursor else "")
-        status, body = call("GET", path, token=token)
-        if status != 200:
-            fail("list api keys", status, body)
-        items.extend(body["items"])
-        cursor = body.get("nextCursor")
-        if not cursor:
-            break
+    # ApiKeyEndpoints.ListAsync takes no cursor parameter and always returns nextCursor: null, so a
+    # single call sees every key; a non-null cursor means the server grew pagination this script does
+    # not know about, and mis-validating a partial list is worse than failing loudly.
+    status, body = call("GET", "/v1/api-keys", token=token)
+    if status != 200:
+        fail("list api keys", status, body)
+    items = body["items"]
+    if body.get("nextCursor"):
+        fail("list api keys", status, {"detail": "server returned a non-null nextCursor; "
+                                                  "the seed script must learn pagination"})
 
     stored = existing_key()
     if not should_mint(stored, active_prefixes(items)):

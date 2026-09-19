@@ -1,6 +1,7 @@
 """Unit tests for tools/seed.py (Task 8b). Run: python3 -m unittest discover -s tools/tests -v"""
 from __future__ import annotations
 
+import re
 import sys
 import tempfile
 import unittest
@@ -9,6 +10,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import seed  # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[2]
+API_KEY_DOMAIN = ROOT / "src" / "Modules" / "Tenancy" / "Tenancy.Domain" / "ApiKey.cs"
 
 
 class KeyPrefixTests(unittest.TestCase):
@@ -101,6 +105,22 @@ class ExistingKeyTests(unittest.TestCase):
             path = str(Path(tmp) / ".env.local")
             Path(path).write_text("CRM_API_KEY=\n", encoding="utf-8")
             self.assertIsNone(seed.existing_key(path))
+
+
+class SeedConstantsMatchTheDomainTests(unittest.TestCase):
+    def test_seed_constants_match_the_domain(self):
+        """seed.py's KEY_SCHEME / PREFIX_LENGTH duplicate ApiKey.KeyPrefix / PrefixLength (M3);
+        if the domain constant ever changes, this must fail loudly instead of silently minting a new
+        key on every `make seed`."""
+        domain = API_KEY_DOMAIN.read_text(encoding="utf-8")
+        key_prefix = re.search(r'KeyPrefix\s*=\s*"([^"]+)"', domain)
+        prefix_length = re.search(r"PrefixLength\s*=\s*(\d+)", domain)
+        self.assertIsNotNone(key_prefix, "ApiKey.KeyPrefix not found in ApiKey.cs")
+        self.assertIsNotNone(prefix_length, "ApiKey.PrefixLength not found in ApiKey.cs")
+        self.assertEqual(seed.KEY_SCHEME, key_prefix.group(1),
+                          "seed.KEY_SCHEME has drifted from ApiKey.KeyPrefix")
+        self.assertEqual(seed.PREFIX_LENGTH, int(prefix_length.group(1)),
+                          "seed.PREFIX_LENGTH has drifted from ApiKey.PrefixLength")
 
 
 if __name__ == "__main__":
