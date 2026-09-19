@@ -1,0 +1,48 @@
+# Dependency updates (foundation spec §13: "package versions drift across projects").
+# Weekly, grouped so one ecosystem produces a handful of pull requests rather than dozens.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      opentelemetry:
+        patterns: ["OpenTelemetry*"]
+      microsoft:
+        patterns: ["Microsoft.*", "System.*"]
+      test-tooling:
+        patterns: ["xunit*", "FluentAssertions", "Testcontainers*", "NetArchTest*", "coverlet*"]
+
+  - package-ecosystem: dotnet-sdk
+    directory: /
+    schedule: { interval: weekly, day: monday }
+
+  - package-ecosystem: npm
+    directory: /src/Hosts/Crm.Web
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      tanstack:
+        patterns: ["@tanstack/*"]
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+      build-and-test:
+        patterns: ["vite", "vitest", "@vitejs/*", "typescript", "typescript-eslint", "eslint*", "@eslint/*", "prettier", "jsdom", "@testing-library/*", "@playwright/test", "tailwindcss", "@tailwindcss/*"]
+
+  - package-ecosystem: docker
+    directories:
+      - /src/Hosts/Crm.Api
+      - /src/Hosts/Crm.Worker
+      - /src/Hosts/Crm.Web
+      - /deploy/observability/prometheus
+      - /deploy/observability/grafana
+    schedule: { interval: weekly, day: monday }
+
+  - package-ecosystem: docker-compose
+    directory: /deploy
+    schedule: { interval: weekly, day: monday }
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday }
