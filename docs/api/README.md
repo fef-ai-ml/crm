@@ -50,7 +50,11 @@ List endpoints accept `limit` (default 50, max 200) and `cursor` (opaque string 
 
 ## Ingest
 
-Auth: `X-Api-Key`. All ingest endpoints return `202 Accepted` after the event is durably written to Kafka; nothing touches the database on this path.
+Auth: `X-Api-Key`. All ingest endpoints return `202 Accepted` after the event is durably written to Kafka; nothing touches the database on this path. The event id in every response is a UUIDv7 whose time component is the receive time, so ids sort in receive order.
+
+Limits, beyond what each endpoint states below: `userId` ≤ 128 characters, `anonymousId` ≤ 256 characters, `properties`/`traits` are JSON objects when present and serialize to ≤ 32 KB. A blank (empty or whitespace-only) `userId` or `anonymousId` counts as absent.
+
+Error codes: `ingest.invalid` (`400`, field errors in `errors`), `ingest.unavailable` (`503`, `Retry-After: 5`). A `503` means the event is *unconfirmed, not absent*: a request the broker received just before it failed to acknowledge may still be appended. Retry, but only when the business event warrants a duplicate — the pipeline tolerates a retried request as a separate event rather than deduplicating client retries (redelivery of the same message is deduplicated downstream; a second client retry is not).
 
 ### POST /track
 
@@ -82,11 +86,13 @@ Links `anonymousId` to `userId` (merging profiles when both already exist) and a
 { "events": [ { "type": "track", "userId": "u-1", "event": "app_open" }, { "type": "track", "userId": "u-1", "event": "bad name!" } ] }
 ```
 
-Up to 500 items, each validated independently. Each item carries a `type` discriminator (`track` or `identify`) selecting which shape and validation rules apply. Response `202`:
+Up to 500 items, each validated independently. Each item carries a `type` discriminator (`track` or `identify`) selecting which shape and validation rules apply. Envelope errors — `events` missing, empty, or more than 500 items — are `400`; item errors never fail the request, so the response is `202` even when every item is rejected:
 
 ```json
 { "accepted": 1, "rejected": 1, "results": [ { "index": 0, "eventId": "..." }, { "index": 1, "errors": { "events[1].event": ["must match [A-Za-z0-9_]{1,64}"] } } ] }
 ```
+
+If Kafka does not acknowledge any accepted item, the whole request is `503` (see the ingest error codes above) rather than a partial `202`.
 
 ## Profiles
 
@@ -152,7 +158,7 @@ Validation: depth ≤ 5, leaves ≤ 20, `key` matches `[A-Za-z0-9_]{1,64}`, `win
 
 `DELETE /api-keys/{id}` is idempotent: the key is revoked in SQL before the cache is evicted, so a `5xx` from a failed eviction still means the revocation is recorded; retrying the same request completes the cache eviction without side effects.
 
-Protected operations document `bearer` security and their `401`/`403` problem responses in `openapi.json`. The `apiKey` security scheme is also declared in `openapi.json` for the ingest endpoints (`POST /track`, `/identify`, `/batch`) that arrive with the Ingestion plan; no currently-documented operation references it yet.
+Protected operations document `bearer` security and their `401`/`403` problem responses in `openapi.json`. The `apiKey` security scheme is also declared in `openapi.json`, referenced by the ingest endpoints (`POST /track`, `/identify`, `/batch`).
 
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8080/v1/auth/login \

@@ -4,9 +4,9 @@
 #   tests/Crm.LoadTests/coldstart.sh                          # local engine
 #   tests/Crm.LoadTests/coldstart.sh MSSQL_HOST_PORT=11433    # extra args are passed to make
 #
-# Foundation scope (plan C, ruling C3): budgets are `make up` <= 180 s and `make seed` <= 120 s, and the
-# quickstart probe is "log in as the seeded Admin and list API keys -> 200". The Ingestion plan changes
-# the probe to POST /v1/track -> 202; the Profiles plan adds the 5k-profile / 100k-event seed volume.
+# Foundation scope (plan C, ruling C3): budgets are `make up` <= 180 s and `make seed` <= 120 s. The
+# quickstart probe (ruling D13) is the README's first event: POST /v1/track -> 202. Only the
+# Profiles plan's 5k-profile / 100k-event seed volume is still outstanding.
 #
 # Preconditions: no container of the compose project is running (`make down` first), and with a remote
 # engine the app tunnel is already up (`make tunnel-apps`), because seeding and the probe use localhost.
@@ -42,25 +42,21 @@ started=$(now)
 make seed "$@" || { echo "LT-005: 'make seed' failed" >&2; exit 1; }
 seed_seconds=$(( $(now) - started ))
 
-# Nothing in the probe may trip `set -e`: a failed login still has to print the result row and exit 1.
-token=$(curl -sS -X POST "$BASE_URL/v1/auth/login" \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"admin@demo.local","password":"Demo-Passw0rd!"}' \
-  | python3 -c 'import json, sys
-try:
-    print(json.load(sys.stdin)["accessToken"])
-except Exception:
-    pass' || true)
-if [ -n "$token" ]; then
-  probe_status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/v1/api-keys" -H "Authorization: Bearer $token" || true)
+# Nothing in the probe may trip `set -e`: a failed probe still has to print the result row and exit 1.
+# Quickstart probe (ruling D13): the README's first event. `make seed` wrote the key to .env.local.
+api_key=$(sed -n 's/^CRM_API_KEY=//p' .env.local 2>/dev/null | head -n 1 || true)
+if [ -n "$api_key" ]; then
+  probe_status=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/v1/track" \
+    -H "X-Api-Key: $api_key" -H 'Content-Type: application/json' \
+    -d '{"userId":"u-123","event":"purchase","properties":{"amount":49.9}}' || true)
 else
-  probe_status="login-failed"
+  probe_status="no-api-key"
 fi
 
 verdict=pass
 [ "$up_seconds" -le "$UP_BUDGET" ] || verdict=fail
 [ "$seed_seconds" -le "$SEED_BUDGET" ] || verdict=fail
-[ "$probe_status" = "200" ] || verdict=fail
+[ "$probe_status" = "202" ] || verdict=fail
 
 echo ""
 echo "| Case | make up | budget | make seed | budget | probe | verdict | date | machine |"

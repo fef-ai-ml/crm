@@ -233,6 +233,8 @@ Endpoints (auth `X-Api-Key`, rate limit per key: token bucket 2,000 req/min, 429
 
 Per request: FluentValidation (event name ≤ 64 chars, alnum + `_`; properties ≤ 32 KB; timestamp within ±7 d), assign `EventId` (UUIDv7), stamp `TenantId` and `ReceivedAt`, produce to `events.raw` with `acks=all`, return `202 { eventId }`. No database access on this path.
 
+**Rulings (plan D).** The Kafka key is `{tenantId:N}:{userKey}` — `userKey` is `userId` when present, else `anonymousId` — with headers `tenant-id` (`N`), `message-type` (`TrackEventRaw` / `IdentifyRaw`), `content-type`, and `traceparent` when an activity exists (D5). Limits beyond the ones above, chosen so nothing the API accepts is unstorable later: `userId` ≤ 128 chars, `anonymousId` ≤ 256 chars, `traits` ≤ 32 KB like `properties`; `properties`/`traits` must be JSON objects when present; blank strings count as absent (D6). The event-name pattern is anchored with `\z`, not `$`, so a trailing newline is rejected rather than accepted (D7). The producer is configured `acks=all`, `enable.idempotence=true`, `linger.ms=5`, `message.timeout.ms=3000`; the handler awaits the delivery report before answering `202`, and a failed or timed-out delivery answers `503` — *unconfirmed*, not *absent*: a request the broker received just before it stalled may still be appended, so clients retry and the pipeline tolerates the retry as a separate event rather than deduplicating client retries (redelivery of the same message is still deduplicated downstream) (D8). `/batch` treats envelope errors (`events` missing, empty, or more than 500 items) as `400`; item errors never fail the request — `202 { accepted, rejected, results }` even when every item is rejected — and a Kafka failure on any accepted item makes the whole request `503`; `BatchItem` is one flat DTO with a `type` discriminator rather than polymorphic deserialization (D9). Metrics: counters `crm_ingest_events_total{type}` (`track`/`identify`, counted after the broker acknowledges) and `crm_ingest_rejected_total{reason}` (`validation`/`unavailable`); rate-limited requests are not counted here, since the limiter lives in Tenancy (D10).
+
 ### 4.2 Worker — `events.raw` consumer
 
 Per message, inside one tenant scope and one SQL transaction:
@@ -253,7 +255,7 @@ Semantics: at-least-once delivery + idempotent insert = effectively-once. Kafka 
 
 - Transient SQL/Redis errors: Polly retry 3× exponential (200 ms → 2 s), then treat as poison.
 - Poison message: produce to `events.dlq` with `error`, `stack`, `attempt` headers; commit offset; increment `crm_dlq_total{topic}`.
-- Kafka unavailable at ingest: API returns 503 `problem+json` with `Retry-After`; never buffers in memory.
+- Kafka unavailable at ingest: API returns 503 `problem+json` (`ingest.unavailable`, `Retry-After: 5`) per ruling D8; never buffers in memory.
 - Worker never crash-loops on a single bad message.
 
 ---

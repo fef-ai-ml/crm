@@ -9,56 +9,56 @@ Pure tests: no database, no Kafka, no Redis. Fakes for `IClock`, `ITenantContext
 - Given a `track` payload with neither `userId` nor `anonymousId`
 - When the validator runs
 - Then it fails with field error `userId` "userId or anonymousId is required"; a payload with either passes
-- Planned: tests/Ingestion.UnitTests/TrackValidatorTests.cs
+- Implemented: tests/Ingestion.UnitTests/TrackValidatorTests.cs
 
 ### UT-002 — event name pattern and length
 - Traces: FR-04
 - Given event names `purchase`, `a_1`, `x` repeated 64 times, `x` repeated 65 times, `bad name!`, `émoji`
 - When the validator runs
 - Then the first three pass and the last three fail with error path `event` "must match [A-Za-z0-9_]{1,64}"
-- Planned: tests/Ingestion.UnitTests/TrackValidatorTests.cs
+- Implemented: tests/Ingestion.UnitTests/TrackValidatorTests.cs
 
 ### UT-003 — properties size limit
 - Traces: FR-04
 - Given a `properties` object serialized to exactly 32,768 bytes and one of 32,769 bytes
 - When the validator runs
 - Then the first passes and the second fails with error path `properties` "must be at most 32 KB"
-- Planned: tests/Ingestion.UnitTests/TrackValidatorTests.cs
+- Implemented: tests/Ingestion.UnitTests/TrackValidatorTests.cs
 
 ### UT-004 — timestamp window
 - Traces: FR-04
 - Given `IClock.UtcNow = 2026-09-16T00:00:00Z` and timestamps now − 7 d, now + 7 d, now − 7 d − 1 s, now + 7 d + 1 s, and absent
 - When the validator runs
 - Then the first two pass, the next two fail with path `timestamp`, and absent resolves to `UtcNow`
-- Planned: tests/Ingestion.UnitTests/TrackValidatorTests.cs
+- Implemented: tests/Ingestion.UnitTests/TrackValidatorTests.cs
 
 ### UT-005 — identify requires userId
 - Traces: FR-02
 - Given an `identify` payload without `userId`
 - When the validator runs
 - Then it fails with path `userId`; `anonymousId` and `traits` remain optional
-- Planned: tests/Ingestion.UnitTests/IdentifyValidatorTests.cs
+- Implemented: tests/Ingestion.UnitTests/IdentifyValidatorTests.cs
 
 ### UT-006 — batch size and per-item validation
 - Traces: FR-03
 - Given a batch of 500 valid items, a batch of 501 items, and a batch of 3 items where item 1 has `event: "bad name!"`
 - When the validator runs
 - Then 500 passes; 501 fails with path `events` "at most 500 items"; the mixed batch yields `accepted: 2, rejected: 1` with `results[1].errors["events[1].event"]`
-- Planned: tests/Ingestion.UnitTests/BatchValidatorTests.cs
+- Implemented: tests/Ingestion.UnitTests/BatchValidatorTests.cs
 
 ### UT-007 — event id is UUIDv7 and time-ordered
 - Traces: FR-05
 - Given two envelopes created 1 ms apart with a fake clock
 - When ids are assigned
 - Then both parse as version 7 and the second sorts after the first as a string and as a `Guid`
-- Planned: tests/Ingestion.UnitTests/EventEnvelopeTests.cs
+- Implemented: tests/Ingestion.UnitTests/EventEnvelopeTests.cs
 
 ### UT-008 — Kafka key is tenant plus user key
 - Traces: FR-05
 - Given tenant `T`, one payload with `userId: "u1", anonymousId: "a1"` and one with only `anonymousId: "a1"`
 - When the envelope computes the partition key
 - Then the keys are `T:u1` and `T:a1` respectively
-- Planned: tests/Ingestion.UnitTests/EventEnvelopeTests.cs
+- Implemented: tests/Ingestion.UnitTests/EventEnvelopeTests.cs
 
 ### UT-056 — Result errors map to problem+json
 - Traces: FR-03, FR-21

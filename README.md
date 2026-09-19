@@ -8,7 +8,7 @@ Stack: .NET 10 modular monolith (API + Worker), React 19 dashboard, SQL Server 2
 
 ## Status
 
-Slice 1 (events → profiles → segments) has its foundation complete: solution structure, Kernel, Contracts, the API/Worker/Web hosts, multi-tenant auth, CI, and an opt-in observability stack. Ingestion, Profiles and Segmentation land next, each behind its own plan under `docs/superpowers/plans/`.
+Slice 1 (events → profiles → segments) has its foundation complete: solution structure, Kernel, Contracts, the API/Worker/Web hosts, multi-tenant auth, CI, and an opt-in observability stack. The Ingestion API is also complete; the Profiles pipeline and Segmentation land next, each behind its own plan under `docs/superpowers/plans/`.
 
 | Phase | State |
 |---|---|
@@ -17,7 +17,8 @@ Slice 1 (events → profiles → segments) has its foundation complete: solution
 | Implementation: solution skeleton, Kernel, Contracts, hosts, web shell, CI | Complete |
 | Implementation: Tenancy | Complete |
 | Implementation: developer experience (observability profile, Dependabot, cold-start measurement) | Complete |
-| Implementation: Ingestion, Profiles pipeline | Planned |
+| Implementation: Ingestion API (track, identify, batch → Kafka) | Complete |
+| Implementation: Profiles pipeline (Worker consumer, identity resolution) | Planned |
 | Implementation: Segmentation | Planned |
 | Implementation: Web dashboard | Planned |
 | Load test and results | Planned |
@@ -49,21 +50,16 @@ Three commands from a fresh clone:
 ```bash
 make up          # infrastructure + api + worker + web, builds images, waits until healthy
 make seed        # demo tenant, Admin + Viewer users, an API key written to .env.local
-curl -s -X POST http://localhost:8080/v1/auth/login -H "Content-Type: application/json" \
-  -d '{"email":"admin@demo.local","password":"Demo-Passw0rd!"}'
+source .env.local && curl -X POST http://localhost:8080/v1/track \
+  -H "X-Api-Key: $CRM_API_KEY" -H "Content-Type: application/json" \
+  -d '{"userId":"u-123","event":"purchase","properties":{"amount":49.9}}'    # 202 {"eventId":"…"}
 ```
 
 Then open http://localhost:3000 (status page) and http://localhost:8080/swagger (API reference).
 
 See [Developer Setup](docs/dev-setup.md) for prerequisites, Podman specifics, and running against a remote engine.
 
-Once the Ingestion plan lands, the first event is:
-
-```bash
-curl -X POST http://localhost:8080/v1/track \
-  -H "X-Api-Key: $CRM_API_KEY" -H "Content-Type: application/json" \
-  -d '{"userId":"u-123","event":"purchase","properties":{"amount":49.9}}'
-```
+The event is now on Kafka topic `events.raw`; the Worker that turns it into a profile and a timeline entry arrives with the Profiles plan.
 
 ## Observability
 

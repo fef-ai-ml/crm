@@ -121,6 +121,14 @@ TOKEN=$(curl -s -X POST http://localhost:8080/v1/auth/login \
 curl -s http://localhost:8080/v1/api-keys -H "Authorization: Bearer $TOKEN"
 ```
 
+Or send the first event with the API key `make seed` wrote to `.env.local`:
+
+```bash
+source .env.local && curl -X POST http://localhost:8080/v1/track \
+  -H "X-Api-Key: $CRM_API_KEY" -H "Content-Type: application/json" \
+  -d '{"userId":"u-123","event":"purchase","properties":{"amount":49.9}}'
+```
+
 ## Running hosts from the IDE
 
 `dotnet run --project src/Hosts/Crm.Api` and `dotnet run --project src/Hosts/Crm.Worker` use `appsettings.Development.json`, which points at the compose ports (`localhost,1433`, `localhost:6380`, `localhost:19092`). Stop the compose `api`/`worker` containers first to free ports 8080/8081, or run with `--urls http://localhost:8090`.

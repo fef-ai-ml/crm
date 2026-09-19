@@ -9,6 +9,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given a tenant with API key `K`
 - When `POST /v1/track` `{userId: "u1", event: "purchase", properties: {amount: 49.9}}` with `X-Api-Key: K`
 - Then the response is `202 {eventId}` within 50 ms (p95 over 20 calls), and `GET /v1/profiles?q=u1` then `/events` shows the event with the same id within 2 s
+- Plan D note: the ingest half (202, record on `events.raw`) is implemented in tests/Crm.IntegrationTests/Ingestion/{TrackTests,IdentifyAndBatchTests}.cs; the profile and timeline half arrives with the Profiles plan.
 - Planned: tests/Crm.IntegrationTests/Ingestion/TrackRoundTripTests.cs
 
 ### IT-002 — identify creates a profile and applies traits
@@ -16,6 +17,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given no profile for `u2`
 - When `POST /v1/identify` `{userId: "u2", traits: {plan: "pro"}}` then `{userId: "u2", traits: {plan: "free", city: "SG"}}`
 - Then one profile exists with attributes `{plan: "free", city: "SG"}`, `EventCount = 0`, no rows in `profiles.Events`, and `LastSeenAt` advanced
+- Plan D note: the ingest half (202, record on `events.raw`) is implemented in tests/Crm.IntegrationTests/Ingestion/{TrackTests,IdentifyAndBatchTests}.cs; the profile and timeline half arrives with the Profiles plan.
 - Planned: tests/Crm.IntegrationTests/Ingestion/IdentifyTests.cs
 
 ### IT-003 — batch returns per-item results
@@ -23,7 +25,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given a batch of 3: valid track, track with `event: "bad name!"`, valid identify
 - When `POST /v1/batch`
 - Then `202 {accepted: 2, rejected: 1}` with `results[1].errors["events[1].event"]`, and exactly two messages land on `events.raw`
-- Planned: tests/Crm.IntegrationTests/Ingestion/BatchTests.cs
+- Implemented: tests/Crm.IntegrationTests/Ingestion/IdentifyAndBatchTests.cs
 
 ### IT-004 — duplicate event id is ignored
 - Traces: FR-06, NFR-05
@@ -51,7 +53,8 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given the Kafka container paused
 - When `POST /v1/track`
 - Then the response is `503 application/problem+json` with `Retry-After`, no event is buffered, and after unpausing a new request returns 202
-- Planned: tests/Crm.IntegrationTests/Ingestion/KafkaUnavailableTests.cs
+- Note: the test does not assert the outage-time record is absent from the topic — a request the broker received just before stalling may still be appended (ruling D8).
+- Implemented: tests/Crm.IntegrationTests/Ingestion/KafkaUnavailableTests.cs
 
 ## Identity and merge
 
@@ -250,7 +253,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given a request with no JWT and no API key to `GET /v1/segments`
 - When executed
 - Then the response is 401; a request with a JWT lacking `tenant_id` returns 500 with a `traceId` and a logged `TenantContextMissingException`, and no rows are returned
-- Plan B note: exercised through the Testing-only probes (/v1/_test/read-probe, write-probe, ingest-probe) until /v1/track and /v1/segments exist.
+- Plan B note: exercised through the Testing-only probes (/v1/_test/read-probe, write-probe) until /v1/segments exists; the ingest-probe was removed by plan D now that /v1/track exists.
 - Planned: tests/Crm.IntegrationTests/Tenancy/IsolationTests.cs
 
 ### IT-033 — API key authentication
@@ -258,7 +261,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given a valid key, a key with one character changed, a revoked key
 - When each calls `POST /v1/track` and the valid key calls `GET /v1/segments`
 - Then 202, 401, 401, and 403 respectively; `LastUsedAt` on the valid key is set once even after 10 calls within a minute
-- Plan B note: exercised through the Testing-only probes (/v1/_test/read-probe, write-probe, ingest-probe) until /v1/track and /v1/segments exist.
+- Plan B note: `POST /v1/track` now runs directly (plan D, ruling D12); `GET /v1/segments` is still exercised through the Testing-only probes (/v1/_test/read-probe, write-probe) until /v1/segments exists.
 - Planned: tests/Crm.IntegrationTests/Tenancy/ApiKeyTests.cs
 
 ### IT-034 — full key is shown once
@@ -273,6 +276,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given one API key and a token bucket of 2,000 per minute
 - When 2,500 requests are sent within 10 s
 - Then at least 100 responses are `429` with `Retry-After`, accepted requests never exceed the bucket plus the tokens refilled during the burst (continuous refill at 2,000 per minute), no 5xx occurs, and a second key is unaffected
+- Plan D note: the burst now runs against `/v1/track` (the ingest-probe was removed, ruling D12); the accepted-count ceiling is measured from just before the warm-up request, because the limiter credits idle time since its last replenishment at the first tick after the burst starts, and the warm-up against `/v1/track` is a real Kafka round trip (~1 s). Observed on the remote engine: about 2,090–2,115 accepted and 385–410 rejected of 2,500.
 - Planned: tests/Crm.IntegrationTests/Tenancy/RateLimitTests.cs
 
 ### IT-036 — login issues a JWT and a refresh cookie that rotates
@@ -287,7 +291,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given a Viewer JWT
 - When it calls `GET /v1/segments`, `POST /v1/segments`, `POST /v1/segments/{id}/run`, `POST /v1/api-keys`
 - Then 200, 403, 403, 403
-- Plan B note: exercised through the Testing-only probes (/v1/_test/read-probe, write-probe, ingest-probe) until /v1/track and /v1/segments exist.
+- Plan B note: exercised through the Testing-only probes (/v1/_test/read-probe, write-probe) until /v1/segments exists; the ingest-probe was removed by plan D now that /v1/track exists.
 - Planned: tests/Crm.IntegrationTests/Tenancy/AuthTests.cs
 
 ### IT-038 — tenant bootstrap is development-only

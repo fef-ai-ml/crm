@@ -140,7 +140,7 @@ Rate limiting: ASP.NET `RateLimiter` with a token-bucket policy `ingest` partiti
 
 Ruling P13 (found in the whole-branch review): a second token-bucket policy, `auth` (20 tokens, replenish 20 per minute, partitioned by client address), is applied to `POST /auth/login`, `POST /auth/refresh` and `POST /tenants` — anonymous, unlimited endpoints that were otherwise the cheapest request to send and, because of the login timing mitigation, the most expensive to serve. Behind the bundled nginx proxy the partition's "client address" depends on `ForwardedHeadersOptions` trusting the proxy hop: `ForwardedHeaders:KnownNetworks` (default empty, i.e. loopback only) lists the networks a forwarded `X-Forwarded-For`/`X-Forwarded-Proto` is honoured from, and the compose deployment sets it to the private compose network only. A real deployment sets `ForwardedHeaders:KnownNetworks` to the reverse proxy's own address (not the broad private ranges compose uses), because any peer inside a trusted network can supply `X-Forwarded-For` and so choose its rate-limit partition.
 
-Ruling P4 (test-only probes standing in for endpoints from later plans): cases that name endpoints this plan does not implement yet are exercised through probes mapped only in the `Testing` environment and excluded from OpenAPI — `POST /v1/_test/ingest-probe` (Ingest, 202) stands in for `POST /v1/track`; `GET /v1/_test/read-probe` (AdminOrViewer, reads tenant data) for `GET /v1/segments`; `POST /v1/_test/write-probe` (AdminOnly) for `POST /v1/segments` and `/run`. The Ingestion and Segmentation plans repoint these tests to the real endpoints and delete the probes.
+Ruling P4 (test-only probes standing in for endpoints from later plans): cases that name endpoints this plan does not implement yet are exercised through probes mapped only in the `Testing` environment and excluded from OpenAPI — `POST /v1/_test/ingest-probe` (Ingest, 202) stood in for `POST /v1/track`; `GET /v1/_test/read-probe` (AdminOrViewer, reads tenant data) for `GET /v1/segments`; `POST /v1/_test/write-probe` (AdminOnly) for `POST /v1/segments` and `/run`. Plan D removed `ingest-probe` now that `/v1/track` exists (ruling D12); `read-probe` and `write-probe` remain until the Segmentation plan repoints those tests and deletes them.
 
 ### 6.5 Tests
 
@@ -266,7 +266,7 @@ Each plan is executed with subagent-driven development, ends green, and is pushe
 | Azure SQL Edge locally, SQL Server 2022 in CI | 2022 segfaults under qemu on the libkrun Podman machine (no Rosetta); Edge is arm64-native and T-SQL/JSON compatible for slice 1; image selected by `MSSQL_IMAGE` so amd64 hosts stay on 2022 |
 | Database created by migrations, not a SQL init sidecar | Edge has no `sqlcmd`; EF Core `Migrate()` issues `CREATE DATABASE` itself and the first migration sets `READ_COMMITTED_SNAPSHOT` with `suppressTransaction` |
 | No .NET Aspire | compose is the documented contract; Aspire would duplicate it |
-| Test-only ingest probe endpoint for IT-035 | rate-limit policy is testable before `/track` exists; removed by the Ingestion plan |
+| Test-only ingest probe endpoint for IT-035 | rate-limit policy is testable before `/track` exists; removed by plan D (ruling D12) now that `/v1/track` exists |
 
 ---
 
