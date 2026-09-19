@@ -54,6 +54,37 @@ When the container engine runs on another machine (a home-lab box running Podman
     your workstation by that hostname rather than `localhost`.
 - Use `ENGINE_SSH_HOST` and `ENGINE_REMOTE_SOCK` to point the Makefile at a different host or a
   differently located remote socket.
+- Pass overrides on the **make command line** (`make up MSSQL_HOST_PORT=11433`), not as environment
+  variables. The Makefile includes `deploy/.env`, and a value assigned there replaces — and is
+  re-exported over — an environment variable of the same name; only a command-line variable wins.
+- The tunnel is a plain ssh process; if the workstation sleeps it dies and compose fails with
+  `Cannot connect to the Docker daemon` / `unexpected EOF` — rerun `make tunnel` (or the variant you
+  use); for long runs wrap the command in `caffeinate -i` on macOS.
+
+## Observability
+
+`make up-observability` starts the stack together with `deploy/docker-compose.observability.yml`
+(profile `observability`): Prometheus on 9090, Grafana on 3001 (3000 belongs to the web shell), Jaeger
+on 16686. `api` and `worker` get `OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317`; without the profile
+the variable is empty and OTLP export is off, while `/metrics` is always served.
+
+Prometheus and Grafana configuration is baked into small images built from `deploy/observability/`,
+not bind-mounted, so it also works when the engine is remote. After editing `prometheus.yml`, the
+datasource, or `dashboards/crm-overview.json`, run `make up-observability` again to rebuild.
+
+Host ports are configurable in `deploy/.env` (`PROMETHEUS_HOST_PORT`, `GRAFANA_HOST_PORT`,
+`JAEGER_HOST_PORT`). With a remote engine use `make tunnel-observability`, which forwards the three
+ports in addition to everything `make tunnel-apps` forwards. `make down` always removes the
+observability containers too.
+
+Port 9090 is often taken on Linux hosts (Cockpit listens there on Rocky/RHEL/Fedora); the engine then
+fails with `rootlessport listen tcp 0.0.0.0:9090: bind: address already in use`. Use e.g.
+`PROMETHEUS_HOST_PORT=19090` on BOTH `make tunnel-observability` and `make up-observability` (command
+line), and run `make tunnel-down` first if a tunnel is already open, because an open tunnel is reused
+as is.
+
+Requests to `/health/*` and `/metrics` are deliberately excluded from tracing, so Jaeger lists
+`Crm.Api` only after a `/v1/...` request.
 
 ## Everyday commands
 
@@ -70,8 +101,12 @@ When the container engine runs on another machine (a home-lab box running Podman
 | `make tunnel` | ssh tunnel to a remote engine: podman socket + infrastructure ports |
 | `make tunnel-apps` | like `tunnel`, also forwards api/worker/web ports for a compose stack running remotely |
 | `make e2e` | Playwright against the compose stack |
-| `make logs` | follow api and worker logs |
+| `make logs` | follow api and worker logs; `make logs SERVICES="kafka redis"` picks others, `SERVICES=` follows everything |
 | `make down` | stop and delete volumes (`KEEP=1 make down` keeps data) |
+| `make up-observability` | the stack plus Prometheus, Grafana, Jaeger |
+| `make tunnel-observability` | like `tunnel-apps`, also forwards 9090, 3001, 16686 |
+| `make compose-check` | CT-005 for both compose files |
+| `tests/Crm.LoadTests/coldstart.sh` | LT-005: times `make up` + `make seed` from a stopped stack and runs the quickstart probe |
 
 ## Logging in
 

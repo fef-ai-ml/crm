@@ -188,21 +188,25 @@ Vite 6 + React 19 + TypeScript strict; TanStack Router (file-based) and TanStack
 
 ### 8.2 docker-compose.observability.yml
 
-Profile `observability`: `prometheus` (scrapes `api:8080/metrics`, `worker:8081/metrics`), `grafana` (provisioned Prometheus datasource, one dashboard JSON with ingest rate, consumer lag, DLQ, run duration panels — panels show "no data" until later plans), `jaeger` (all-in-one, OTLP receiver). API and Worker get `OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317` when the profile is active. `make up-observability` starts both files.
+Second compose file, profile `observability`, started together with the base file by `make up-observability`: `prometheus` (scrapes `api:8080/metrics`, `worker:8081/metrics`), `grafana` (provisioned Prometheus datasource, one dashboard `crm-overview` with HTTP rate/latency plus ingest rate, consumer lag, DLQ, segment-run and real-time-evaluation panels — the `crm_*` panels show "no data" until later plans), `jaeger` (OTLP gRPC receiver on 4317, UI on 16686). The file overrides `OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317` on `api` and `worker`.
+
+Rulings (plan C): configuration is baked into images built from `deploy/observability/{prometheus,grafana}` — no bind mounts, because with a remote engine a bind path resolves on the engine host (C1). Host ports are `${PROMETHEUS_HOST_PORT:-9090}`, `${GRAFANA_HOST_PORT:-3001}` (web owns 3000), `${JAEGER_HOST_PORT:-16686}`; 4317 is not published (C2). `make tunnel-observability` forwards them from a remote engine. `make down` and `make ps` always include this file so its containers are never orphaned (C7). Grafana allows anonymous Viewer access — local development only.
 
 ### 8.3 Makefile targets
 
 | Target | Does |
 |---|---|
 | `up` | copy `.env.example` → `.env` if missing; `docker-compose -f deploy/docker-compose.yml up -d --build`; wait for `api` healthy; print URLs |
+| `up-observability` | base + observability files with `--profile observability`, `up -d --build --wait` |
 | `down` | `down -v` (removes volumes; explicit flag `KEEP=1` keeps data) |
-| `logs` | follow logs of api and worker |
+| `logs` | follow logs of api and worker (`SERVICES="…"` selects others) |
 | `seed` | `POST /v1/tenants` for `demo` with `admin@demo.local` / `Demo-Passw0rd!`, create Viewer user, mint API key `sdk`, write plaintext to `.env.local`; profile/event seeding is appended by the Profiles plan |
 | `migrate` | `dotnet ef database update` for each module context against `.env` connection string |
 | `test-unit` | `dotnet test --filter "Category!=Integration"` |
 | `test-integration` | exports `DOCKER_HOST` from `docker context inspect` and `TESTCONTAINERS_RYUK_DISABLED=true`, then `dotnet test --filter Category=Integration` |
 | `test` | both |
 | `docs-check` | `python3 tools/docs_check.py` |
+| `compose-check` | renders both compose configurations and runs `tools/compose_check.py` (CT-005), the second with `--observability` |
 | `openapi` | export to `docs/api/openapi.json` |
 | `web-dev` | `npm run dev` in Crm.Web with proxy to `localhost:8080` |
 
@@ -214,7 +218,7 @@ Profile `observability`: `prometheus` (scrapes `api:8080/metrics`, `worker:8081/
 
 1. **dotnet** — setup .NET 10.0.400, restore (cached), build with warnings as errors, `dotnet test --filter "Category!=Integration"` with TRX upload.
 2. **integration** — needs docker (default on the runner); `dotnet test --filter Category=Integration`; 20 min timeout.
-3. **contracts** — `python3 tools/docs_check.py`; OpenAPI export and `git diff --exit-code docs/api/openapi.json`; `docker compose -f deploy/docker-compose.yml config -q` and the observability file.
+3. **contracts** — `python3 tools/docs_check.py`; OpenAPI export and `git diff --exit-code docs/api/openapi.json`; `docker compose -f deploy/docker-compose.yml config -q` and the observability file; `python3 -m unittest discover -s tools/tests` (compose_check, observability assets, Testcontainers image pins).
 4. **web** — Node 22, `npm ci`, `npm run lint`, `npm run typecheck`, `npm test -- --run`.
 
 Branch protection is out of scope; the workflow badge goes in the README.
@@ -245,7 +249,7 @@ All other cases remain pending and are listed as such in each plan's header so t
 |---|---|---|
 | **A — skeleton and infrastructure** | root build files, all projects, Kernel, Contracts, hosts with health/observability, compose, Makefile, CI, web shell, `docs/dev-setup.md` | `make up` healthy on Podman; `dotnet test` green (UT-054/055/057, AT-001…005, CT-004); `docs_check` green; compose config valid; CI green on a pushed commit |
 | **B — Tenancy** | identity schema and migration, middleware, JWT + refresh cookie, API keys, endpoints, rate limiter, problem mapper, OpenAPI export and committed document | UT-050…053, UT-056, AT-006, CT-001, IT-032…038 green; `make seed` bootstraps and login works via curl |
-| **C — developer experience** | observability profile wired, Grafana dashboard, README status/quickstart refresh, `docs/dev-setup.md` final, LT-005 manual walkthrough recorded | fresh-clone walkthrough within the LT-005 budgets on the Podman machine |
+| **C — developer experience** | observability profile wired, Grafana dashboard, README status/quickstart refresh, `docs/dev-setup.md` final, LT-005 manual walkthrough recorded | cold-start walkthrough within the LT-005 budgets at foundation scope on the home-lab Podman engine (`tests/Crm.LoadTests/coldstart.sh`, image layers cached); full LT-005 needs `/v1/track` and the seed volume from later plans |
 
 Each plan is executed with subagent-driven development, ends green, and is pushed before the next starts.
 
@@ -275,4 +279,4 @@ Each plan is executed with subagent-driven development, ends green, and is pushe
 | Testcontainers + Podman quirks (Ryuk, socket path) | `make test-integration` sets the variables; documented in `docs/dev-setup.md`; fallback `TESTCONTAINERS_HOST_OVERRIDE` |
 | 8 GB VM with SQL Server + Kafka + three .NET processes | SQL Server capped at 2 GB (`MSSQL_MEMORY_LIMIT_MB=2048`), Kafka heap 512 MB, observability profile opt-in |
 | Secure cookie on plain-HTTP localhost | Development relaxes `Secure` only for localhost; documented |
-| Package versions drift across projects | central package management; Dependabot config in plan C |
+| Package versions drift across projects | central package management; weekly grouped Dependabot updates (`.github/dependabot.yml`) |

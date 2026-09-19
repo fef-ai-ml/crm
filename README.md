@@ -8,7 +8,7 @@ Stack: .NET 10 modular monolith (API + Worker), React 19 dashboard, SQL Server 2
 
 ## Status
 
-Slice 1 (events → profiles → segments) has its foundation skeleton and Tenancy implemented and running: solution structure, Kernel, Contracts, the API/Worker/Web hosts, multi-tenant auth and CI. Ingestion, Profiles and Segmentation land next, each behind its own plan under `docs/superpowers/plans/`.
+Slice 1 (events → profiles → segments) has its foundation complete: solution structure, Kernel, Contracts, the API/Worker/Web hosts, multi-tenant auth, CI, and an opt-in observability stack. Ingestion, Profiles and Segmentation land next, each behind its own plan under `docs/superpowers/plans/`.
 
 | Phase | State |
 |---|---|
@@ -16,6 +16,7 @@ Slice 1 (events → profiles → segments) has its foundation skeleton and Tenan
 | Documentation (BRD, ADRs, architecture, data dictionary, API reference) | Complete |
 | Implementation: solution skeleton, Kernel, Contracts, hosts, web shell, CI | Complete |
 | Implementation: Tenancy | Complete |
+| Implementation: developer experience (observability profile, Dependabot, cold-start measurement) | Complete |
 | Implementation: Ingestion, Profiles pipeline | Planned |
 | Implementation: Segmentation | Planned |
 | Implementation: Web dashboard | Planned |
@@ -43,16 +44,20 @@ python3 tools/docs_check.py
 
 ## Quickstart
 
+Three commands from a fresh clone:
+
 ```bash
-make up                         # infrastructure + api + worker + web, waits until healthy
-make seed                       # bootstrap the demo tenant, Admin + Viewer users, and an API key
-open http://localhost:3000      # web shell shows readiness of SQL, Kafka, Redis
-open http://localhost:8080/swagger
+make up          # infrastructure + api + worker + web, builds images, waits until healthy
+make seed        # demo tenant, Admin + Viewer users, an API key written to .env.local
+curl -s -X POST http://localhost:8080/v1/auth/login -H "Content-Type: application/json" \
+  -d '{"email":"admin@demo.local","password":"Demo-Passw0rd!"}'
 ```
+
+Then open http://localhost:3000 (status page) and http://localhost:8080/swagger (API reference).
 
 See [Developer Setup](docs/dev-setup.md) for prerequisites, Podman specifics, and running against a remote engine.
 
-Send a first event:
+Once the Ingestion plan lands, the first event is:
 
 ```bash
 curl -X POST http://localhost:8080/v1/track \
@@ -60,15 +65,36 @@ curl -X POST http://localhost:8080/v1/track \
   -d '{"userId":"u-123","event":"purchase","properties":{"amount":49.9}}'
 ```
 
-Run the tests:
+## Observability
 
 ```bash
-dotnet test                 # unit, integration (Testcontainers), architecture
-cd src/Hosts/Crm.Web && npm test && npx playwright test
-k6 run tests/Crm.LoadTests/ingest.js
+make up-observability    # the stack plus Prometheus, Grafana and Jaeger
 ```
 
-Minimum local resources: 8 GB RAM allocated to Docker.
+| Tool | URL | What is there |
+|---|---|---|
+| Grafana | http://localhost:3001 | dashboard "CRM overview": HTTP rate and latency now; ingest rate, consumer lag, DLQ and segment-run panels fill in as the modules land |
+| Prometheus | http://localhost:9090 | scrapes `api:8080/metrics` and `worker:8081/metrics` |
+| Jaeger | http://localhost:16686 | traces from `Crm.Api` and `Crm.Worker` (OTLP) |
+
+## Tests
+
+```bash
+make test-unit           # unit, architecture, contract tests — seconds, no containers
+make test-integration    # Testcontainers suite: SQL Server, Kafka, Redis
+make e2e                 # Playwright against the running compose stack
+make compose-check docs-check
+```
+
+## Measured results
+
+| Case | make up | budget | make seed | budget | probe | verdict | date | machine |
+|---|---|---|---|---|---|---|---|---|
+| LT-005 (foundation scope) | 58 s | 180 s | 1 s | 120 s | 200 | pass | 2026-09-19 | home-lab: Rocky 10.2, 4 vCPU, 15 GB, Podman 5.8 (remote over ssh); image layers cached |
+
+LT-005 is recorded at foundation scope with `tests/Crm.LoadTests/coldstart.sh`: stack stopped, volumes removed, image layers cached. A first build on a machine without cached layers additionally pays the NuGet restore and publish inside the image build. Throughput results (LT-001…LT-003) are added by the load-test plan.
+
+Minimum local resources: 8 GB RAM allocated to the container engine.
 
 ## Roadmap
 
