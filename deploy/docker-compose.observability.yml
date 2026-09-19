@@ -1,0 +1,58 @@
+# Opt-in observability stack (spec §8.2). Used together with docker-compose.yml:
+#   make up-observability
+# Prometheus and Grafana configuration is baked into images under deploy/observability/ —
+# no bind mounts, because the engine may be remote (see `make tunnel`).
+
+services:
+  api:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+
+  worker:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+
+  prometheus:
+    profiles: [observability]
+    build:
+      context: observability/prometheus
+    ports:
+      - "${PROMETHEUS_HOST_PORT:-9090}:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  grafana:
+    profiles: [observability]
+    build:
+      context: observability/grafana
+    environment:
+      # Local development only: anonymous read-only access, so the dashboard opens without a login.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/crm-overview.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      # Web owns host port 3000.
+      - "${GRAFANA_HOST_PORT:-3001}:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  jaeger:
+    profiles: [observability]
+    # Jaeger v2 (v1 all-in-one is end-of-life). OTLP gRPC on 4317 inside the compose network, UI on 16686.
+    # The image ships no shell, so there is no healthcheck.
+    image: jaegertracing/jaeger:2.10.0
+    ports:
+      - "${JAEGER_HOST_PORT:-16686}:16686"

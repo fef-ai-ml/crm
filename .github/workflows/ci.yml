@@ -82,8 +82,12 @@ jobs:
       - name: validate compose files
         run: |
           cp deploy/.env.example deploy/.env
-          docker compose --project-directory deploy -f deploy/docker-compose.yml config -q
-          docker compose --project-directory deploy -f deploy/docker-compose.yml config --format json | python3 tools/compose_check.py
+          base="docker compose --project-directory deploy -f deploy/docker-compose.yml"
+          obs="$base -f deploy/docker-compose.observability.yml --profile observability"
+          $base config -q
+          $base config --format json | python3 tools/compose_check.py
+          $obs config -q
+          $obs config --format json | python3 tools/compose_check.py --observability
 
   web:
     name: web lint, typecheck, unit tests
