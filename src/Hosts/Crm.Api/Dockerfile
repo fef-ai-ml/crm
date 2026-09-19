@@ -7,7 +7,10 @@ RUN find src -type f ! \( -name '*.csproj' -o -name '*.props' -o -name '*.target
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY --from=projfiles /src/ ./
-RUN dotnet restore src/Hosts/Crm.Api/Crm.Api.csproj
+# Keep this Dockerfile identical to Crm.Worker/Dockerfile up to and including this restore line: a differing
+# restore command strands one image's restore layer under a duplicate parent-layer copy, forcing a network
+# restore instead of sharing the cache the other image already built.
+RUN dotnet restore src/Hosts/Crm.Api/Crm.Api.csproj && dotnet restore src/Hosts/Crm.Worker/Crm.Worker.csproj
 COPY src/ src/
 RUN dotnet publish src/Hosts/Crm.Api/Crm.Api.csproj -c Release --no-restore -o /app/publish
 
