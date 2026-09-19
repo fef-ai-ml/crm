@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 type Readiness = { status: string; checks: Record<string, string> };
 
@@ -14,15 +15,19 @@ export function HomePage() {
   if (error) return <p className="text-red-600">API unreachable: {String(error)}</p>;
 
   return (
-    <section className="space-y-3">
-      <h1 className="text-xl font-semibold">Platform status: {data.status}</h1>
-      <ul className="space-y-1 text-sm">
-        {Object.entries(data.checks).map(([name, status]) => (
-          <li key={name} data-testid={`check-${name}`}>
-            {name}: {status}
-          </li>
-        ))}
-      </ul>
-    </section>
+    <Card className="max-w-md">
+      <CardHeader>
+        <CardTitle as="h1">Platform status: {data.status}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ul className="space-y-1 text-sm">
+          {Object.entries(data.checks).map(([name, status]) => (
+            <li key={name} data-testid={`check-${name}`}>
+              {name}: {status}
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
   );
 }

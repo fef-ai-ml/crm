@@ -1,20 +1,28 @@
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 
 export function LoginPage() {
   return (
-    <form className="max-w-sm space-y-4" onSubmit={(e) => e.preventDefault()}>
-      <h1 className="text-xl font-semibold">Sign in</h1>
-      <label className="block text-sm">
-        Email
-        <input name="email" type="email" className="mt-1 w-full rounded-md border px-3 py-2" />
-      </label>
-      <label className="block text-sm">
-        Password
-        <input name="password" type="password" className="mt-1 w-full rounded-md border px-3 py-2" />
-      </label>
-      <Button type="submit" disabled>
-        Sign in (available after Tenancy lands)
-      </Button>
-    </form>
+    <Card className="max-w-sm">
+      <CardHeader>
+        <CardTitle as="h1">Sign in</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
+          <div className="space-y-1 text-sm">
+            <label htmlFor="email">Email</label>
+            <Input id="email" name="email" type="email" autoComplete="username" />
+          </div>
+          <div className="space-y-1 text-sm">
+            <label htmlFor="password">Password</label>
+            <Input id="password" name="password" type="password" autoComplete="current-password" />
+          </div>
+          <Button type="submit" disabled>
+            Sign in (wired by the Web plan)
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
