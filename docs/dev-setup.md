@@ -73,15 +73,17 @@ not bind-mounted, so it also works when the engine is remote. After editing `pro
 datasource, or `dashboards/crm-overview.json`, run `make up-observability` again to rebuild.
 
 Host ports are configurable in `deploy/.env` (`PROMETHEUS_HOST_PORT`, `GRAFANA_HOST_PORT`,
-`JAEGER_HOST_PORT`). With a remote engine use `make tunnel-observability`, which forwards the three
-ports in addition to everything `make tunnel-apps` forwards. `make down` always removes the
-observability containers too.
+`JAEGER_HOST_PORT`). All three publish on the engine's loopback only (`127.0.0.1:<port>:<container
+port>`) — anonymous Grafana and unauthenticated Prometheus/Jaeger must not face the LAN on a remote
+engine; the ssh tunnel's `-L …:localhost:PORT` still reaches them because `localhost` there resolves
+on the engine, not the workstation. With a remote engine use `make tunnel-observability`, which
+forwards the three ports in addition to everything `make tunnel-apps` forwards. `make down` always
+removes the observability containers too.
 
 Port 9090 is often taken on Linux hosts (Cockpit listens there on Rocky/RHEL/Fedora); the engine then
 fails with `rootlessport listen tcp 0.0.0.0:9090: bind: address already in use`. Use e.g.
 `PROMETHEUS_HOST_PORT=19090` on BOTH `make tunnel-observability` and `make up-observability` (command
-line), and run `make tunnel-down` first if a tunnel is already open, because an open tunnel is reused
-as is.
+line).
 
 Requests to `/health/*` and `/metrics` are deliberately excluded from tracing, so Jaeger lists
 `Crm.Api` only after a `/v1/...` request.

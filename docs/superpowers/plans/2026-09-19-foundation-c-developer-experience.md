@@ -44,6 +44,7 @@
 | C6 | Anything that starts, stops or re-tunnels the live stack is run by the controller, not by a subagent. Subagents verify with rendered compose config, unit tests, and the Testcontainers suite. |
 | C7 | `make down`, `make ps` always pass both compose files and the profile, so observability containers are never orphaned by a plain `make down`. `make up` keeps using only the base file. |
 | C8 | Testcontainers images are aligned with compose (`apache/kafka:3.9.1`, `redis:7-alpine`) and pinned by a unit test that reads both files. SQL Server stays `MSSQL_IMAGE`-driven. |
+| C9 | LT-005 measured from the working checkout with cached image layers, not a fresh clone: a fresh clone rebuilds the restore layer and would measure NuGet download time, which LT-005 does not budget. Observability ports bind to the engine's loopback (final review I3). |
 
 ## Test cases in scope
 
@@ -1708,7 +1709,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 2. `make test-unit` green; integration suite green (24, 0 skipped) on the compose images.
 3. `python3 -m unittest discover -s tools/tests -v` green; `make compose-check` prints two `OK` lines; `make docs-check` `0 errors`.
 4. Web: `npm run lint`, `npm run typecheck`, `npm test -- --run`, `make e2e` green.
-5. Task 8 checks all held; `coldstart.sh` exited 0 from a fresh clone; its row is in the README.
+5. Task 8 checks all held; `coldstart.sh` exited 0 (stack stopped, volumes removed, image layers cached — see ledger ruling; spec §11 amended); its row is in the README.
 6. Final whole-branch review (Opus), one fix wave, user pushes, CI green.
 
 ## Self-review notes

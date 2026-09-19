@@ -188,9 +188,9 @@ Vite 6 + React 19 + TypeScript strict; TanStack Router (file-based) and TanStack
 
 ### 8.2 docker-compose.observability.yml
 
-Second compose file, profile `observability`, started together with the base file by `make up-observability`: `prometheus` (scrapes `api:8080/metrics`, `worker:8081/metrics`), `grafana` (provisioned Prometheus datasource, one dashboard `crm-overview` with HTTP rate/latency plus ingest rate, consumer lag, DLQ, segment-run and real-time-evaluation panels — the `crm_*` panels show "no data" until later plans), `jaeger` (OTLP gRPC receiver on 4317, UI on 16686). The file overrides `OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317` on `api` and `worker`.
+Second compose file, profile `observability`, started together with the base file by `make up-observability`: `prometheus` (scrapes `api:8080/metrics`, `worker:8081/metrics`), `grafana` (provisioned Prometheus datasource, one dashboard `crm-overview` with HTTP rate/latency plus ingest rate, consumer lag, DLQ, segment-run and real-time-evaluation panels — the `crm_*` panels show "no data" until later plans), `jaeger` (v2 image, OTLP gRPC receiver on 4317, UI on 16686). The file overrides `OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317` on `api` and `worker`.
 
-Rulings (plan C): configuration is baked into images built from `deploy/observability/{prometheus,grafana}` — no bind mounts, because with a remote engine a bind path resolves on the engine host (C1). Host ports are `${PROMETHEUS_HOST_PORT:-9090}`, `${GRAFANA_HOST_PORT:-3001}` (web owns 3000), `${JAEGER_HOST_PORT:-16686}`; 4317 is not published (C2). `make tunnel-observability` forwards them from a remote engine. `make down` and `make ps` always include this file so its containers are never orphaned (C7). Grafana allows anonymous Viewer access — local development only.
+Rulings (plan C): configuration is baked into images built from `deploy/observability/{prometheus,grafana}` — no bind mounts, because with a remote engine a bind path resolves on the engine host (C1). Host ports are `${PROMETHEUS_HOST_PORT:-9090}`, `${GRAFANA_HOST_PORT:-3001}` (web owns 3000), `${JAEGER_HOST_PORT:-16686}`; 4317 is not published (C2). `make tunnel-observability` forwards them from a remote engine. `make down` and `make ps` always include this file so its containers are never orphaned (C7). Grafana allows anonymous Viewer access; because this project's engine is commonly a remote host reached over ssh rather than the workstation itself, the three published ports bind to the engine's loopback interface only (`127.0.0.1:<port>:<container port>`) so anonymous Grafana and unauthenticated Prometheus/Jaeger are not reachable from the LAN — the ssh tunnel still reaches them because its forward resolves `localhost` on the engine (C9).
 
 ### 8.3 Makefile targets
 
@@ -217,8 +217,8 @@ Rulings (plan C): configuration is baked into images built from `deploy/observab
 `.github/workflows/ci.yml`, trigger: pull requests and pushes to `main`. Jobs on `ubuntu-latest`:
 
 1. **dotnet** — setup .NET 10.0.400, restore (cached), build with warnings as errors, `dotnet test --filter "Category!=Integration"` with TRX upload.
-2. **integration** — needs docker (default on the runner); `dotnet test --filter Category=Integration`; 20 min timeout.
-3. **contracts** — `python3 tools/docs_check.py`; OpenAPI export and `git diff --exit-code docs/api/openapi.json`; `docker compose -f deploy/docker-compose.yml config -q` and the observability file; `python3 -m unittest discover -s tools/tests` (compose_check, observability assets, Testcontainers image pins).
+2. **integration** — needs docker (default on the runner); `dotnet test --filter Category=Integration`; 25 min timeout.
+3. **contracts** — `python3 tools/docs_check.py`; OpenAPI export and `diff -u docs/api/openapi.json build/openapi.json` (the exported document against the committed one); `docker compose -f deploy/docker-compose.yml config -q` and the observability file; `python3 -m unittest discover -s tools/tests` (compose_check, observability assets, Testcontainers image pins).
 4. **web** — Node 22, `npm ci`, `npm run lint`, `npm run typecheck`, `npm test -- --run`.
 
 Branch protection is out of scope; the workflow badge goes in the README.
