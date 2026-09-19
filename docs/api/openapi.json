@@ -378,6 +378,16 @@
               }
             }
           },
+          "413": {
+            "description": "Payload Too Large",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Too Many Requests",
             "content": {
@@ -472,6 +482,16 @@
               }
             }
           },
+          "413": {
+            "description": "Payload Too Large",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Too Many Requests",
             "content": {
@@ -558,6 +578,16 @@
           },
           "403": {
             "description": "The caller is not allowed to do this.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -779,15 +809,6 @@
         }
       },
       "BatchItem": {
-        "required": [
-          "type",
-          "userId",
-          "anonymousId",
-          "event",
-          "properties",
-          "traits",
-          "timestamp"
-        ],
         "type": "object",
         "properties": {
           "type": {
@@ -806,32 +827,8 @@
             "type": "string",
             "nullable": true
           },
-          "properties": {
-            "oneOf": [
-              {
-                "enum": [
-                  null
-                ],
-                "nullable": true
-              },
-              {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            ]
-          },
-          "traits": {
-            "oneOf": [
-              {
-                "enum": [
-                  null
-                ],
-                "nullable": true
-              },
-              {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            ]
-          },
+          "properties": { },
+          "traits": { },
           "timestamp": {
             "type": "string",
             "format": "date-time",
@@ -842,9 +839,7 @@
       },
       "BatchItemResult": {
         "required": [
-          "index",
-          "eventId",
-          "errors"
+          "index"
         ],
         "type": "object",
         "properties": {
@@ -879,9 +874,6 @@
         "description": "Exactly one of EventId (accepted) or Errors (rejected) is present."
       },
       "BatchRequest": {
-        "required": [
-          "events"
-        ],
         "type": "object",
         "properties": {
           "events": {
@@ -944,11 +936,6 @@
         }
       },
       "IdentifyRequest": {
-        "required": [
-          "userId",
-          "anonymousId",
-          "traits"
-        ],
         "type": "object",
         "properties": {
           "userId": {
@@ -959,19 +946,7 @@
             "type": "string",
             "nullable": true
           },
-          "traits": {
-            "oneOf": [
-              {
-                "enum": [
-                  null
-                ],
-                "nullable": true
-              },
-              {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            ]
-          }
+          "traits": { }
         },
         "description": "Body of POST /v1/identify."
       },
@@ -987,7 +962,6 @@
           }
         }
       },
-      "JsonElement": { },
       "LoginRequest": {
         "required": [
           "email",
@@ -1086,13 +1060,6 @@
         }
       },
       "TrackRequest": {
-        "required": [
-          "userId",
-          "anonymousId",
-          "event",
-          "properties",
-          "timestamp"
-        ],
         "type": "object",
         "properties": {
           "userId": {
@@ -1107,19 +1074,7 @@
             "type": "string",
             "nullable": true
           },
-          "properties": {
-            "oneOf": [
-              {
-                "enum": [
-                  null
-                ],
-                "nullable": true
-              },
-              {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            ]
-          },
+          "properties": { },
           "timestamp": {
             "type": "string",
             "format": "date-time",

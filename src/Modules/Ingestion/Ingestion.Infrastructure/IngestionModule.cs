@@ -16,7 +16,11 @@ public static class IngestionModule
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
-        services.Configure<KafkaProducerOptions>(configuration.GetSection(KafkaProducerOptions.SectionName));
+        services.AddOptions<KafkaProducerOptions>()
+            .Bind(configuration.GetSection(KafkaProducerOptions.SectionName))
+            .Validate(o => !string.IsNullOrWhiteSpace(o.BootstrapServers), "Kafka:BootstrapServers is required.")
+            .Validate(o => o.Producer.MessageTimeoutMs > 0 && o.Producer.LingerMs >= 0, "Kafka:Producer settings must be positive.")
+            .ValidateOnStart();
         services.AddSingleton<IValidator<TrackRequest>, TrackRequestValidator>();
         services.AddSingleton<IValidator<IdentifyRequest>, IdentifyRequestValidator>();
         services.AddSingleton<EventEnvelopeFactory>();

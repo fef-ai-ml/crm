@@ -11,6 +11,8 @@ public static partial class IngestRules
     public const int MaxUserIdLength = 128;       // profiles.Profiles.ExternalId
     public const int MaxAnonymousIdLength = 256;  // profiles.UserIdentities.Value
     public const int MaxBatchItems = 500;
+    public const int MaxSingleRequestBytes = 256 * 1024;
+    public const int MaxBatchRequestBytes = 20 * 1024 * 1024;
     public static readonly TimeSpan TimestampWindow = TimeSpan.FromDays(7);
 
     public const string EventNameMessage = "must match [A-Za-z0-9_]{1,64}";

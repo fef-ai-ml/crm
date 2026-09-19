@@ -1,5 +1,6 @@
 using Crm.Ingestion.Application;
 using Crm.Ingestion.Application.Requests;
+using Crm.Ingestion.Application.Validation;
 using Crm.Kernel.Tenancy;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -13,13 +14,17 @@ internal static class IngestEndpoints
 {
     public static void Map(RouteGroupBuilder ingest)
     {
-        Describe(ingest.MapPost("/track", TrackAsync).WithName("Track").Produces<IngestAccepted>(StatusCodes.Status202Accepted));
-        Describe(ingest.MapPost("/identify", IdentifyAsync).WithName("Identify").Produces<IngestAccepted>(StatusCodes.Status202Accepted));
-        Describe(ingest.MapPost("/batch", BatchAsync).WithName("Batch").Produces<BatchAccepted>(StatusCodes.Status202Accepted));
+        Describe(ingest.MapPost("/track", TrackAsync).WithName("Track").Produces<IngestAccepted>(StatusCodes.Status202Accepted))
+            .WithMetadata(new RequestSizeLimitAttribute(IngestRules.MaxSingleRequestBytes));
+        Describe(ingest.MapPost("/identify", IdentifyAsync).WithName("Identify").Produces<IngestAccepted>(StatusCodes.Status202Accepted))
+            .WithMetadata(new RequestSizeLimitAttribute(IngestRules.MaxSingleRequestBytes));
+        Describe(ingest.MapPost("/batch", BatchAsync).WithName("Batch").Produces<BatchAccepted>(StatusCodes.Status202Accepted))
+            .WithMetadata(new RequestSizeLimitAttribute(IngestRules.MaxBatchRequestBytes));
     }
 
-    private static void Describe(RouteHandlerBuilder endpoint) => endpoint
+    private static RouteHandlerBuilder Describe(RouteHandlerBuilder endpoint) => endpoint
         .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
         .ProducesProblem(StatusCodes.Status429TooManyRequests)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 

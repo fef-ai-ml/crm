@@ -29,7 +29,11 @@ public sealed partial class UnhandledExceptionHandler(IProblemDetailsService pro
                 ProblemDetails = new ProblemDetails
                 {
                     Status = bad.StatusCode,
-                    Type = ResultProblemMapper.TypeFor("validation"),
+                    // Only a 400 gets the "validation" slug; every other BadHttpRequestException status (for
+                    // example 413 from a request size limit) is a distinct problem type of its own.
+                    Type = bad.StatusCode == StatusCodes.Status400BadRequest
+                        ? ResultProblemMapper.TypeFor("validation")
+                        : ResultProblemMapper.TypeFor("badrequest"),
                     Title = "The request could not be read.",
                     Detail = bad.Message,
                     Instance = path,

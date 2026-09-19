@@ -12,5 +12,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Modules\Ingestion\Ingestion.Application\Ingestion.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Ingestion\Ingestion.Infrastructure\Ingestion.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

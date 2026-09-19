@@ -53,9 +53,9 @@ public class OpenApiDocumentTests
         new("GET", "/v1/api-keys", ["200", "401", "403"], Security: "bearer"),
         new("POST", "/v1/api-keys", ["201", "400", "401", "403"], Security: "bearer"),
         new("DELETE", "/v1/api-keys/{id}", ["204", "401", "403", "404"], Security: "bearer"),
-        new("POST", "/v1/track", ["202", "400", "401", "403", "429", "503"], Security: "apiKey"),
-        new("POST", "/v1/identify", ["202", "400", "401", "403", "429", "503"], Security: "apiKey"),
-        new("POST", "/v1/batch", ["202", "400", "401", "403", "429", "503"], Security: "apiKey"),
+        new("POST", "/v1/track", ["202", "400", "401", "403", "413", "429", "503"], Security: "apiKey"),
+        new("POST", "/v1/identify", ["202", "400", "401", "403", "413", "429", "503"], Security: "apiKey"),
+        new("POST", "/v1/batch", ["202", "400", "401", "403", "413", "429", "503"], Security: "apiKey"),
     ];
 
     [Fact]
@@ -93,6 +93,27 @@ public class OpenApiDocumentTests
                     .Equal(["application/problem+json"], $"{expected.Method} {expected.Path} {response.Name}");
             }
         }
+    }
+
+    [Fact]
+    public void CT001_ingest_request_schemas_do_not_require_optional_fields()
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(RepoRoot(), "docs/api/openapi.json")));
+        var schemas = document.RootElement.GetProperty("components").GetProperty("schemas");
+
+        foreach (var name in new[] { "TrackRequest", "IdentifyRequest", "BatchItem", "BatchRequest" })
+        {
+            var schema = schemas.GetProperty(name);
+            if (schema.TryGetProperty("required", out var required))
+            {
+                required.GetArrayLength().Should().Be(0, $"{name} has no required fields; every parameter is optional");
+            }
+        }
+
+        schemas.GetProperty("BatchItemResult").GetProperty("required").EnumerateArray()
+            .Select(e => e.GetString()).Should().Equal("index");
+        schemas.GetProperty("IngestAccepted").GetProperty("required").EnumerateArray()
+            .Select(e => e.GetString()).Should().Equal("eventId");
     }
 
     [Fact]

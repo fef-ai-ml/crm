@@ -61,4 +61,25 @@ public class UnhandledExceptionHandlerTests
             .Any(call => call.GetArguments().Length > 0 && Equals(call.GetArguments()[0], LogLevel.Error))
             .Should().BeFalse("a bad request must not be logged as an unhandled error");
     }
+
+    [Fact]
+    public async Task A_413_bad_request_exception_keeps_its_status_and_is_not_the_validation_type()
+    {
+        var problems = Substitute.For<IProblemDetailsService>();
+        problems.TryWriteAsync(Arg.Any<ProblemDetailsContext>()).Returns(true);
+        var logger = Substitute.For<ILogger<UnhandledExceptionHandler>>();
+        var handler = new UnhandledExceptionHandler(problems, logger);
+        var http = new DefaultHttpContext();
+
+        var handled = await handler.TryHandleAsync(
+            http, new BadHttpRequestException("Request body too large.", StatusCodes.Status413PayloadTooLarge), CancellationToken.None);
+
+        handled.Should().BeTrue();
+        http.Response.StatusCode.Should().Be(StatusCodes.Status413PayloadTooLarge);
+        await problems.Received(1).TryWriteAsync(Arg.Is<ProblemDetailsContext>(c =>
+            c.ProblemDetails.Status == StatusCodes.Status413PayloadTooLarge
+            && c.ProblemDetails.Type == "https://crm.example/problems/badrequest"
+            && c.ProblemDetails.Type != "https://crm.example/problems/validation"
+            && c.ProblemDetails.Title == "The request could not be read."));
+    }
 }
