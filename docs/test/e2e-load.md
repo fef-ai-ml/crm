@@ -95,4 +95,4 @@ End-to-end cases (`E2E`) run Playwright against the full `docker compose` stack 
 - Given a machine with Docker allocated 8 GB RAM and no running containers
 - When `make up`, `make seed`, and the README curl example are executed in order
 - Then all services are healthy within 3 minutes, seeding finishes within 2 minutes (5k profiles, 100k events), the curl returns 202, and the whole quickstart takes three commands as documented
-- Planned: documented manual step in README (results table), automated later via `tests/Crm.LoadTests/coldstart.sh`
+- Implemented (foundation scope): `tests/Crm.LoadTests/coldstart.sh` measures `make up` (≤ 3 min) and `make seed` (≤ 2 min) and runs the quickstart probe; results table in the root README. Until `/v1/track` exists the probe is "log in as the seeded Admin, `GET /v1/api-keys` → 200"; the Ingestion plan switches it to the README curl returning 202, and the Profiles plan adds the 5k-profile / 100k-event seed volume. The case counts as passing only once all three hold.
