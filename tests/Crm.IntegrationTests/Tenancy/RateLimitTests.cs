@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
+using System.Net.Http.Json;
 using Crm.IntegrationTests.Fixtures;
 using Crm.Tenancy.Infrastructure.Auth;
 using FluentAssertions;
@@ -44,7 +45,14 @@ public sealed class RateLimitTests(CrmStackFixture stack) : IAsyncLifetime
         // The partitioned limiter creates its per-key token bucket lazily, and concurrent first requests on a
         // brand-new key can briefly race and see more than one bucket instance. Warm the partition (and the
         // Redis API-key cache) with one sequential call so the burst below measures the steady-state limit.
-        using (var warmup = new HttpRequestMessage(HttpMethod.Post, "/v1/_test/ingest-probe"))
+        // The limiter replenishes by crediting idle time since the bucket's LAST replenishment tick, and while
+        // the bucket is full that timestamp does not advance — so the idle gap between this warm-up (which
+        // creates the bucket and takes its first token) and the start of the burst is credited at the first
+        // tick after the burst starts. The warm-up used to return instantly (a no-op probe); now it is a real
+        // Kafka produce (producer creation + metadata), so that idle gap is no longer negligible. Start the
+        // refill clock here, not at the burst, so `refilled` below covers the whole window the limiter actually credits.
+        var sinceBucketCreated = Stopwatch.StartNew();
+        using (var warmup = new HttpRequestMessage(HttpMethod.Post, "/v1/track") { Content = JsonContent.Create(new { userId = "u-it", @event = "probe" }) })
         {
             warmup.Headers.Add(AuthSchemes.ApiKeyHeader, noisy.Plaintext);
             using var warmupResponse = await _client.SendAsync(warmup);
@@ -56,17 +64,18 @@ public sealed class RateLimitTests(CrmStackFixture stack) : IAsyncLifetime
 
         await Parallel.ForEachAsync(Enumerable.Range(0, BurstSize), new ParallelOptions { MaxDegreeOfParallelism = 32 }, async (_, ct) =>
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/_test/ingest-probe");
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/track") { Content = JsonContent.Create(new { userId = "u-it", @event = "probe" }) };
             request.Headers.Add(AuthSchemes.ApiKeyHeader, noisy.Plaintext);
             using var response = await _client.SendAsync(request, ct);
             outcomes.Add((response.StatusCode, response.Headers.RetryAfter is not null));
         });
         stopwatch.Stop();
+        sinceBucketCreated.Stop();
 
         outcomes.Should().NotContain(o => (int)o.Status >= 500);
         outcomes.Where(o => o.Status == HttpStatusCode.TooManyRequests).Should().OnlyContain(o => o.HasRetryAfter);
 
-        var refilled = (int)Math.Ceiling(stopwatch.Elapsed.TotalSeconds * RefillPerSecond);
+        var refilled = (int)Math.Ceiling(sinceBucketCreated.Elapsed.TotalSeconds * RefillPerSecond);
         var accepted = outcomes.Count(o => o.Status == HttpStatusCode.Accepted);
         var rejected = outcomes.Count(o => o.Status == HttpStatusCode.TooManyRequests);
         (accepted + rejected).Should().Be(BurstSize);
@@ -83,7 +92,7 @@ public sealed class RateLimitTests(CrmStackFixture stack) : IAsyncLifetime
             rejected.Should().BeGreaterThanOrEqualTo(Math.Max(0, guaranteedRejections));
         }
 
-        using var other = new HttpRequestMessage(HttpMethod.Post, "/v1/_test/ingest-probe");
+        using var other = new HttpRequestMessage(HttpMethod.Post, "/v1/track") { Content = JsonContent.Create(new { userId = "u-it", @event = "probe" }) };
         other.Headers.Add(AuthSchemes.ApiKeyHeader, quiet.Plaintext);
         using var otherResponse = await _client.SendAsync(other);
         otherResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);

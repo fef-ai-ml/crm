@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Crm.Tenancy.Infrastructure.Endpoints;
 
-/// <summary>Testing-only stand-ins for endpoints of later plans (plan ruling P4). Deleted when /v1/track and /v1/segments exist.</summary>
+/// <summary>Testing-only stand-ins for endpoints of later plans (plan ruling P4). read-probe and write-probe are deleted when /v1/segments exists (Segmentation plan); ingest-probe was removed by plan D now that /v1/track exists.</summary>
 internal static class TestProbeEndpoints
 {
     public static void Map(RouteGroupBuilder v1)
@@ -19,11 +19,6 @@ internal static class TestProbeEndpoints
 
         probes.MapPost("/write-probe", () => TypedResults.Ok())
             .RequireAuthorization(AuthPolicies.AdminOnly);
-
-        probes.MapPost("/ingest-probe", () => TypedResults.Accepted((string?)null))
-            .RequireAuthorization(AuthPolicies.IngestOnly)
-            .RequireRateLimiting(RateLimitPolicies.Ingest)
-            .WithTags(EndpointTags.Ingest);
     }
 
     internal sealed record ProbeCount(int Count);

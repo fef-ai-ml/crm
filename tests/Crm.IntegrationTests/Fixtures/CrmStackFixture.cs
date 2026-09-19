@@ -1,3 +1,6 @@
+using Confluent.Kafka;
+using Confluent.Kafka.Admin;
+using Crm.Contracts;
 using Crm.Kernel.Tenancy;
 using Crm.Tenancy.Infrastructure;
 using DotNet.Testcontainers.Builders;
@@ -48,7 +51,27 @@ public sealed class CrmStackFixture : IAsyncLifetime
         await WaitForSqlLoginAsync(TimeSpan.FromSeconds(90));
         await EnsureDatabaseAsync("crm_test");
         await MigrateTenancyAsync();
+        await CreateTopicsAsync();
     }
+
+    /// <summary>compose's kafka-init creates these with 12 partitions and auto-creation off; mirror it so keys spread the same way.</summary>
+    private async Task CreateTopicsAsync()
+    {
+        using var admin = new AdminClientBuilder(new AdminClientConfig { BootstrapServers = KafkaBootstrapServers }).Build();
+        try
+        {
+            await admin.CreateTopicsAsync(new[] { KafkaTopics.EventsRaw, KafkaTopics.EventsProcessed, KafkaTopics.EventsDlq }
+                .Select(name => new TopicSpecification { Name = name, NumPartitions = KafkaTopics.Partitions, ReplicationFactor = 1 }));
+        }
+        catch (CreateTopicsException ex) when (ex.Results.All(r => r.Error.Code is ErrorCode.NoError or ErrorCode.TopicAlreadyExists))
+        {
+            // created by an earlier fixture instance or by broker auto-creation
+        }
+    }
+
+    public Task PauseKafkaAsync() => ((IContainer)_kafka).PauseAsync();
+
+    public Task UnpauseKafkaAsync() => ((IContainer)_kafka).UnpauseAsync();
 
     /// <summary>The API only auto-migrates in Development; tests run as "Testing", so the fixture creates the database itself.</summary>
     private async Task EnsureDatabaseAsync(string name)

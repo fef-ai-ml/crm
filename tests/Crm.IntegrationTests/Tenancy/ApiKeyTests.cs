@@ -18,7 +18,7 @@ namespace Crm.IntegrationTests.Tenancy;
 [Trait("Category", "Integration")]
 public sealed class ApiKeyTests(CrmStackFixture stack) : IAsyncLifetime
 {
-    private const string IngestProbe = "/v1/_test/ingest-probe";
+    private const string Ingest = "/v1/track";
     private readonly CrmApiFactory _factory = new(stack);
     private HttpClient _client = null!;
 
@@ -44,10 +44,10 @@ public sealed class ApiKeyTests(CrmStackFixture stack) : IAsyncLifetime
         var last = valid.Plaintext[^1];
         var tampered = valid.Plaintext[..^1] + (last == 'a' ? 'b' : 'a');
 
-        (await SendAsync(HttpMethod.Post, IngestProbe, valid.Plaintext)).Should().Be(HttpStatusCode.Accepted);
-        (await SendAsync(HttpMethod.Post, IngestProbe, tampered)).Should().Be(HttpStatusCode.Unauthorized, "the cache is warm now and must still verify the full key");
-        (await SendAsync(HttpMethod.Post, IngestProbe, revoked.Plaintext)).Should().Be(HttpStatusCode.Unauthorized);
-        (await SendAsync(HttpMethod.Post, IngestProbe, "crm_live_not-even-a-key")).Should().Be(HttpStatusCode.Unauthorized);
+        (await SendAsync(HttpMethod.Post, Ingest, valid.Plaintext)).Should().Be(HttpStatusCode.Accepted);
+        (await SendAsync(HttpMethod.Post, Ingest, tampered)).Should().Be(HttpStatusCode.Unauthorized, "the cache is warm now and must still verify the full key");
+        (await SendAsync(HttpMethod.Post, Ingest, revoked.Plaintext)).Should().Be(HttpStatusCode.Unauthorized);
+        (await SendAsync(HttpMethod.Post, Ingest, "crm_live_not-even-a-key")).Should().Be(HttpStatusCode.Unauthorized);
         (await SendAsync(HttpMethod.Get, "/v1/_test/read-probe", valid.Plaintext)).Should().Be(HttpStatusCode.Forbidden, "API keys may call Ingest endpoints only");
     }
 
@@ -57,13 +57,13 @@ public sealed class ApiKeyTests(CrmStackFixture stack) : IAsyncLifetime
         var tenant = await TenancySeed.CreateTenantAsync(_factory);
         var key = await TenancySeed.AddApiKeyAsync(_factory, tenant);
 
-        (await SendAsync(HttpMethod.Post, IngestProbe, key.Plaintext)).Should().Be(HttpStatusCode.Accepted);
+        (await SendAsync(HttpMethod.Post, Ingest, key.Plaintext)).Should().Be(HttpStatusCode.Accepted);
         var first = await LastUsedAtAsync(key.Id);
         first.Should().NotBeNull();
 
         for (var i = 0; i < 9; i++)
         {
-            (await SendAsync(HttpMethod.Post, IngestProbe, key.Plaintext)).Should().Be(HttpStatusCode.Accepted);
+            (await SendAsync(HttpMethod.Post, Ingest, key.Plaintext)).Should().Be(HttpStatusCode.Accepted);
         }
 
         (await LastUsedAtAsync(key.Id)).Should().Be(first);
@@ -74,7 +74,7 @@ public sealed class ApiKeyTests(CrmStackFixture stack) : IAsyncLifetime
     {
         var tenant = await TenancySeed.CreateTenantAsync(_factory);
         var key = await TenancySeed.AddApiKeyAsync(_factory, tenant);
-        (await SendAsync(HttpMethod.Post, IngestProbe, key.Plaintext)).Should().Be(HttpStatusCode.Accepted);
+        (await SendAsync(HttpMethod.Post, Ingest, key.Plaintext)).Should().Be(HttpStatusCode.Accepted);
 
         await RevokeAsync(tenant, key.Id);
         using (var scope = _factory.Services.CreateScope())
@@ -82,7 +82,7 @@ public sealed class ApiKeyTests(CrmStackFixture stack) : IAsyncLifetime
             await scope.ServiceProvider.GetRequiredService<IApiKeyAuthenticator>().EvictAsync(key.Prefix);
         }
 
-        (await SendAsync(HttpMethod.Post, IngestProbe, key.Plaintext)).Should().Be(HttpStatusCode.Unauthorized);
+        (await SendAsync(HttpMethod.Post, Ingest, key.Plaintext)).Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
@@ -96,8 +96,8 @@ public sealed class ApiKeyTests(CrmStackFixture stack) : IAsyncLifetime
         await stack.PauseRedisAsync();
         try
         {
-            (await SendAsync(HttpMethod.Post, IngestProbe, key.Plaintext)).Should().Be(HttpStatusCode.Accepted, "authentication must fall back to SQL while Redis is unreachable");
-            (await SendAsync(HttpMethod.Post, IngestProbe, tampered)).Should().Be(HttpStatusCode.Unauthorized);
+            (await SendAsync(HttpMethod.Post, Ingest, key.Plaintext)).Should().Be(HttpStatusCode.Accepted, "authentication must fall back to SQL while Redis is unreachable");
+            (await SendAsync(HttpMethod.Post, Ingest, tampered)).Should().Be(HttpStatusCode.Unauthorized);
         }
         finally
         {
@@ -134,7 +134,7 @@ public sealed class ApiKeyTests(CrmStackFixture stack) : IAsyncLifetime
             row.KeyHash.Should().Equal(ApiKey.Hash(key));
         }
 
-        (await SendAsync(HttpMethod.Post, IngestProbe, key)).Should().Be(HttpStatusCode.Accepted);
+        (await SendAsync(HttpMethod.Post, Ingest, key)).Should().Be(HttpStatusCode.Accepted);
 
         var otherAdmin = TenancySeed.AccessToken(_factory, other.AdminUserId, other.TenantId, Roles.Admin);
         using var foreignDelete = await SendJsonAsync(HttpMethod.Delete, $"/v1/api-keys/{id}", otherAdmin, null);
@@ -142,7 +142,7 @@ public sealed class ApiKeyTests(CrmStackFixture stack) : IAsyncLifetime
 
         using var deleted = await SendJsonAsync(HttpMethod.Delete, $"/v1/api-keys/{id}", admin, null);
         deleted.StatusCode.Should().Be(HttpStatusCode.NoContent);
-        (await SendAsync(HttpMethod.Post, IngestProbe, key)).Should().Be(HttpStatusCode.Unauthorized, "revoke evicts the cache entry");
+        (await SendAsync(HttpMethod.Post, Ingest, key)).Should().Be(HttpStatusCode.Unauthorized, "revoke evicts the cache entry");
 
         using var blankName = await SendJsonAsync(HttpMethod.Post, "/v1/api-keys", admin, new { name = " " });
         blankName.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -163,6 +163,11 @@ public sealed class ApiKeyTests(CrmStackFixture stack) : IAsyncLifetime
     private async Task<HttpStatusCode> SendAsync(HttpMethod method, string path, string apiKey)
     {
         using var request = new HttpRequestMessage(method, path);
+        if (method == HttpMethod.Post)
+        {
+            request.Content = JsonContent.Create(new { userId = "u-it", @event = "probe" });
+        }
+
         request.Headers.Add(AuthSchemes.ApiKeyHeader, apiKey);
         using var response = await _client.SendAsync(request);
         return response.StatusCode;
