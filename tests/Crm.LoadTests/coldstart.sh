@@ -11,7 +11,9 @@
 # Preconditions: no container of the compose project is running (`make down` first), and with a remote
 # engine the app tunnel is already up (`make tunnel-apps`), because seeding and the probe use localhost.
 #
-# Exit codes: 0 within budgets, 1 over budget or on a `make`/probe failure, 2 when the stack is already running.
+# Exit codes: 0 within budgets, 1 over budget, on a `make`/probe failure, or when the container engine
+# cannot be queried (fails closed rather than treating an engine error as "nothing running"), 2 when
+# the stack is already running.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -21,7 +23,11 @@ MACHINE="${LT005_MACHINE:-$(uname -sm)}"
 UP_BUDGET=180
 SEED_BUDGET=120
 
-if [ -n "$(docker ps -q --filter label=com.docker.compose.project=crm)" ]; then
+if ! running=$(docker ps -q --filter label=com.docker.compose.project=crm); then
+  echo "LT-005: cannot query the container engine (is DOCKER_HOST / the tunnel up?)" >&2
+  exit 1
+fi
+if [ -n "$running" ]; then
   echo "LT-005 measures a cold start, but containers of compose project 'crm' are running. Run 'make down' first." >&2
   exit 2
 fi
