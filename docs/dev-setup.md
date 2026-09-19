@@ -64,7 +64,7 @@ When the container engine runs on another machine (a home-lab box running Podman
 | `make test` | both |
 | `make docs-check` | documentation checker |
 | `make migrate` | apply EF Core migrations (module contexts with migrations: Tenancy) against `localhost,1433` |
-| `make seed` | bootstrap the demo tenant, Admin + Viewer users, and an API key against a running Development API; writes `CRM_API_KEY` to `.env.local` (git-ignored); idempotent |
+| `make seed` | bootstrap the demo tenant, Admin + Viewer users, and an API key against a running Development API; writes `CRM_API_KEY` to `.env.local` (git-ignored); idempotent; after the database was recreated (`make down`) the stale key in `.env.local` is replaced |
 | `make openapi` | regenerate `docs/api/openapi.json` (commit the result). `dotnet run --project <dir>` resolves a relative `--export-openapi` path against the *project* directory, not your shell's working directory, so this target (and CI) pass an absolute path |
 | `make web-dev` | Vite dev server on 5173 proxying `/v1` and `/health` to `localhost:8080` |
 | `make tunnel` | ssh tunnel to a remote engine: podman socket + infrastructure ports |

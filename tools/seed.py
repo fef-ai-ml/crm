@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Bootstrap the demo tenant against a running Development API (make seed).
 
-Idempotent: an existing tenant (409) is reused; a new API key is minted only when
-.env.local does not already hold one. Standard library only.
+Idempotent: an existing tenant (409) is reused, keeping any API key already in
+.env.local; a freshly created tenant (201) means the stored key is stale, so a
+new one is minted and replaces it. Standard library only.
 """
 import json
 import os
@@ -44,14 +45,41 @@ def fail(step, status, body):
     sys.exit(f"seed: {step} failed with HTTP {status}: {detail}")
 
 
-def existing_key():
-    if not os.path.exists(ENV_LOCAL):
+def existing_key(path: str = ENV_LOCAL):
+    if not os.path.exists(path):
         return None
-    with open(ENV_LOCAL, encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         for line in handle:
             if line.startswith("CRM_API_KEY=") and line.strip() != "CRM_API_KEY=":
                 return line.strip().split("=", 1)[1]
     return None
+
+
+def should_mint(tenant_created: bool, stored_key) -> bool:
+    return tenant_created or not stored_key
+
+
+def write_key(path: str, key: str) -> None:
+    lines = []
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+
+    new_line = f"CRM_API_KEY={key}"
+    replaced = False
+    result = []
+    for line in lines:
+        if line.startswith("CRM_API_KEY="):
+            if not replaced:
+                result.append(new_line)
+                replaced = True
+        else:
+            result.append(line)
+    if not replaced:
+        result.append(new_line)
+
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(result) + "\n")
 
 
 def main():
@@ -60,6 +88,7 @@ def main():
         "adminEmail": ADMIN_EMAIL, "adminPassword": PASSWORD,
         "viewerEmail": VIEWER_EMAIL, "viewerPassword": PASSWORD,
     })
+    tenant_created = status == 201
     if status == 201:
         print(f"seed: created tenant demo ({body['tenantId']})")
     elif status == 409:
@@ -75,15 +104,17 @@ def main():
     token = body["accessToken"]
     print(f"seed: login ok as {ADMIN_EMAIL} (expires in {body['expiresIn']} s)")
 
-    if existing_key():
+    stored = existing_key()
+    if not should_mint(tenant_created, stored):
         print(f"seed: {ENV_LOCAL} already holds CRM_API_KEY; not minting another")
         return
+    if stored:
+        print(f"seed: tenant was just created, so the CRM_API_KEY in {ENV_LOCAL} is stale; replacing it")
 
     status, body = call("POST", "/v1/api-keys", {"name": "sdk"}, token)
     if status != 201:
         fail("create api key", status, body)
-    with open(ENV_LOCAL, "a", encoding="utf-8") as handle:
-        handle.write(f"CRM_API_KEY={body['key']}\n")
+    write_key(ENV_LOCAL, body['key'])
     print(f"seed: API key sdk ({body['prefix']}…) written to {ENV_LOCAL}")
 
 
