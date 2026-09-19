@@ -26,9 +26,10 @@ public sealed class CrmStackFixture : IAsyncLifetime
         .WithWaitStrategy(Wait.ForUnixContainer().UntilInternalTcpPortIsAvailable(1433))
         .Build();
 
-    private readonly KafkaContainer _kafka = new KafkaBuilder("confluentinc/cp-kafka:7.5.12").Build();
+    // Same images as deploy/docker-compose.yml; tools/tests/test_image_pins.py fails when they drift.
+    private readonly KafkaContainer _kafka = new KafkaBuilder("apache/kafka:3.9.1").Build();
 
-    private readonly RedisContainer _redis = new RedisBuilder("redis:7.0").Build();
+    private readonly RedisContainer _redis = new RedisBuilder("redis:7-alpine").Build();
 
     public string SqlConnectionString { get; private set; } = string.Empty;
 

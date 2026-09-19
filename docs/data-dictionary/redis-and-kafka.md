@@ -32,7 +32,7 @@ Message contracts (in `Crm.Contracts`, JSON, camelCase):
 | `TrackEventRaw` | eventId, tenantId, userId?, anonymousId?, event, properties (object), occurredAt, receivedAt |
 | `IdentifyRaw` | eventId, tenantId, userId, anonymousId?, traits (object), receivedAt |
 | `EventTracked` | eventId, tenantId, profileId, event, properties, occurredAt, profile: { externalId?, email?, phone?, attributes } |
-| `ProfileUpdated` | tenantId, profileId, changedKeys (string[]), occurredAt, profile: { externalId?, email?, phone?, attributes } |
+| `ProfileUpdated` | tenantId, profileId, changedKeys (string[]), profile: { externalId?, email?, phone?, attributes }, occurredAt |
 | `ProfileMerged` | tenantId, winnerProfileId, loserProfileId, occurredAt |
 
 Producer settings: `acks=all`, `enable.idempotence=true`. Consumer settings: `enable.auto.commit=false`, manual commit after the SQL transaction commits, `auto.offset.reset=earliest`.

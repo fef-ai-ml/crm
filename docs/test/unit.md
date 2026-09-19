@@ -420,4 +420,4 @@ Each case loads `tests/fixtures/rules/valid/<name>.json`, compiles it for tenant
 - Given tenant `T`
 - When every key builder in `Crm.Kernel.Redis` is invoked
 - Then each key starts with `t:T:` except `apikey:{prefix}` and the channel `segments:changed`
-- Planned: tests/Crm.Kernel.UnitTests/RedisKeyBuilderTests.cs
+- Implemented: tests/Crm.Kernel.UnitTests/RedisKeysTests.cs

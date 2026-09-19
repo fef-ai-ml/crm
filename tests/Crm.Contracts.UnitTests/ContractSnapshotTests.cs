@@ -29,7 +29,7 @@ public class ContractSnapshotTests
 
     [Theory]
     [MemberData(nameof(Cases))]
-    public void Serialized_message_matches_committed_snapshot(string name, object message)
+    public void CT004_serialized_message_matches_committed_snapshot(string name, object message)
     {
         var path = Path.Combine(FixturesRoot(), "contracts", $"{name}.json");
         var expected = Normalize(File.ReadAllText(path));
@@ -41,7 +41,7 @@ public class ContractSnapshotTests
 
     [Theory]
     [MemberData(nameof(Cases))]
-    public void Snapshot_round_trips_through_deserialization(string name, object message)
+    public void CT004_snapshot_round_trips_through_deserialization(string name, object message)
     {
         var path = Path.Combine(FixturesRoot(), "contracts", $"{name}.json");
 
@@ -52,7 +52,7 @@ public class ContractSnapshotTests
     }
 
     [Fact]
-    public void Topic_and_header_constants_match_the_data_dictionary()
+    public void CT004_topic_and_header_constants_match_the_data_dictionary()
     {
         KafkaTopics.EventsRaw.Should().Be("events.raw");
         KafkaTopics.EventsProcessed.Should().Be("events.processed");

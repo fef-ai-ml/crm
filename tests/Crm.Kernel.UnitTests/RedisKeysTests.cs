@@ -31,14 +31,14 @@ public class RedisKeysTests
         => RedisKeys.PreviewCount(Tenant, "abc123").Should().Be("t:11111111222233334444555555555555:preview:abc123");
 
     [Fact]
-    public void Api_key_cache_and_channel_are_the_only_unprefixed_keys()
+    public void UT057_api_key_cache_and_channel_are_the_only_unprefixed_keys()
     {
         RedisKeys.ApiKey("AbCdEfGh").Should().Be("apikey:AbCdEfGh");
         RedisKeys.SegmentsChangedChannel.Should().Be("segments:changed");
     }
 
     [Fact]
-    public void Every_tenant_scoped_builder_starts_with_tenant_prefix()
+    public void UT057_every_tenant_scoped_builder_starts_with_the_tenant_prefix()
     {
         var prefix = "t:11111111222233334444555555555555:";
         new[]
