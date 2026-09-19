@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Crm.IntegrationTests.Fixtures;
+using Crm.IntegrationTests.Ingestion;
 using Crm.Kernel.Tenancy;
 using Crm.Tenancy.Domain;
 using Crm.Tenancy.Infrastructure;
@@ -162,12 +163,13 @@ public sealed class ApiKeyTests(CrmStackFixture stack) : IAsyncLifetime
 
     private async Task<HttpStatusCode> SendAsync(HttpMethod method, string path, string apiKey)
     {
-        using var request = new HttpRequestMessage(method, path);
         if (method == HttpMethod.Post)
         {
-            request.Content = JsonContent.Create(new { userId = "u-it", @event = "probe" });
+            using var posted = await _client.PostWithKeyAsync(path, apiKey, new { userId = "u-it", @event = "probe" });
+            return posted.StatusCode;
         }
 
+        using var request = new HttpRequestMessage(method, path);
         request.Headers.Add(AuthSchemes.ApiKeyHeader, apiKey);
         using var response = await _client.SendAsync(request);
         return response.StatusCode;

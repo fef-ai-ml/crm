@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using Crm.IntegrationTests.Fixtures;
+using Crm.IntegrationTests.Ingestion;
 using Crm.Tenancy.Infrastructure.Auth;
 using FluentAssertions;
 using Xunit;
@@ -14,8 +15,12 @@ namespace Crm.IntegrationTests.Tenancy;
 public sealed class RateLimitTests(CrmStackFixture stack) : IAsyncLifetime
 {
     // The partitioned token bucket disables AutoReplenishment and instead relies on the partition heartbeat
-    // (~100 ms) calling TryReplenish(), which fills continuously at TokensPerPeriod / ReplenishmentPeriod
-    // rather than in one step per minute. The bounds below account for bucket size plus elapsed x refill rate.
+    // (~100 ms) calling TryReplenish(), which computes tokens to add from wall-clock time elapsed since the
+    // bucket's last replenishment tick and credits them all at once — refill is continuous in wall-clock
+    // terms (TokensPerPeriod / ReplenishmentPeriod), but only realized the next time something calls
+    // TryReplenish. A bucket that sits full and idle has that idle time credited in one lump at the first
+    // tick after activity resumes (see the warm-up below), not spread retroactively over the idle gap. The
+    // bounds below account for bucket size plus elapsed x refill rate.
     private const int BurstSize = 2500;
     private const int BucketSize = 2000;
     private const double RefillPerSecond = 2000.0 / 60.0;
@@ -45,17 +50,15 @@ public sealed class RateLimitTests(CrmStackFixture stack) : IAsyncLifetime
         // The partitioned limiter creates its per-key token bucket lazily, and concurrent first requests on a
         // brand-new key can briefly race and see more than one bucket instance. Warm the partition (and the
         // Redis API-key cache) with one sequential call so the burst below measures the steady-state limit.
-        // The limiter replenishes by crediting idle time since the bucket's LAST replenishment tick, and while
-        // the bucket is full that timestamp does not advance — so the idle gap between this warm-up (which
-        // creates the bucket and takes its first token) and the start of the burst is credited at the first
-        // tick after the burst starts. The warm-up used to return instantly (a no-op probe); now it is a real
-        // Kafka produce (producer creation + metadata), so that idle gap is no longer negligible. Start the
-        // refill clock here, not at the burst, so `refilled` below covers the whole window the limiter actually credits.
+        // As described above, the idle gap between this warm-up (which creates the bucket and takes its first
+        // token) and the start of the burst is credited in one lump at the first replenishment tick after the
+        // burst starts — the bucket sits full and idle in between, so nothing is credited until then. The
+        // warm-up used to return instantly (a no-op probe); now it is a real Kafka produce (producer creation
+        // + metadata), so that idle gap is no longer negligible. Start the refill clock here, not at the
+        // burst, so `refilled` below covers the whole window the limiter actually credits.
         var sinceBucketCreated = Stopwatch.StartNew();
-        using (var warmup = new HttpRequestMessage(HttpMethod.Post, "/v1/track") { Content = JsonContent.Create(new { userId = "u-it", @event = "probe" }) })
+        using (var warmupResponse = await _client.PostWithKeyAsync("/v1/track", noisy.Plaintext, new { userId = "u-it", @event = "probe" }))
         {
-            warmup.Headers.Add(AuthSchemes.ApiKeyHeader, noisy.Plaintext);
-            using var warmupResponse = await _client.SendAsync(warmup);
             warmupResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
         }
 
@@ -92,9 +95,7 @@ public sealed class RateLimitTests(CrmStackFixture stack) : IAsyncLifetime
             rejected.Should().BeGreaterThanOrEqualTo(Math.Max(0, guaranteedRejections));
         }
 
-        using var other = new HttpRequestMessage(HttpMethod.Post, "/v1/track") { Content = JsonContent.Create(new { userId = "u-it", @event = "probe" }) };
-        other.Headers.Add(AuthSchemes.ApiKeyHeader, quiet.Plaintext);
-        using var otherResponse = await _client.SendAsync(other);
+        using var otherResponse = await _client.PostWithKeyAsync("/v1/track", quiet.Plaintext, new { userId = "u-it", @event = "probe" });
         otherResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
     }
 }
