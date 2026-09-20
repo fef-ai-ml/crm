@@ -12,5 +12,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Modules\Profiles\Profiles.Application\Profiles.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Profiles\Profiles.Infrastructure\Profiles.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

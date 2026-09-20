@@ -1,7 +1,11 @@
 using Crm.Kernel.Data;
+using Crm.Profiles.Application.Pipeline;
+using Crm.Profiles.Infrastructure.Caching;
+using Crm.Profiles.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Crm.Profiles.Infrastructure;
 
@@ -15,6 +19,11 @@ public static class ProfilesModule
         services.AddDbContext<ProfilesDbContext>((sp, options) => options
             .UseSqlServer(connectionString, sql => sql.MigrationsHistoryTable(ProfilesDbContext.MigrationsHistoryTable, ProfilesDbContext.Schema))
             .AddInterceptors(sp.GetRequiredService<TenantSaveChangesInterceptor>()));
+
+        services.TryAddSingleton<IPipelineHooks, NoPipelineHooks>();
+        services.AddSingleton<IIdentityCache, RedisIdentityCache>();
+        services.AddScoped<IProfileStore, EfProfileStore>();
+        services.AddScoped<ProfilePipeline>();
 
         return services;
     }
