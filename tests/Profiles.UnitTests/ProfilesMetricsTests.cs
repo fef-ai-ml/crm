@@ -28,11 +28,15 @@ public class ProfilesMetricsTests
         metrics.SetLag("events.raw", 3, 17);
         metrics.SetLag("events.raw", 4, 0);
         metrics.ClearLag("events.raw", 4);
+        metrics.PublishRetried("events.processed");
+        metrics.PublishRetried("events.processed");
         listener.RecordObservableInstruments();
 
         // The Prometheus exporter appends _total to counters, so the instrument is named without it.
         measurements.Should().Contain(("crm_dlq", 1L, "topic=events.raw"));
         measurements.Should().Contain(("crm_consumer_lag", 17L, "topic=events.raw,partition=3"));
         measurements.Should().NotContain(m => m.Tags.EndsWith("partition=4", StringComparison.Ordinal));
+        measurements.Should().Contain(("crm_publish_retries", 1L, "topic=events.processed"), "one measurement per Add call");
+        measurements.Count(m => m.Instrument == "crm_publish_retries").Should().Be(2, "PublishRetried was called twice");
     }
 }

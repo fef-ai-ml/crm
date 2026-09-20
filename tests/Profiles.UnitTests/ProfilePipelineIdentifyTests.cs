@@ -131,4 +131,40 @@ public class ProfilePipelineIdentifyTests
         _store.ProfileOf(new IdentityKey("email", "shared@x.io")).ExternalId.Should().Be("u1");
         outcome.Merged.Should().BeFalse();
     }
+
+    // I2: two profiles that an identify names in both roles must be locked in ascending profile-id order, not role
+    // order, so two identifies naming the same pair of profiles with roles swapped cannot deadlock (SQL 1205).
+    // `Guid.CreateVersion7()` ids are time-ordered, so whichever profile is created first has the smaller id;
+    // running both creation orders means the assertion is only satisfied by real ascending-id locking, not by
+    // coincidentally matching the old known-then-anonymous role order.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task I2_identify_locks_both_named_profiles_in_ascending_id_order(bool anonymousProfileCreatedFirst)
+    {
+        if (anonymousProfileCreatedFirst)
+        {
+            await TrackAsync(null, "a1", T0);
+            await TrackAsync("u1", null, T0.AddMinutes(1));
+        }
+        else
+        {
+            await TrackAsync("u1", null, T0);
+            await TrackAsync(null, "a1", T0.AddMinutes(1));
+        }
+
+        _store.Calls.Clear();
+
+        await Pipeline().HandleAsync(Identify("u1", "a1", "{}", T0.AddMinutes(2)), CancellationToken.None);
+
+        // InMemoryProfileStore.LockProfileAsync records "lock:{id:N}" — N-format string order is NOT Guid.CompareTo
+        // order, so the ids must be parsed back before comparing.
+        var lockedIds = _store.Calls
+            .Where(call => call.StartsWith("lock:", StringComparison.Ordinal))
+            .Select(call => Guid.ParseExact(call["lock:".Length..], "N"))
+            .ToList();
+
+        lockedIds.Should().HaveCount(2);
+        lockedIds.Should().BeInAscendingOrder();
+    }
 }

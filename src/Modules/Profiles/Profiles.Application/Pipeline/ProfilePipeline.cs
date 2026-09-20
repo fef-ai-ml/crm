@@ -75,8 +75,10 @@ public sealed class ProfilePipeline(IProfileStore store, IPipelineHooks hooks)
         IdentityKey? userKey = string.IsNullOrWhiteSpace(userId) ? null : IdentityKey.ExternalId(userId);
         IdentityKey? anonymousKey = string.IsNullOrWhiteSpace(anonymousId) ? null : IdentityKey.AnonymousId(anonymousId);
 
-        var known = userKey is { } uk ? await FindLockedAsync(uk, resolution, cancellationToken) : null;
-        var anonymous = anonymousKey is { } ak ? await FindLockedAsync(ak, resolution, cancellationToken) : null;
+        var userProfileId = userKey is { } uk ? await store.FindProfileIdAsync(uk, bypassCache: false, cancellationToken) : null;
+        var anonymousProfileId = anonymousKey is { } ak ? await store.FindProfileIdAsync(ak, bypassCache: false, cancellationToken) : null;
+
+        var (known, anonymous) = await LockBothAsync(userKey, userProfileId, anonymousKey, anonymousProfileId, resolution, cancellationToken);
 
         if (known is not null && anonymous is not null && known.Id != anonymous.Id)
         {
@@ -126,27 +128,63 @@ public sealed class ProfilePipeline(IProfileStore store, IPipelineHooks hooks)
         return created;
     }
 
-    private async Task<Profile?> FindLockedAsync(IdentityKey key, Resolution resolution, CancellationToken cancellationToken)
+    /// <summary>
+    /// I2: when both keys already resolved to an id, lock the two rows in ascending profile-id order rather than
+    /// role order, so two identifies that name the same pair of profiles with roles swapped cannot deadlock (SQL
+    /// error 1205). Following a MergedIntoId chain inside <see cref="LockFoundAsync"/> can still land the real lock
+    /// out of that order — accepted: it is rare, and SQL Server's deadlock victim is retried by the message retry
+    /// policy.
+    /// </summary>
+    private async Task<(Profile? Known, Profile? Anonymous)> LockBothAsync(
+        IdentityKey? userKey, Guid? userProfileId, IdentityKey? anonymousKey, Guid? anonymousProfileId,
+        Resolution resolution, CancellationToken cancellationToken)
     {
-        var profileId = await store.FindProfileIdAsync(key, bypassCache: false, cancellationToken);
-        if (profileId is null)
+        if (userKey is { } uk && userProfileId is { } uid && anonymousKey is { } ak && anonymousProfileId is { } aid)
         {
-            return null;
+            if (uid == aid)
+            {
+                var profile = await LockFoundAsync(uk, uid, resolution, cancellationToken);
+                return (profile, profile);
+            }
+
+            if (uid.CompareTo(aid) < 0)
+            {
+                var known = await LockFoundAsync(uk, uid, resolution, cancellationToken);
+                var anonymous = await LockFoundAsync(ak, aid, resolution, cancellationToken);
+                return (known, anonymous);
+            }
+
+            var lockedAnonymous = await LockFoundAsync(ak, aid, resolution, cancellationToken);
+            var lockedKnown = await LockFoundAsync(uk, uid, resolution, cancellationToken);
+            return (lockedKnown, lockedAnonymous);
         }
 
-        var profile = await store.LockProfileAsync(profileId.Value, cancellationToken);
+        var soleKnown = userKey is { } onlyUk && userProfileId is { } onlyUid
+            ? await LockFoundAsync(onlyUk, onlyUid, resolution, cancellationToken)
+            : null;
+        var soleAnonymous = anonymousKey is { } onlyAk && anonymousProfileId is { } onlyAid
+            ? await LockFoundAsync(onlyAk, onlyAid, resolution, cancellationToken)
+            : null;
+        return (soleKnown, soleAnonymous);
+    }
+
+    /// <summary>Locks a profile id already found for <paramref name="key"/>, with the stale-cache fallback and the
+    /// post-lock MergedIntoId redirect.</summary>
+    private async Task<Profile?> LockFoundAsync(IdentityKey key, Guid profileId, Resolution resolution, CancellationToken cancellationToken)
+    {
+        var profile = await store.LockProfileAsync(profileId, cancellationToken);
         if (profile is null)
         {
             // The cache pointed at a row that does not exist (database rebuilt under a warm Redis).
             store.Forget(key);
-            profileId = await store.FindProfileIdAsync(key, bypassCache: true, cancellationToken);
-            if (profileId is null)
+            var refoundId = await store.FindProfileIdAsync(key, bypassCache: true, cancellationToken);
+            if (refoundId is null)
             {
                 return null;
             }
 
-            profile = await store.LockProfileAsync(profileId.Value, cancellationToken)
-                ?? throw new InvalidOperationException($"Identity {key.Kind}:{key.Value} points to missing profile {profileId}.");
+            profile = await store.LockProfileAsync(refoundId.Value, cancellationToken)
+                ?? throw new InvalidOperationException($"Identity {key.Kind}:{key.Value} points to missing profile {refoundId}.");
         }
 
         if (profile.MergedIntoId is null)

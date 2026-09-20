@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Crm.Profiles.Infrastructure.Kafka;
 
-internal sealed class ProcessedEventPublisher(WorkerProducer producer, ILogger<ProcessedEventPublisher> logger) : IProcessedPublisher
+internal sealed class ProcessedEventPublisher(WorkerProducer producer, ProfilesMetrics metrics, ILogger<ProcessedEventPublisher> logger) : IProcessedPublisher
 {
     private static readonly TimeSpan RetryPause = TimeSpan.FromSeconds(1);
 
@@ -33,6 +33,9 @@ internal sealed class ProcessedEventPublisher(WorkerProducer producer, ILogger<P
             catch (KafkaException ex)
             {
                 // SQL is committed. Giving up would lose ProfileUpdated/ProfileMerged for good (only EventTracked is re-announced on redelivery).
+                // While this retries, this consumer instance's ProcessAsync loop is blocked, so its crm_consumer_lag
+                // series is not refreshed (I1) — crm_publish_retries_total is the signal for that state.
+                metrics.PublishRetried(KafkaTopics.EventsProcessed);
                 logger.LogWarning(ex, "Publishing {MessageType} to {Topic} failed: {Reason}; retrying", message.MessageType, KafkaTopics.EventsProcessed, ex.Error.Reason);
                 await Task.Delay(RetryPause, cancellationToken);
             }

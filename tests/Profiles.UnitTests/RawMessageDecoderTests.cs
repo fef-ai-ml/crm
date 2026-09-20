@@ -82,6 +82,22 @@ public class RawMessageDecoderTests
         FluentActions.Invoking(() => RawMessageDecoder.Decode(Envelope(Track(name: new string('e', 65)), nameof(TrackEventRaw)))).Should().Throw<PoisonMessageException>();
     }
 
+    [Theory]
+    [InlineData("bad name!")]
+    [InlineData("purchase\n")]
+    public void An_event_name_outside_the_allowed_charset_is_poison(string name)
+    {
+        FluentActions.Invoking(() => RawMessageDecoder.Decode(Envelope(Track(name: name), nameof(TrackEventRaw)))).Should().Throw<PoisonMessageException>();
+    }
+
+    [Fact]
+    public void An_event_name_matching_the_data_dictionary_charset_decodes()
+    {
+        var decoded = RawMessageDecoder.Decode(Envelope(Track(name: "Order_Completed_2"), nameof(TrackEventRaw)));
+
+        decoded.Should().BeOfType<TrackMessage>().Which.Payload.Event.Should().Be("Order_Completed_2");
+    }
+
     [Fact]
     public void Properties_must_be_an_object_when_present()
     {

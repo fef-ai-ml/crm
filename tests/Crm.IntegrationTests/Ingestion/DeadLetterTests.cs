@@ -62,6 +62,8 @@ public sealed class DeadLetterTests(CrmStackFixture stack) : IAsyncLifetime
         await Eventually.TrueAsync(
             async () => await WorkerMetrics.DeadLetteredAsync(worker, KafkaTopics.EventsRaw) >= deadLetteredBefore + 1,
             "crm_dlq_total{topic=\"events.raw\"} increments");
+        // Exact delta, not just "increased": crm_dlq_total is process-wide on a Worker shared by the whole run, and
+        // this only holds because [Collection(StackCollectionDefinition.Name)] runs the stack's tests sequentially.
         (await WorkerMetrics.DeadLetteredAsync(worker, KafkaTopics.EventsRaw)).Should().Be(deadLetteredBefore + 1);
 
         await Eventually.GetAsync(

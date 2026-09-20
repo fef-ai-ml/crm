@@ -4,8 +4,9 @@ using System.Diagnostics.Metrics;
 namespace Crm.Profiles.Infrastructure;
 
 /// <summary>
-/// Spec §8.2: crm_dlq_total{topic} and crm_consumer_lag. The Prometheus exporter appends `_total` to counters, so the
-/// counter instrument is `crm_dlq`; gauges are exported under their own name.
+/// Spec §8.2: crm_dlq_total{topic}, crm_consumer_lag and crm_publish_retries_total{topic}. The Prometheus exporter
+/// appends `_total` to counters, so the counter instruments are named without it; gauges are exported under their
+/// own name.
 /// </summary>
 public sealed class ProfilesMetrics : IDisposable
 {
@@ -13,15 +14,19 @@ public sealed class ProfilesMetrics : IDisposable
 
     private readonly Meter _meter = new(MeterName);
     private readonly Counter<long> _deadLettered;
+    private readonly Counter<long> _publishRetried;
     private readonly ConcurrentDictionary<(string Topic, int Partition), long> _lag = new();
 
     public ProfilesMetrics()
     {
         _deadLettered = _meter.CreateCounter<long>("crm_dlq", description: "Messages moved to events.dlq, by source topic.");
+        _publishRetried = _meter.CreateCounter<long>("crm_publish_retries", description: "Failed produce attempts to a Worker output topic that are being retried in place.");
         _meter.CreateObservableGauge("crm_consumer_lag", ObserveLag, description: "High watermark minus consumer position, per assigned partition.");
     }
 
     public void DeadLettered(string topic) => _deadLettered.Add(1, new KeyValuePair<string, object?>("topic", topic));
+
+    public void PublishRetried(string topic) => _publishRetried.Add(1, new KeyValuePair<string, object?>("topic", topic));
 
     public void SetLag(string topic, int partition, long lag) => _lag[(topic, partition)] = lag;
 

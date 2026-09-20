@@ -39,6 +39,7 @@ internal sealed class EventPartitionMaintenanceService(IServiceScopeFactory scop
     {
         var rows = await db.Database.SqlQuery<int>(
             $"""
+            SET XACT_ABORT ON;
             BEGIN TRANSACTION;
             EXEC sp_getapplock @Resource = N'PF_Events_Monthly', @LockMode = N'Exclusive', @LockOwner = N'Transaction', @LockTimeout = 30000;
             DECLARE @added int = 0;

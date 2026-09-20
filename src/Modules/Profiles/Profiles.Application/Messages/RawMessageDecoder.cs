@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Crm.Contracts;
 
 namespace Crm.Profiles.Application.Messages;
@@ -8,11 +9,16 @@ namespace Crm.Profiles.Application.Messages;
 /// payload tenant (spec §2.5), and nothing may exceed what the schema can store (the API enforces the same limits,
 /// but events.raw is not writable by the API alone).
 /// </summary>
-public static class RawMessageDecoder
+public static partial class RawMessageDecoder
 {
     private const int MaxUserId = 128;
     private const int MaxAnonymousId = 256;
-    private const int MaxEventName = 64;
+
+    // \z, not $: `$` also matches before a trailing newline. Same charset as the API's IngestRules.EventName() and
+    // docs/data-dictionary/profiles.md — Profiles.Application cannot reference Ingestion.Application (AT-001), so
+    // the rule is duplicated rather than shared.
+    [GeneratedRegex(@"^[A-Za-z0-9_]{1,64}\z", RegexOptions.CultureInvariant)]
+    private static partial Regex EventName();
 
     public static RawMessage Decode(RawEnvelope envelope)
     {
@@ -57,7 +63,7 @@ public static class RawMessageDecoder
     private static TrackEventRaw Validate(TrackEventRaw raw)
     {
         RequireEnvelopeFields(raw.EventId, raw.TenantId, raw.ReceivedAt);
-        Require(!string.IsNullOrWhiteSpace(raw.Event) && raw.Event.Length <= MaxEventName, "event name is missing or longer than 64 characters");
+        Require(EventName().IsMatch(raw.Event ?? string.Empty), "event name is missing, longer than 64 characters or contains characters outside [A-Za-z0-9_]");
         Require(!string.IsNullOrWhiteSpace(raw.UserId) || !string.IsNullOrWhiteSpace(raw.AnonymousId), "neither userId nor anonymousId is present");
         RequireLengths(raw.UserId, raw.AnonymousId);
         RequireObjectOrAbsent(raw.Properties, "properties");

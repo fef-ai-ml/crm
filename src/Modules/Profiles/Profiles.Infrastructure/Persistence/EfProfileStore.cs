@@ -139,6 +139,9 @@ internal sealed class EfProfileStore(ProfilesDbContext db, IIdentityCache cache,
         await cache.RemoveAsync(tenant.TenantId, _pendingDeletes);
         await transaction.CommitAsync(cancellationToken);
 
+        // A concurrent merge that acquires the freed lock and completes between our commit and this SET can have
+        // deleted the key first, leaving key -> loser in the cache; the applier follows MergedIntoId after locking
+        // and the entry expires in 1 h (slow path, not wrong).
         foreach (var (key, profileId) in _pendingSets)
         {
             await cache.SetAsync(tenant.TenantId, key, profileId);

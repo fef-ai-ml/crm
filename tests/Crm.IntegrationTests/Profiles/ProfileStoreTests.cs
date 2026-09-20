@@ -153,4 +153,21 @@ public sealed class ProfileStoreTests : IAsyncLifetime
         (await store.LockProfileAsync(outcome.ProfileId, CancellationToken.None)).Should().BeNull();
         (await store.FindProfileIdAsync(Crm.Profiles.Domain.IdentityKey.ExternalId("tenant-a-user"), bypassCache: false, CancellationToken.None)).Should().BeNull();
     }
+
+    [Fact]
+    public async Task NFR03_appending_an_event_built_for_another_tenant_throws_and_is_never_counted()
+    {
+        var outcome = await HandleAsync(_tenant, Track(_tenant, "tenant-a-user", Guid.CreateVersion7(), T0));
+        var otherTenant = Guid.CreateVersion7();
+
+        await using var scope = Scope(otherTenant);
+        var store = scope.ServiceProvider.GetRequiredService<IProfileStore>();
+        await store.BeginAsync(CancellationToken.None);
+
+        var record = new Crm.Profiles.Domain.EventRecord(Guid.CreateVersion7(), _tenant, outcome.ProfileId, "purchase", "{}", T0, T0);
+        var act = () => store.TryAppendEventAsync(record, CancellationToken.None);
+
+        await act.Should().ThrowAsync<TenantMismatchException>();
+        (await store.CountEventsAsync(outcome.ProfileId, CancellationToken.None)).Should().Be(0, "CountEventsAsync also filters by the scope's tenant");
+    }
 }
