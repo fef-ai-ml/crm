@@ -2,6 +2,7 @@ using Confluent.Kafka;
 using Confluent.Kafka.Admin;
 using Crm.Contracts;
 using Crm.Kernel.Tenancy;
+using Crm.Profiles.Infrastructure;
 using Crm.Tenancy.Infrastructure;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
@@ -51,6 +52,7 @@ public sealed class CrmStackFixture : IAsyncLifetime
         await WaitForSqlLoginAsync(TimeSpan.FromSeconds(90));
         await EnsureDatabaseAsync("crm_test");
         await MigrateTenancyAsync();
+        await MigrateProfilesAsync();
         await CreateTopicsAsync();
     }
 
@@ -91,6 +93,15 @@ public sealed class CrmStackFixture : IAsyncLifetime
             .UseSqlServer(SqlConnectionString, sql => sql.MigrationsHistoryTable(TenancyDbContext.MigrationsHistoryTable, TenancyDbContext.Schema))
             .Options;
         await using var db = new TenancyDbContext(options, new TenantContext());
+        await db.Database.MigrateAsync();
+    }
+
+    private async Task MigrateProfilesAsync()
+    {
+        var options = new DbContextOptionsBuilder<ProfilesDbContext>()
+            .UseSqlServer(SqlConnectionString, sql => sql.MigrationsHistoryTable(ProfilesDbContext.MigrationsHistoryTable, ProfilesDbContext.Schema))
+            .Options;
+        await using var db = new ProfilesDbContext(options, new TenantContext());
         await db.Database.MigrateAsync();
     }
 

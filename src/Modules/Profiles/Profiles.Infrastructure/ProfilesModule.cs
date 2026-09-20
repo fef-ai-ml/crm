@@ -13,7 +13,7 @@ public static class ProfilesModule
             ?? throw new InvalidOperationException("ConnectionStrings:Crm is not configured.");
 
         services.AddDbContext<ProfilesDbContext>((sp, options) => options
-            .UseSqlServer(connectionString, sql => sql.MigrationsHistoryTable("__EFMigrationsHistory_profiles", ProfilesDbContext.Schema))
+            .UseSqlServer(connectionString, sql => sql.MigrationsHistoryTable(ProfilesDbContext.MigrationsHistoryTable, ProfilesDbContext.Schema))
             .AddInterceptors(sp.GetRequiredService<TenantSaveChangesInterceptor>()));
 
         return services;

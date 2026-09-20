@@ -142,7 +142,7 @@ openapi: ## export docs/api/openapi.json from the API project (CT-001)
 
 CRM_CONNECTION_STRING ?= Server=localhost,1433;Database=crm;User Id=sa;Password=$(MSSQL_SA_PASSWORD);TrustServerCertificate=True;Encrypt=False
 
-migrate: env ## apply EF Core migrations (module contexts with migrations: Tenancy)
+migrate: env ## apply EF Core migrations (module contexts with migrations: Tenancy, Profiles)
 	@$(MAKE) --no-print-directory migrate-run
 
 # -include deploy/.env (top of file) is evaluated when make parses the Makefile, before the `env`
@@ -155,6 +155,10 @@ migrate-run:
 		--project src/Modules/Tenancy/Tenancy.Infrastructure \
 		--startup-project src/Modules/Tenancy/Tenancy.Infrastructure \
 		--context TenancyDbContext
+	ConnectionStrings__Crm="$(CRM_CONNECTION_STRING)" dotnet ef database update \
+		--project src/Modules/Profiles/Profiles.Infrastructure \
+		--startup-project src/Modules/Profiles/Profiles.Infrastructure \
+		--context ProfilesDbContext
 
 seed: ## bootstrap the demo tenant, Admin + Viewer users and an API key (API must run in Development)
 	python3 tools/seed.py
