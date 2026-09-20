@@ -8,7 +8,7 @@ Stack: .NET 10 modular monolith (API + Worker), React 19 dashboard, SQL Server 2
 
 ## Status
 
-Slice 1 (events → profiles → segments) has its foundation complete: solution structure, Kernel, Contracts, the API/Worker/Web hosts, multi-tenant auth, CI, and an opt-in observability stack. The Ingestion API is also complete; the Profiles pipeline and Segmentation land next, each behind its own plan under `docs/superpowers/plans/`.
+Slice 1 (events → profiles → segments) has its foundation complete: solution structure, Kernel, Contracts, the API/Worker/Web hosts, multi-tenant auth, CI, and an opt-in observability stack. The Ingestion API is also complete, and the Profiles pipeline's write side (Worker consumer, identity resolution, merge, DLQ) now turns those events into profiles; the profile read API and Segmentation land next, each behind its own plan under `docs/superpowers/plans/`.
 
 | Phase | State |
 |---|---|
@@ -18,7 +18,8 @@ Slice 1 (events → profiles → segments) has its foundation complete: solution
 | Implementation: Tenancy | Complete |
 | Implementation: developer experience (observability profile, Dependabot, cold-start measurement) | Complete |
 | Implementation: Ingestion API (track, identify, batch → Kafka) | Complete |
-| Implementation: Profiles pipeline (Worker consumer, identity resolution) | Planned |
+| Implementation: Profiles pipeline — write side (Worker consumer, identity resolution, merge, DLQ) | Complete |
+| Implementation: Profiles read API | Planned |
 | Implementation: Segmentation | Planned |
 | Implementation: Web dashboard | Planned |
 | Load test and results | Planned |
@@ -59,7 +60,7 @@ Then open http://localhost:3000 (status page) and http://localhost:8080/swagger 
 
 See [Developer Setup](docs/dev-setup.md) for prerequisites, Podman specifics, and running against a remote engine.
 
-The event is now on Kafka topic `events.raw`; the Worker that turns it into a profile and a timeline entry arrives with the Profiles plan.
+The event is now on Kafka topic `events.raw`; the Worker resolves the profile, appends the event, and publishes `EventTracked` to `events.processed` — the profile read API (`GET /v1/profiles`) arrives with plan F.
 
 ## Observability
 

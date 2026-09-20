@@ -97,7 +97,7 @@ Requests to `/health/*` and `/metrics` are deliberately excluded from tracing, s
 | `make test-integration` | Testcontainers suite (minutes; first run pulls images) |
 | `make test` | both |
 | `make docs-check` | documentation checker |
-| `make migrate` | apply EF Core migrations (module contexts with migrations: Tenancy) against `localhost,1433` |
+| `make migrate` | apply EF Core migrations (module contexts with migrations: Tenancy, Profiles) against `localhost,1433` |
 | `make seed` | bootstrap the demo tenant, Admin + Viewer users, and an API key against a running Development API; writes `CRM_API_KEY` to `.env.local` (git-ignored); idempotent; a stored key that is no longer an active key of the tenant (database recreated with `make down`, or key revoked) is replaced |
 | `make openapi` | regenerate `docs/api/openapi.json` (commit the result). `dotnet run --project <dir>` resolves a relative `--export-openapi` path against the *project* directory, not your shell's working directory, so this target (and CI) pass an absolute path |
 | `make web-dev` | Vite dev server on 5173 proxying `/v1` and `/health` to `localhost:8080` |
@@ -110,6 +110,26 @@ Requests to `/health/*` and `/metrics` are deliberately excluded from tracing, s
 | `make tunnel-observability` | like `tunnel-apps`, also forwards 9090, 3001, 16686 |
 | `make compose-check` | CT-005 for both compose files |
 | `tests/Crm.LoadTests/coldstart.sh` | LT-005: times `make up` + `make seed` from a stopped stack and runs the quickstart probe |
+
+## Profiles Worker
+
+The `events.raw` consumer waits for schema `profiles` to exist before subscribing (`SchemaGate` polls every 2 s, ruling E11) and logs `Waiting for schema 'profiles' (applied by the API in Development, or by \`make migrate\`)` until it does. In compose the API applies migrations in Development, so a Worker that starts first is expected to log this for a few seconds.
+
+Configuration keys (`Profiles:Consumer` section):
+
+| Key | Default | Purpose |
+|---|---|---|
+| `Enabled` | `true` | `false` keeps the services registered but never subscribes |
+| `GroupId` | `profiles` | Kafka consumer group |
+| `Instances` | `4` | consumers run in this process; Kafka spreads the 12 partitions over them (ruling E10) |
+| `RetryDelaysMs` | `[200, 2000]` | waits between attempts before dead-lettering (ruling E8) |
+| `RestartDelayMs` | `1000` | pause before a consumer is rebuilt after a failure outside message processing (ruling E9) |
+
+Dead letters land on `events.dlq` with `error`, `stack`, and `attempt` headers; inspect the last few with:
+
+```bash
+docker exec crm-kafka-1 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic events.dlq --from-beginning --property print.headers=true --max-messages 5
+```
 
 ## Logging in
 

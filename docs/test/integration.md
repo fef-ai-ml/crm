@@ -1,6 +1,6 @@
 # Integration Test Cases
 
-Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcontainers; the API runs in-process via `WebApplicationFactory`, the Worker as a hosted service in the same test host. Each test class gets a fresh tenant created through the bootstrap endpoint (FR-25). Timing assertions use the local budgets from NFR-02 with a 3× CI multiplier. Seed dataset and rule fixtures: [fixtures.md](fixtures.md).
+Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcontainers; the API runs in-process via `WebApplicationFactory`, the Worker as a hosted service in the same test host. The Worker runs once per test run: one host started by `CrmStackFixture` and shared across test classes (group `profiles`, like production), with `IPipelineHooks` implemented by `SwitchableHooks` so a test's callback reacts only to its own data (ruling E16). Each test class gets a fresh tenant created through the bootstrap endpoint (FR-25). Timing assertions use the local budgets from NFR-02 with a 3× CI multiplier. Seed dataset and rule fixtures: [fixtures.md](fixtures.md).
 
 ## Ingestion pipeline
 
@@ -9,7 +9,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given a tenant with API key `K`
 - When `POST /v1/track` `{userId: "u1", event: "purchase", properties: {amount: 49.9}}` with `X-Api-Key: K`
 - Then the response is `202 {eventId}` within 50 ms (p95 over 20 calls), and `GET /v1/profiles?q=u1` then `/events` shows the event with the same id within 2 s
-- Plan D note: the ingest half (202, record on `events.raw`) is implemented in tests/Crm.IntegrationTests/Ingestion/{TrackTests,IdentifyAndBatchTests}.cs; the profile and timeline half arrives with the Profiles plan. The 50 ms p95 budget is a local-Docker figure only: it relaxes to 250 ms in CI (`CI=true`) and 500 ms against the remote engine (`TESTCONTAINERS_HOST_OVERRIDE` set); NFR-02 itself is measured by the load tests (LT-001).
+- Plan D note: the ingest half (202, record on `events.raw`) is implemented in tests/Crm.IntegrationTests/Ingestion/{TrackTests,IdentifyAndBatchTests}.cs; the profile and timeline half arrives with the Profiles plan. The 50 ms p95 budget is a local-Docker figure only: it relaxes to 250 ms in CI (`CI=true`) and 500 ms against the remote engine (`TESTCONTAINERS_HOST_OVERRIDE` set); NFR-02 itself is measured by the load tests (LT-001). Plan E: `tests/Crm.IntegrationTests/Ingestion/TrackPipelineTests.cs` proves track → `profiles.Events` → `events.processed`; the `GET` half arrives with plan F.
 - Planned: tests/Crm.IntegrationTests/Ingestion/TrackRoundTripTests.cs
 
 ### IT-002 — identify creates a profile and applies traits
@@ -17,8 +17,8 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given no profile for `u2`
 - When `POST /v1/identify` `{userId: "u2", traits: {plan: "pro"}}` then `{userId: "u2", traits: {plan: "free", city: "SG"}}`
 - Then one profile exists with attributes `{plan: "free", city: "SG"}`, `EventCount = 0`, no rows in `profiles.Events`, and `LastSeenAt` advanced
-- Plan D note: the ingest half (202, record on `events.raw`) is implemented in tests/Crm.IntegrationTests/Ingestion/{TrackTests,IdentifyAndBatchTests}.cs; the profile and timeline half arrives with the Profiles plan.
-- Planned: tests/Crm.IntegrationTests/Ingestion/IdentifyTests.cs
+- Plan E note: asserted through SQL; the API view of the profile arrives with plan F.
+- Implemented: tests/Crm.IntegrationTests/Ingestion/IdentifyTests.cs
 
 ### IT-003 — batch returns per-item results
 - Traces: FR-03
@@ -31,22 +31,22 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Traces: FR-06, NFR-05
 - Given a processed event (Id = X, OccurredAt = T)
 - When the identical `TrackEventRaw` message is produced again to `events.raw`
-- Then after processing the Events row count and the profile's `EventCount` are unchanged, and the consumer offset advanced
-- Planned: tests/Crm.IntegrationTests/Ingestion/IdempotencyTests.cs
+- Then after processing the Events row count and the profile's `EventCount` are unchanged, and the consumer offset advanced; `EventTracked` is announced again (at-least-once, ruling E7)
+- Implemented: tests/Crm.IntegrationTests/Ingestion/IdempotencyTests.cs
 
 ### IT-005 — poison message goes to the DLQ after three retries
 - Traces: FR-07
 - Given a `TrackEventRaw` whose `properties` JSON is malformed bytes
 - When it is produced to `events.raw` followed by a valid event
 - Then the poison message appears on `events.dlq` with headers `error`, `stack`, `attempt = 3`, `source-topic`, `source-partition`, `source-offset`; `crm_dlq_total` increments by 1; the valid event is processed normally
-- Planned: tests/Crm.IntegrationTests/Ingestion/DeadLetterTests.cs
+- Implemented: tests/Crm.IntegrationTests/Ingestion/DeadLetterTests.cs
 
 ### IT-006 — offset is committed only after the SQL transaction
 - Traces: NFR-04
 - Given a fault injector that throws after the SQL commit but before the offset commit
 - When one event is processed and the worker restarts
-- Then the event is redelivered, IT-004's idempotency skips it, and exactly one Events row exists
-- Planned: tests/Crm.IntegrationTests/Ingestion/CommitOrderingTests.cs
+- Then the event is redelivered, IT-004's idempotency skips it, and exactly one Events row exists; the redelivery publishes the `EventTracked` the crashed delivery never sent
+- Implemented: tests/Crm.IntegrationTests/Ingestion/CommitOrderingTests.cs
 
 ### IT-039 — Kafka unavailable yields 503
 - Traces: FR-05, NFR-04
@@ -63,28 +63,29 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given two tracks for `anonymousId: a1` (profile P1, older) and one track for `userId: u1` (profile P2)
 - When `POST /v1/identify {userId: "u1", anonymousId: "a1", traits: {plan: "pro"}}`
 - Then P1 is the winner (older `FirstSeenAt`), all three events have `ProfileId = P1`, identities `anonymous_id:a1` and `external_id:u1` point to P1, P2 has `MergedIntoId = P1`, `GET /v1/profiles/{P2}` returns 404, and a `ProfileMerged` message is on `events.processed`
-- Planned: tests/Crm.IntegrationTests/Profiles/MergeTests.cs
+- Plan E note: the `GET /v1/profiles/{P2}` → 404 assertion arrives with plan F.
+- Implemented: tests/Crm.IntegrationTests/Profiles/MergeTests.cs
 
 ### IT-008 — events arriving during a merge are not lost
 - Traces: FR-09
-- Given profiles P1 (`a1`) and P2 (`u1`) and a merge in flight (transaction held open by a test hook after taking both row locks)
-- When 50 tracks for `u1` are produced concurrently on a different partition
+- Given profiles P1 (`a1`, older) and P2 (`u1`) and a merge in flight (transaction held open by a test hook after both row locks are taken)
+- When 50 tracks for `u1` are handed to the Worker's message handler concurrently (direct calls; Kafka would serialize them behind the identify on one partition)
 - Then after the merge commits all 50 events belong to the winner, none reference the loser, and the applier log shows `MergedIntoId` redirects
-- Planned: tests/Crm.IntegrationTests/Profiles/MergeConcurrencyTests.cs
+- Implemented: tests/Crm.IntegrationTests/Profiles/MergeConcurrencyTests.cs
 
 ### IT-009 — identity cache is invalidated on merge
 - Traces: FR-09
 - Given `t:{T}:id:anonymous_id:a1` cached to P2
 - When the merge P2 → P1 commits
 - Then the key is absent immediately after commit and the next lookup caches P1
-- Planned: tests/Crm.IntegrationTests/Profiles/MergeTests.cs
+- Implemented: tests/Crm.IntegrationTests/Profiles/MergeTests.cs
 
 ### IT-010 — EventCount is recomputed after merge
 - Traces: FR-09
 - Given P1 with 2 events and P2 with 3 events
 - When they merge
 - Then the winner's `EventCount` is 5
-- Planned: tests/Crm.IntegrationTests/Profiles/MergeTests.cs
+- Implemented: tests/Crm.IntegrationTests/Profiles/MergeTests.cs
 
 ## Profile queries
 

@@ -242,7 +242,7 @@ Per message, inside one tenant scope and one SQL transaction:
 1. **Identity resolve.** Look up `(Kind, Value)` in Redis, then `UserIdentities`. On miss, create Profile + identity row.
 2. **Merge** (identify only, when `anonymousId` maps to profile A and `userId` maps to profile B, A ≠ B): winner = profile with earlier `FirstSeenAt`; loser's `Events.ProfileId` re-pointed, loser's identities re-pointed, loser's `Attributes` merged into winner (winner's values win on conflict), loser marked `MergedIntoId = winner`. Publish `ProfileMerged`.
 3. **Upsert profile.** For `track`, update `LastSeenAt` and `EventCount += 1`. For `identify`, update `LastSeenAt` and attributes only (apply traits with `JSON_MODIFY` per key, last write wins); `identify` never creates an Events row and never changes `EventCount`. After a merge, the winner's `EventCount` is recomputed as `COUNT(*)` of its Events inside the merge transaction.
-4. **Append event.** For `track`, insert into `Events`. Duplicate `Id` (unique index violation) → treat as already processed, skip.
+4. **Append event.** For `track`, insert into `Events`. Duplicate `(Id, OccurredAt)` (unique index violation) → no SQL write; `EventTracked` is published again, so `events.processed` is at-least-once and consumers dedupe by `eventId`.
 5. Commit, then produce `EventTracked` / `ProfileUpdated` to `events.processed`, then commit Kafka offset.
 
 Semantics: at-least-once delivery + idempotent insert = effectively-once. Kafka ordering is guaranteed per identifier key, not per person. A merge and a concurrent event for the same person can land on different partitions; correctness comes from row locks on the two profile rows during the merge plus the applier following `MergedIntoId` to the winner:
@@ -251,12 +251,15 @@ Semantics: at-least-once delivery + idempotent insert = effectively-once. Kafka 
 2. The event applier, before inserting an event, locks its resolved profile row the same way and, if `MergedIntoId` is not null, follows it to the winner (loop until null) and applies there.
 3. Identity-cache entries for the loser's identities are deleted inside the merge transaction, before commit.
 
+**Rulings (plan E).** Traits are applied in the domain under the profile row lock (`UPDLOCK, HOLDLOCK`) and the whole `Attributes` document is written back, instead of one `JSON_MODIFY` per key as sketched above; a JSON `null` trait value removes the key, matching what `JSON_MODIFY` does in lax mode (E2). `FirstSeenAt` and `LastSeenAt` use the API's `ReceivedAt`, never the client's `OccurredAt`, and `LastSeenAt` never moves backwards (E3). `OccurredAt` is truncated to milliseconds and clamped to `ReceivedAt ± 7 d` before it is used, because the column is `datetime2(3)` and the idempotency key is `(Id, OccurredAt)`: an untruncated value would miss the duplicate check and then collide on the unique index (E4). `track` never merges: with both `userId` and `anonymousId`, the `userId` profile wins when it exists, an unmapped `anonymousId` is attached to it, and an anonymous-only profile that has no `ExternalId` yet is promoted to the known user; `identify` merges only when the anonymous profile has no `ExternalId` — if it already belongs to another known user (shared device) nothing is merged and the anonymous id stays where it is (E5). `identify` traits `email` and `phone` (strings) are additionally promoted, normalized into `Profiles.Email` / `Profiles.Phone` and an identity row of that kind, but only when the identity is unmapped or already this profile's; a value owned by another profile is left in `Attributes` only — no merge by e-mail or phone in slice 1 (E6). A duplicate event (`(Id, OccurredAt)` already exists) skips every SQL write but still publishes `EventTracked` — otherwise a crash between the SQL commit and the produce would lose the processed message for good, since the redelivery is a duplicate — so `events.processed` is at-least-once and a consumer that must count exactly once dedupes by `eventId` (a constraint the Segmentation plan inherits); `ProfileUpdated` and `ProfileMerged` carry no idempotency key, so the same crash window can still lose one of those, but every later `EventTracked` carries the full profile snapshot and the next batch run heals membership (ADR-0005) — a transactional outbox is the future fix (E7). The Worker runs `Profiles:Consumer:Instances` consumers (default 4) in group `profiles`; Kafka spreads the 12 partitions over them and each processes sequentially, so per-key order holds, and offsets are committed synchronously per message (E10). The consumer does not subscribe until schema `profiles` exists (`SchemaGate` polls every 2 s), because in compose the API applies migrations in Development and the Worker may start first; without the gate, valid messages would be dead-lettered for "Invalid object name" (E11). Redis is a cache: a Redis error is logged and treated as a miss and never fails a message; cache writes happen after the SQL commit, cache deletes (merge) happen before it, and a delete cancels a pending write for the same key (E12).
+
 ### 4.3 Failure handling
 
-- Transient SQL/Redis errors: Polly retry 3× exponential (200 ms → 2 s), then treat as poison.
+- Transient SQL/Redis errors: three attempts with waits of 200 ms and 2 s (configurable; a plain loop, no Polly), then treat as poison. Every exception from processing is retried, not a fixed list of transient types (E8).
 - Poison message: produce to `events.dlq` with `error`, `stack`, `attempt` headers; commit offset; increment `crm_dlq_total{topic}`.
 - Kafka unavailable at ingest: API returns 503 `problem+json` (`ingest.unavailable`, `Retry-After: 5`) per ruling D8; never buffers in memory.
 - Worker never crash-loops on a single bad message.
+- Failures after the SQL commit (hook, publish, DLQ produce, offset commit) never dead-letter: the consumer loop is rebuilt after a delay and Kafka redelivers from the last committed offset; idempotency makes that safe (E9).
 
 ---
 
@@ -377,7 +380,7 @@ Testing: Vitest + Testing Library for the reducer and builder components; Playwr
 
 - Application layer returns `Result<T>` with typed errors (`Validation`, `NotFound`, `Conflict`, `Forbidden`). Exceptions only for programmer errors and infrastructure faults.
 - API maps `Result` errors to 400/404/409/403 problem+json; unhandled → 500 with `traceId`, details logged not returned.
-- Worker uses Polly retry, then DLQ (see §4.3). Batch job failures are recorded on the run and surfaced in the UI.
+- Worker retries, then DLQ (see §4.3). Batch job failures are recorded on the run and surfaced in the UI.
 
 ### 8.2 Observability
 

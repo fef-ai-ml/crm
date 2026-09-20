@@ -74,49 +74,49 @@ Pure tests: no database, no Kafka, no Redis. Fakes for `IClock`, `ITenantContext
 - Given `email: " A@B.com "`, `phone: "+62 812-3456"`, `external_id: "U-1"`
 - When identities are built
 - Then values are `a@b.com`, `+628123456`, `U-1` (external ids are case-preserved) and kinds are `email`, `phone`, `external_id`
-- Planned: tests/Profiles.UnitTests/IdentityNormalizationTests.cs
+- Implemented: tests/Profiles.UnitTests/IdentityNormalizationTests.cs
 
 ### UT-010 — merge winner is the older profile
 - Traces: FR-09
 - Given profile P1 (`FirstSeenAt` 10:00) and P2 (`FirstSeenAt` 11:00)
 - When `MergePolicy.Decide(P1, P2)` and `Decide(P2, P1)` run
 - Then both return winner P1, loser P2
-- Planned: tests/Profiles.UnitTests/MergePolicyTests.cs
+- Implemented: tests/Profiles.UnitTests/MergePolicyTests.cs
 
 ### UT-011 — merge keeps winner attributes on conflict
 - Traces: FR-09
 - Given winner attributes `{plan: "pro", city: "SG"}` and loser attributes `{plan: "free", country: "ID"}`
 - When attributes are merged
 - Then the result is `{plan: "pro", city: "SG", country: "ID"}`
-- Planned: tests/Profiles.UnitTests/MergePolicyTests.cs
+- Implemented: tests/Profiles.UnitTests/MergePolicyTests.cs
 
 ### UT-012 — merge re-points identities and marks the loser
 - Traces: FR-09
 - Given loser identities `anonymous_id:a1`, `email:x@y.z`
 - When the merge aggregate applies
 - Then both identities now reference the winner, the loser's `MergedIntoId` equals the winner id, and a `ProfileMerged` event is raised with both ids
-- Planned: tests/Profiles.UnitTests/ProfileMergeTests.cs
+- Implemented: tests/Profiles.UnitTests/ProfileMergeTests.cs
 
 ### UT-013 — applier follows MergedIntoId to the winner
 - Traces: FR-09
 - Given profiles A → B → C where A and B have `MergedIntoId` set
 - When `ResolveWinner(A)` runs
 - Then it returns C; a cycle A → B → A throws `MergeChainCorruptException`
-- Planned: tests/Profiles.UnitTests/ResolveWinnerTests.cs
+- Implemented: tests/Profiles.UnitTests/ResolveWinnerTests.cs
 
 ### UT-014 — track and identify update different counters
 - Traces: FR-10
 - Given a profile with `EventCount = 5`, `LastSeenAt = T0`
 - When a `track` at T1 applies and then an `identify` at T2 applies
 - Then after track `EventCount = 6, LastSeenAt = T1`; after identify `EventCount = 6, LastSeenAt = T2`
-- Planned: tests/Profiles.UnitTests/ApplyEventTests.cs
+- Implemented: tests/Profiles.UnitTests/ApplyEventTests.cs
 
 ### UT-015 — traits apply per key, last write wins
 - Traces: FR-10
 - Given attributes `{plan: "free", city: "SG"}` and traits `{plan: "pro", country: "ID"}`
 - When traits apply
 - Then attributes are `{plan: "pro", city: "SG", country: "ID"}` and `changedKeys` is `["plan", "country"]`
-- Planned: tests/Profiles.UnitTests/ApplyTraitsTests.cs
+- Implemented: tests/Profiles.UnitTests/ApplyTraitsTests.cs
 
 ## Rule model validation
 

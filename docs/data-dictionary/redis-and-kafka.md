@@ -6,7 +6,7 @@ Redis holds only rebuildable state ([ADR 0006](../adr/0006-redis-roles.md)). Kaf
 
 | Key pattern | Type | TTL | Written by | Read by | Rebuild from |
 |---|---|---|---|---|---|
-| `t:{tenantId}:id:{kind}:{value}` | string → ProfileId | 1 h | Raw events consumer on lookup miss; deleted on merge for the loser | Raw events consumer | `profiles.UserIdentities` |
+| `t:{tenantId}:id:{kind}:{value}` | string → ProfileId | 1 h | Raw events consumer after the SQL commit, on a lookup miss or a new identity; deleted inside the merge transaction for the loser's identities | Raw events consumer | `profiles.UserIdentities` |
 | `t:{tenantId}:seg:{segmentId}:members` | SET of ProfileId | none | Segmentation consumer (SADD/SREM); Segment Runner (DEL + SADD on batch finish) | Segments API (`GET /segments/{id}` realtimeMemberCount), Realtime Evaluator | Batch run or replay of `events.processed` |
 | `t:{tenantId}:seg:{segmentId}:ev:{eventName}:{window}:{profileId}` | string counter | = that leaf's window (e.g. 30 d) | Segmentation consumer (INCR + EXPIRE NX) | Realtime Evaluator | Replay of `events.processed` |
 | `t:{tenantId}:preview:{definitionHashHex}` | string count | 60 s | Segments API after a preview query | Segments API | Re-run preview |
@@ -35,4 +35,4 @@ Message contracts (in `Crm.Contracts`, JSON, camelCase):
 | `ProfileUpdated` | tenantId, profileId, changedKeys (string[]), profile: { externalId?, email?, phone?, attributes }, occurredAt |
 | `ProfileMerged` | tenantId, winnerProfileId, loserProfileId, occurredAt |
 
-Producer settings: `acks=all`, `enable.idempotence=true`. Consumer settings: `enable.auto.commit=false`, manual commit after the SQL transaction commits, `auto.offset.reset=earliest`.
+Producer settings: `acks=all`, `enable.idempotence=true`. `events.processed` is at-least-once: a redelivered duplicate re-announces its `EventTracked` (ruling E7). Consumer settings: `enable.auto.commit=false`, `auto.offset.reset=earliest`, one synchronous commit per record, after the SQL transaction commits.
