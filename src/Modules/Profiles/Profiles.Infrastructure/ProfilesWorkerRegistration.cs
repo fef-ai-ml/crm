@@ -1,6 +1,7 @@
 using Crm.Profiles.Application.Pipeline;
 using Crm.Profiles.Infrastructure.Consumers;
 using Crm.Profiles.Infrastructure.Kafka;
+using Crm.Profiles.Infrastructure.Maintenance;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -28,6 +29,7 @@ public static class ProfilesWorkerRegistration
         services.AddSingleton<IDeadLetterPublisher, DeadLetterPublisher>();
         services.AddSingleton<IRawMessageHandler, ScopedMessageHandler>();
         services.AddHostedService<RawEventsConsumerService>();
+        services.AddHostedService<EventPartitionMaintenanceService>();
         return services;
     }
 }
