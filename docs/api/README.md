@@ -174,6 +174,6 @@ curl -s http://localhost:8080/v1/segments -H "Authorization: Bearer $TOKEN"
 |---|---|---|
 | GET | `/health/live` | Process is up |
 | GET | `/health/ready` | SQL Server, Redis, and Kafka reachable |
-| GET | `/metrics` | Prometheus exposition: `crm_ingest_events_total`, `crm_ingest_rejected_total`, `crm_consumer_lag`, `crm_dlq_total`, `crm_segment_run_seconds`, `crm_realtime_eval_seconds` |
+| GET | `/metrics` | Prometheus exposition: `crm_ingest_events_total`, `crm_ingest_rejected_total`, `crm_consumer_lag`, `crm_dlq_total`, `crm_publish_retries_total`, `crm_segment_run_seconds`, `crm_realtime_eval_seconds` |
 
 Ops endpoints are served on the API host without authentication and are not under `/v1`.
