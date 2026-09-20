@@ -86,9 +86,9 @@ make compose-check docs-check
 
 | Case | make up | budget | make seed | budget | probe | verdict | date | machine |
 |---|---|---|---|---|---|---|---|---|
-| LT-005 (foundation scope) | 58 s | 180 s | 1 s | 120 s | 200 | pass | 2026-09-19 | home-lab: Rocky 10.2, 4 vCPU, 15 GB, Podman 5.8 (remote over ssh); image layers cached |
+| LT-005 (foundation scope) | 52 s | 180 s | 2 s | 120 s | 202 | pass | 2026-09-20 | home-lab: Rocky 10.2, 4 vCPU, 15 GB, Podman 5.8 (remote over ssh); image layers cached |
 
-LT-005 is recorded at foundation scope with `tests/Crm.LoadTests/coldstart.sh`: stack stopped, volumes removed, image layers cached. A first build on a machine without cached layers additionally pays the NuGet restore and publish inside the image build. Throughput results (LT-001…LT-003) are added by the load-test plan.
+LT-005 is recorded at foundation scope with `tests/Crm.LoadTests/coldstart.sh`: stack stopped, volumes removed, image layers cached; the probe is the quickstart's first event (`POST /v1/track` → 202). A first build on a machine without cached layers additionally pays the NuGet restore and publish inside the image build. Throughput results (LT-001…LT-003) are added by the load-test plan.
 
 Minimum local resources: 8 GB RAM allocated to the container engine.
 
