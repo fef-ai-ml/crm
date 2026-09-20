@@ -17,7 +17,7 @@ public sealed class AdminClientMetadataSource(string bootstrapServers) : IKafkaM
     public void Dispose() => _admin.Dispose();
 }
 
-/// <summary>Logs Kafka broker metadata once at start-up. Consumers replace this in the Profiles plan.</summary>
+/// <summary>Logs Kafka broker metadata once at start-up, so a wrong bootstrap address is visible in the first log lines.</summary>
 public sealed class StartupProbeService(IKafkaMetadataSource metadata, ILogger<StartupProbeService> logger) : BackgroundService
 {
     public IReadOnlyList<string> LastBrokers { get; private set; } = [];

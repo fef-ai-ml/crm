@@ -41,6 +41,10 @@ public sealed class CrmStackFixture : IAsyncLifetime
 
     public string KafkaBootstrapServers { get; private set; } = string.Empty;
 
+    public SwitchableHooks Hooks { get; } = new();
+
+    public CrmWorkerFactory Worker { get; private set; } = null!;
+
     public async Task InitializeAsync()
     {
         await Task.WhenAll(_sql.StartAsync(), _kafka.StartAsync(), _redis.StartAsync());
@@ -54,6 +58,9 @@ public sealed class CrmStackFixture : IAsyncLifetime
         await MigrateTenancyAsync();
         await MigrateProfilesAsync();
         await CreateTopicsAsync();
+
+        Worker = new CrmWorkerFactory(this, Hooks);
+        Worker.Start();
     }
 
     /// <summary>compose's kafka-init creates these with 12 partitions and auto-creation off; mirror it so keys spread the same way.</summary>
@@ -107,6 +114,11 @@ public sealed class CrmStackFixture : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
+        if (Worker is not null)
+        {
+            await Worker.DisposeAsync();
+        }
+
         await Task.WhenAll(_sql.DisposeAsync().AsTask(), _kafka.DisposeAsync().AsTask(), _redis.DisposeAsync().AsTask());
     }
 
