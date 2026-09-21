@@ -164,133 +164,133 @@ Each case loads `tests/fixtures/rules/valid/<name>.json`, compiles it for tenant
 - Given fixture `attr-eq.json` (`plan eq "pro"`)
 - When compiled
 - Then the predicate is `p.Attr_plan = @p0` (promoted key) and `@p0 = 'pro'`
-- Planned: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
 
 ### UT-022 — attribute neq includes missing key
 - Traces: FR-13
 - Given fixture `attr-neq.json` (`tier neq "gold"`)
 - When compiled
 - Then the predicate is `(JSON_VALUE(p.Attributes, '$.tier') <> @p0 OR JSON_VALUE(p.Attributes, '$.tier') IS NULL)`
-- Planned: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
 
 ### UT-023 — attribute in
 - Traces: FR-13
 - Given fixture `attr-in.json` (`country in ["ID","SG"]`)
 - When compiled
 - Then the predicate is `p.Attr_country IN (@p0, @p1)` with parameters `'ID'`, `'SG'`
-- Planned: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
 
 ### UT-024 — attribute nin includes missing key
 - Traces: FR-13
 - Given fixture `attr-nin.json`
 - When compiled
 - Then the predicate is `(JV NOT IN (@p0, @p1) OR JV IS NULL)` with JV expanded for the key
-- Planned: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
 
 ### UT-025 — numeric comparators use TRY_CONVERT
 - Traces: FR-13
 - Given fixtures `attr-gt.json`, `attr-gte.json`, `attr-lt.json`, `attr-lte.json` on key `ltv`
 - When compiled
 - Then each predicate is `TRY_CONVERT(float, JSON_VALUE(p.Attributes, '$.ltv')) <op> @p0` with the matching operator and a float parameter
-- Planned: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
 
 ### UT-026 — contains escapes LIKE wildcards
 - Traces: FR-13
 - Given fixture `attr-contains.json` with value `50%_off\`
 - When compiled
 - Then the predicate is `JV LIKE '%' + @p0 + '%' ESCAPE '\'` and `@p0 = '50\%\_off\\'`
-- Planned: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
 
 ### UT-027 — attribute exists
 - Traces: FR-13
 - Given fixture `attr-exists.json`
 - When compiled
 - Then the predicate is `JV IS NOT NULL` and no parameter is emitted for the leaf
-- Planned: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
 
 ### UT-028 — attribute not_exists
 - Traces: FR-13
 - Given fixture `attr-not-exists.json`
 - When compiled
 - Then the predicate is `JV IS NULL`
-- Planned: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
 
 ### UT-029 — event gte n
 - Traces: FR-13
 - Given fixture `event-gte.json` (`purchase gte 3 in 30d`) and clock `2026-09-16T00:00:00Z`
 - When compiled
 - Then the predicate is `EXISTS (SELECT 1 FROM profiles.Events e WHERE e.TenantId = @tenant AND e.ProfileId = p.Id AND e.Name = @p0 AND e.OccurredAt >= @p1 HAVING COUNT(*) >= @p2)` with `@p1 = 2026-08-17T00:00:00Z`, `@p2 = 3`
-- Planned: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
 
 ### UT-030 — event eq 0 compiles to NOT EXISTS
 - Traces: FR-13
 - Given fixture `event-eq-zero.json` (`app_open eq 0 in 7d`)
 - When compiled
 - Then the predicate is `NOT EXISTS (SELECT 1 FROM profiles.Events e WHERE … AND e.OccurredAt >= @p1)` with no `HAVING`
-- Planned: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
 
 ### UT-031 — event eq n
 - Traces: FR-13
 - Given fixture `event-eq-n.json` (`purchase eq 2 in 30d`)
 - When compiled
 - Then the predicate is `EXISTS (… HAVING COUNT(*) = @p2)`
-- Planned: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
 
 ### UT-032 — event lte n
 - Traces: FR-13
 - Given fixture `event-lte.json` (`purchase lte 1 in 30d`)
 - When compiled
 - Then the predicate is `NOT EXISTS (… HAVING COUNT(*) > @p2)`
-- Planned: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
 
 ### UT-033 — nested and/or groups
 - Traces: FR-13
 - Given fixture `group-nested.json` (the spec §5.1 example tree)
 - When compiled
 - Then output equals `golden/group-nested.sql`: `(c1 AND c2 AND (c3 OR c4))` with parameters numbered in tree order
-- Planned: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
 
 ### UT-034 — not group
 - Traces: FR-13
 - Given fixture `group-not.json`
 - When compiled
 - Then the predicate is `NOT (<child>)`
-- Planned: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
 
 ### UT-035 — root always filters tenant and merged profiles
 - Traces: FR-14
 - Given any valid fixture
 - When compiled
 - Then SQL starts with `SELECT p.Id FROM profiles.Profiles p WHERE p.TenantId = @tenant AND p.MergedIntoId IS NULL AND (` and `@tenant` equals the supplied tenant id
-- Planned: tests/Segmentation.UnitTests/RuleCompilerTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerTests.cs
 
 ### UT-036 — promoted keys use computed columns
 - Traces: FR-13
 - Given attribute leaves on `plan`, `country`, `city`, and `tier`
 - When compiled
 - Then the first three reference `p.Attr_plan`, `p.Attr_country`, `p.Attr_city` and `tier` uses `JSON_VALUE(p.Attributes, '$.tier')`
-- Planned: tests/Segmentation.UnitTests/RuleCompilerTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerTests.cs
 
 ### UT-037 — no user value appears in SQL text
 - Traces: FR-14
 - Given fixtures whose values include `'; DROP TABLE x; --`, `%`, `_`, `\`, and `$.evil`
 - When compiled
 - Then none of those strings appear in the SQL text; each appears only in the parameter list
-- Planned: tests/Segmentation.UnitTests/RuleCompilerTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerTests.cs
 
 ### UT-038 — booleans compare as strings
 - Traces: FR-13
 - Given fixture `attr-bool.json` (`opted_in eq true`)
 - When compiled
 - Then `@p0` is the string `'true'` and the predicate uses `JV = @p0`
-- Planned: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerGoldenTests.cs
 
 ### UT-039 — compilation is deterministic
 - Traces: FR-14
 - Given the same tree serialized with keys in two different orders
 - When compiled twice
 - Then SQL text and parameter list are identical, and `DefinitionHash` of the canonical form is identical (see UT-058)
-- Planned: tests/Segmentation.UnitTests/RuleCompilerTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleCompilerTests.cs
 
 ## Real-time eligibility and evaluation
 

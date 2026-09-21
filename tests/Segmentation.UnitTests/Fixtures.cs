@@ -52,4 +52,7 @@ public static class Fixtures
             ? throw new DirectoryNotFoundException("Crm.sln not found above " + AppContext.BaseDirectory)
             : Path.Combine(dir.FullName, "tests", "fixtures", "rules");
     }
+
+    /// <summary>`tests/fixtures/golden/`, a sibling of <see cref="RulesRoot"/> (docs/test/fixtures.md "Golden SQL Files").</summary>
+    public static string GoldenRoot() => Path.Combine(Directory.GetParent(RulesRoot())!.FullName, "golden");
 }

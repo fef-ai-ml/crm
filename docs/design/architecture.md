@@ -250,6 +250,7 @@ JV = `JSON_VALUE(p.Attributes, '$.key')` or the promoted column.
 | attribute neq | `(JV <> @p OR JV IS NULL)` | included |
 | attribute in | `JV IN (@p0, @p1, …)` | excluded |
 | attribute nin | `(JV NOT IN (@p0, …) OR JV IS NULL)` | included |
+| attribute eq/neq/in/nin with a numeric value | as above, with `JV` wrapped in `TRY_CONVERT(float, JV)` and float parameters (H17) | as above |
 | attribute gt/gte/lt/lte | `TRY_CONVERT(float, JV) > @p` (etc.) | excluded (NULL compares UNKNOWN) |
 | attribute contains | `JV LIKE '%' + @p + '%' ESCAPE '\'` with `%`, `_`, `\` escaped in @p | excluded |
 | attribute exists | `JV IS NOT NULL` | excluded |
@@ -261,4 +262,4 @@ JV = `JSON_VALUE(p.Attributes, '$.key')` or the promoted column.
 | group and/or | `(c1 AND c2 …)` / `(c1 OR c2 …)` | — |
 | group not | `NOT (c1)` | — |
 
-Booleans are compared as the strings `true`/`false`; `@since = SYSUTCDATETIME() - window`.
+Booleans are compared as the strings `true`/`false`. `@since` is not a SQL-side expression: the compiler computes it as `clock.UtcNow - window.Duration` and passes the result as a `DateTime` parameter, so the query's notion of "now" is the same clock the rest of the module uses (and is fixed at compile time, not re-evaluated per row).
