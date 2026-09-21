@@ -32,6 +32,8 @@ public static class SegmentErrors
     public static Error InvalidRequest(IReadOnlyDictionary<string, string[]> fields)
         => Error.Validation(InvalidRequestCode, "The request is invalid.", fields);
 
-    public static Error InvalidFilter(string message)
-        => Error.Validation(InvalidFilterCode, $"status {message}", new Dictionary<string, string[]>(StringComparer.Ordinal) { ["status"] = [message] });
+    /// <summary>Mirrors ProfilesErrors.InvalidFilter: <paramref name="field"/> is the offending query parameter
+    /// (`status`, `since`), not necessarily "status" (task-8 brief adds `since`).</summary>
+    public static Error InvalidFilter(string field, string message)
+        => Error.Validation(InvalidFilterCode, $"{field} {message}", new Dictionary<string, string[]>(StringComparer.Ordinal) { [field] = [message] });
 }

@@ -136,7 +136,7 @@ Auth: JWT. Writes require Admin.
 | POST | `/segments/{id}/run` | Queue a batch run; `202 { "runId": "..." }` |
 | GET | `/segments/{id}/runs?limit=&cursor=` | Runs newest first: `runId`, `status`, `trigger`, `startedAt`, `finishedAt`, `memberCount`, `error`, `createdAt` |
 | GET | `/segments/{id}/members?limit=&cursor=` | Profiles in the current run (id, externalId, email, lastSeenAt) |
-| GET | `/segments/{id}/changes?since=&limit=&cursor=` | Membership changes: `profileId`, `change`, `source`, `occurredAt` |
+| GET | `/segments/{id}/changes?since=&limit=&cursor=` | Membership changes, newest first: `id`, `profileId`, `change`, `source`, `occurredAt` |
 
 `memberCount` is from the current batch run; `realtimeMemberCount` is the live Redis set size for eligible segments and `null` otherwise. As of this plan's slice, `realtimeMemberCount` is always `null` — the real-time evaluator arrives in a later plan.
 

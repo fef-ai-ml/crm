@@ -125,6 +125,39 @@ public sealed class IsolationTests(CrmStackFixture stack) : IAsyncLifetime
         }
     }
 
+    /// <summary>IT-030's members/changes half (task-8 brief): the two reads Task 8 adds get the same tenant
+    /// isolation as segment detail above.</summary>
+    [Fact]
+    public async Task IT030_another_tenants_segment_members_and_changes_are_404()
+    {
+        var a = await TenancySeed.CreateTenantAsync(_factory);
+        var b = await TenancySeed.CreateTenantAsync(_factory);
+
+        var segmentOfBId = await SegmentsDb.InsertSegmentAsync(stack.SqlConnectionString, b.TenantId, "b-only-reads", DateTime.UtcNow);
+        var tokenOfA = TenancySeed.AccessToken(_factory, a.AdminUserId, a.TenantId, Roles.Admin);
+        var tokenOfB = TenancySeed.AccessToken(_factory, b.AdminUserId, b.TenantId, Roles.Admin);
+
+        using (var response = await _client.GetAsync($"/v1/segments/{segmentOfBId}/members", tokenOfA))
+        {
+            response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        }
+
+        using (var response = await _client.GetAsync($"/v1/segments/{segmentOfBId}/changes", tokenOfA))
+        {
+            response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        }
+
+        using (var response = await _client.GetAsync($"/v1/segments/{segmentOfBId}/members", tokenOfB))
+        {
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        using (var response = await _client.GetAsync($"/v1/segments/{segmentOfBId}/changes", tokenOfB))
+        {
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+    }
+
     /// <summary>Repointed off the deleted read-probe (which counted the caller's ApiKeys): GET /v1/api-keys is
     /// AdminOnly and already tenant-scoped by the same query filter, so it exercises the identical isolation path.</summary>
     private async Task<int> ReadCountAsync(SeededTenant tenant)

@@ -39,6 +39,20 @@ internal static class SegmentEndpoints
             .Produces<SegmentRunListResponse>()
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
+
+        segments.MapGet("/{id:guid}/members", ListMembersAsync)
+            .WithName("ListSegmentMembers")
+            .WithSummary("Profiles in the segment's current run, newest ProfileId first (H13); an empty page when no run has finished yet.")
+            .Produces<SegmentMemberListResponse>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        segments.MapGet("/{id:guid}/changes", ListChangesAsync)
+            .WithName("ListSegmentChanges")
+            .WithSummary("Membership changes for a segment, newest first; since= filters to OccurredAt >= since (IT-029).")
+            .Produces<SegmentChangeListResponse>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
     }
 
     public static void MapWrite(RouteGroupBuilder secured)
@@ -87,6 +101,16 @@ internal static class SegmentEndpoints
     private static async Task<object> ListRunsAsync(
         Guid id, [FromQuery] int? limit, [FromQuery] string? cursor, ISegmentQueries queries, CancellationToken cancellationToken)
         => (await queries.ListRunsAsync(id, limit, cursor, cancellationToken))
+            .Match<object>(page => TypedResults.Ok(page), error => error);
+
+    private static async Task<object> ListMembersAsync(
+        Guid id, [FromQuery] int? limit, [FromQuery] string? cursor, ISegmentQueries queries, CancellationToken cancellationToken)
+        => (await queries.ListMembersAsync(id, limit, cursor, cancellationToken))
+            .Match<object>(page => TypedResults.Ok(page), error => error);
+
+    private static async Task<object> ListChangesAsync(
+        Guid id, [FromQuery] string? since, [FromQuery] int? limit, [FromQuery] string? cursor, ISegmentQueries queries, CancellationToken cancellationToken)
+        => (await queries.ListChangesAsync(id, since, limit, cursor, cancellationToken))
             .Match<object>(page => TypedResults.Ok(page), error => error);
 
     private static async Task<object> PreviewAsync(PreviewRequest request, PreviewService preview, CancellationToken cancellationToken)

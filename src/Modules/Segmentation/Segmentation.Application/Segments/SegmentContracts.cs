@@ -37,3 +37,15 @@ public sealed record SegmentRunListItem(
     Guid RunId, string Status, string Trigger, DateTime? StartedAt, DateTime? FinishedAt, int? MemberCount, string? Error, DateTime CreatedAt);
 
 public sealed record SegmentRunListResponse(IReadOnlyList<SegmentRunListItem> Items, string? NextCursor);
+
+/// <summary>Row of GET /segments/{id}/members (task-8 brief, H13): a profile in the segment's current run, joined
+/// to `profiles.Profiles` by raw SQL. <see cref="Id"/> is the profile id.</summary>
+public sealed record SegmentMemberListItem(Guid Id, string? ExternalId, string? Email, DateTime LastSeenAt);
+
+public sealed record SegmentMemberListResponse(IReadOnlyList<SegmentMemberListItem> Items, string? NextCursor);
+
+/// <summary>Row of GET /segments/{id}/changes (task-8 brief, IT-029), newest first. <see cref="Id"/> is the
+/// `MembershipChanges` row's own id — the cursor's tiebreaker, not a profile id.</summary>
+public sealed record SegmentChangeListItem(Guid Id, Guid ProfileId, string Change, string Source, DateTime OccurredAt);
+
+public sealed record SegmentChangeListResponse(IReadOnlyList<SegmentChangeListItem> Items, string? NextCursor);

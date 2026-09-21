@@ -134,6 +134,24 @@ public static class SegmentsDb
         return ids;
     }
 
+    /// <summary>Task-8 brief, IT-018 read half: the ground truth a run's `/members` response is compared against.</summary>
+    public static async Task<IReadOnlyList<Guid>> ListRunMemberIdsAsync(string connectionString, Guid runId)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT ProfileId FROM segments.SegmentRunMembers WHERE RunId = @run ORDER BY ProfileId";
+        command.Parameters.Add(new SqlParameter("@run", runId));
+        var ids = new List<Guid>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            ids.Add(reader.GetGuid(0));
+        }
+
+        return ids;
+    }
+
     public static async Task<int> CountRunMembersAsync(string connectionString, Guid runId)
     {
         await using var connection = new SqlConnection(connectionString);
@@ -160,7 +178,12 @@ public static class SegmentsDb
         return (int)(await command.ExecuteScalarAsync())!;
     }
 
-    public static async Task<Guid> InsertMembershipChangeAsync(string connectionString, Guid tenantId, Guid segmentId, Guid profileId, DateTime at)
+    public static Task<Guid> InsertMembershipChangeAsync(string connectionString, Guid tenantId, Guid segmentId, Guid profileId, DateTime at)
+        => InsertMembershipChangeAsync(connectionString, tenantId, segmentId, profileId, at, "Entered", "Batch");
+
+    /// <summary>Task-8 brief (IT-029): lets a test control <paramref name="change"/> (`Entered`/`Exited`) and
+    /// <paramref name="source"/> (`Batch`/`Realtime`) directly, rather than always the IT-017 shape above.</summary>
+    public static async Task<Guid> InsertMembershipChangeAsync(string connectionString, Guid tenantId, Guid segmentId, Guid profileId, DateTime at, string change, string source)
     {
         var id = Guid.CreateVersion7(new DateTimeOffset(at));
         await using var connection = new SqlConnection(connectionString);
@@ -168,11 +191,13 @@ public static class SegmentsDb
         await using var command = connection.CreateCommand();
         command.CommandText =
             "INSERT INTO segments.MembershipChanges (Id, TenantId, SegmentId, ProfileId, Change, Source, OccurredAt) " +
-            "VALUES (@id, @tenant, @segment, @profile, 'Entered', 'Batch', @at)";
+            "VALUES (@id, @tenant, @segment, @profile, @change, @source, @at)";
         command.Parameters.Add(new SqlParameter("@id", id));
         command.Parameters.Add(new SqlParameter("@tenant", tenantId));
         command.Parameters.Add(new SqlParameter("@segment", segmentId));
         command.Parameters.Add(new SqlParameter("@profile", profileId));
+        command.Parameters.Add(new SqlParameter("@change", change));
+        command.Parameters.Add(new SqlParameter("@source", source));
         command.Parameters.Add(new SqlParameter("@at", SqlDbType.DateTime2) { Value = at });
         await command.ExecuteNonQueryAsync();
         return id;

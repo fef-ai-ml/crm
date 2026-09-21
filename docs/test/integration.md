@@ -151,7 +151,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given a run in progress (test hook pauses after inserting half the members)
 - When `GET /v1/segments/{id}/members` and `GET /v1/segments/{id}` are called
 - Then they return the previous run's 412 members and `memberCount = 412`, not a partial count
-- Plan H note: `GET /segments/{id}/members` arrives in Task 8; until then the members half is asserted directly against `segments.Segments` through `SegmentsDb` (`CurrentRunId` and `MemberCount` unchanged) alongside the `GET /segments/{id}` half
+- Plan H note: the `GET /segments/{id}/members` half (task 8) is `IT018_members_read_serves_the_previous_run_while_a_run_is_blocked`, asserting the same ids and count through the HTTP read as the `GET /segments/{id}` half below asserts through `SegmentsDb`
 - Implemented: tests/Crm.IntegrationTests/Segments/BatchRunTests.cs
 
 ### IT-019 — only the last three runs are kept
@@ -225,14 +225,16 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given an eligible segment with a finished run and one extra real-time member since
 - When `GET /v1/segments/{id}`
 - Then `memberCount` equals the run count, `realtimeMemberCount` equals `SCARD` (run count + 1), and for an ineligible segment `realtimeMemberCount` is `null`
-- Planned: tests/Crm.IntegrationTests/Segments/SegmentReadTests.cs
+- Plan H note: fixed a plan defect — this case is real-time (`realtimeMemberCount`), so it belongs with IT-022…027, not `SegmentReadTests.cs` (task 8's file for the plain batch reads)
+- Planned: tests/Crm.IntegrationTests/Segments/RealtimeTests.cs
 
 ### IT-029 — membership changes are queryable since a timestamp
 - Traces: FR-18
 - Given 10 batch changes at T1 and 3 real-time changes at T2 > T1
 - When `GET /v1/segments/{id}/changes?since=T2-1s&limit=2` and then the cursor
 - Then the pages contain the 3 T2 changes with `source = Realtime`, newest first, and nothing from T1
-- Planned: tests/Crm.IntegrationTests/Segments/SegmentReadTests.cs
+- Plan H note: proven with rows inserted directly through `SegmentsDb` (not the real-time evaluator, which does not exist yet) plus a tie fact — two of the three T2 changes share one `OccurredAt`, straddling the `limit=2` page boundary — the conjunctive `(OccurredAt, Id)` cursor returns each exactly once
+- Implemented: tests/Crm.IntegrationTests/Segments/SegmentReadTests.cs
 
 ### IT-042 — golden rules execute against the real schema
 - Traces: FR-14
@@ -248,7 +250,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given tenants A and B each with a profile and a segment
 - When A's JWT requests B's `GET /v1/profiles/{id}`, `/segments/{id}`, `/segments/{id}/members`, and A's API key tracks an event for B's user id
 - Then the reads return 404, the event lands in A's tenant only, and B's data is unchanged
-- Plan H note: the profile reads are asserted by `IT030_another_tenants_profile_reads_are_404`; the segment detail read is asserted by `IT030_another_tenants_segment_is_404`. `/segments/{id}/members` arrives with a later plan.
+- Plan H note: the profile reads are asserted by `IT030_another_tenants_profile_reads_are_404`; the segment detail read is asserted by `IT030_another_tenants_segment_is_404`; `/segments/{id}/members` and `/segments/{id}/changes` (task 8) are asserted by `IT030_another_tenants_segment_members_and_changes_are_404`.
 - Implemented: tests/Crm.IntegrationTests/Tenancy/IsolationTests.cs
 
 ### IT-031 — tenant isolation through the query filter

@@ -240,6 +240,42 @@ public sealed class BatchRunTests(CrmStackFixture stack) : IAsyncLifetime
         }
     }
 
+    /// <summary>IT-018's read half (task-8 brief): `GET /segments/{id}/members` follows `Segments.CurrentRunId`,
+    /// so while a second run's transaction is open it keeps serving the first run's 412 members — same ids, same
+    /// count — and only the released run's members once the transaction commits.</summary>
+    [Fact]
+    public async Task IT018_members_read_serves_the_previous_run_while_a_run_is_blocked()
+    {
+        var (_, admin) = await SeededTenantAsync();
+        var segmentId = await CreateSegmentAsync(admin, "run-partial-members", "seed-pro-id.json");
+
+        var firstRunId = await PostRunAsync(segmentId, admin);
+        await WaitForFinishedAsync(segmentId, firstRunId, admin);
+        var firstRunMemberIds = await SegmentsDb.ListRunMemberIdsAsync(stack.SqlConnectionString, firstRunId);
+        firstRunMemberIds.Should().HaveCount(412);
+
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using (stack.SegmentHooks.OnMembersInserted((_, _) =>
+        {
+            entered.TrySetResult();
+            return release.Task;
+        }))
+        {
+            var secondRunId = await PostRunAsync(segmentId, admin);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            var membersWhileBlocked = await AllMemberIdsAsync(segmentId, admin);
+            membersWhileBlocked.Should().HaveCount(412);
+            membersWhileBlocked.Should().BeEquivalentTo(firstRunMemberIds, "the transaction has not updated segments.Segments yet, so /members still follows the first run");
+
+            release.TrySetResult();
+            await WaitForFinishedAsync(segmentId, secondRunId, admin);
+        }
+
+        (await AllMemberIdsAsync(segmentId, admin)).Should().HaveCount(412);
+    }
+
     [Fact]
     public async Task IT019_only_the_last_three_runs_are_kept()
     {
@@ -406,6 +442,26 @@ public sealed class BatchRunTests(CrmStackFixture stack) : IAsyncLifetime
         => await Eventually.GetAsync(
             async () => (await FindRunAsync(segmentId, runId, bearer)) is { Status: "Finished" } run ? run : null,
             $"run {runId} finishes");
+
+    /// <summary>Pages GET /segments/{id}/members to completion (task-8 brief) — every id currently reachable
+    /// through the HTTP read, not just one page's worth.</summary>
+    private async Task<IReadOnlyList<Guid>> AllMemberIdsAsync(Guid segmentId, string bearer)
+    {
+        var ids = new List<Guid>();
+        string? cursor = null;
+        do
+        {
+            var path = cursor is null
+                ? $"/v1/segments/{segmentId}/members?limit=200"
+                : $"/v1/segments/{segmentId}/members?limit=200&cursor={Uri.EscapeDataString(cursor)}";
+            var page = await _client.ReadAsync<SegmentMemberListResponse>(path, bearer);
+            ids.AddRange(page.Items.Select(i => i.Id));
+            cursor = page.NextCursor;
+        }
+        while (cursor is not null);
+
+        return ids;
+    }
 
     private async Task<IReadOnlyList<Guid>> TopRunMemberIdsAsync(Guid runId, int count)
     {
