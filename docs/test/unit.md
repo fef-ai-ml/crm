@@ -299,42 +299,42 @@ Each case loads `tests/fixtures/rules/valid/<name>.json`, compiles it for tenant
 - Given a tree of attribute leaves using every comparator, joined by and/or
 - When `RealtimeEligibility.Classify` runs
 - Then the result is eligible
-- Planned: tests/Segmentation.UnitTests/RealtimeEligibilityTests.cs
+- Implemented: tests/Segmentation.UnitTests/RealtimeEligibilityTests.cs
 
 ### UT-041 — event gte with count ≥ 1 is eligible
 - Traces: FR-16
 - Given `purchase gte 1 in 30d` and `purchase gte 3 in 7d`
 - When classified
 - Then both are eligible
-- Planned: tests/Segmentation.UnitTests/RealtimeEligibilityTests.cs
+- Implemented: tests/Segmentation.UnitTests/RealtimeEligibilityTests.cs
 
 ### UT-042 — not group is ineligible
 - Traces: FR-16
 - Given `not (plan eq "pro")`
 - When classified
 - Then the result is ineligible with reason `NotGroup`
-- Planned: tests/Segmentation.UnitTests/RealtimeEligibilityTests.cs
+- Implemented: tests/Segmentation.UnitTests/RealtimeEligibilityTests.cs
 
 ### UT-043 — event eq 0 is ineligible
 - Traces: FR-16
 - Given `app_open eq 0 in 7d`
 - When classified
 - Then ineligible with reason `ZeroCount`
-- Planned: tests/Segmentation.UnitTests/RealtimeEligibilityTests.cs
+- Implemented: tests/Segmentation.UnitTests/RealtimeEligibilityTests.cs
 
 ### UT-044 — event lte is ineligible
 - Traces: FR-16
 - Given `purchase lte 2 in 30d`
 - When classified
 - Then ineligible with reason `UpperBound`
-- Planned: tests/Segmentation.UnitTests/RealtimeEligibilityTests.cs
+- Implemented: tests/Segmentation.UnitTests/RealtimeEligibilityTests.cs
 
 ### UT-045 — event eq n ≥ 1 is ineligible
 - Traces: FR-16
 - Given `purchase eq 2 in 30d`
 - When classified
 - Then ineligible with reason `ExactCount`
-- Planned: tests/Segmentation.UnitTests/RealtimeEligibilityTests.cs
+- Implemented: tests/Segmentation.UnitTests/RealtimeEligibilityTests.cs
 
 ### UT-046 — evaluator applies attribute leaves to the snapshot
 - Traces: FR-16
@@ -369,7 +369,7 @@ Each case loads `tests/fixtures/rules/valid/<name>.json`, compiles it for tenant
 - Given two JSON serializations of the same tree (key order, whitespace, number formatting differ)
 - When `DefinitionHash.Compute` runs
 - Then both produce the same 32-byte SHA-256, and changing one value changes the hash
-- Planned: tests/Segmentation.UnitTests/DefinitionHashTests.cs
+- Implemented: tests/Segmentation.UnitTests/DefinitionHashTests.cs
 
 ## Tenancy and security
 

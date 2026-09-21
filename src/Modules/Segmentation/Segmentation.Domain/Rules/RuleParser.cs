@@ -297,12 +297,14 @@ public static class RuleParser
 
     private static int ParseCount(JsonElement node, string path, List<RuleError> errors)
     {
-        if (node.TryGetProperty("count", out var countElement)
-            && countElement.ValueKind == JsonValueKind.Number
-            && countElement.TryGetInt32(out var count)
-            && count >= 0)
+        // A whole-number check, not TryGetInt32: `3.0` is a valid count (UT-058 hashes it the same as `3`).
+        if (node.TryGetProperty("count", out var countElement) && countElement.ValueKind == JsonValueKind.Number)
         {
-            return count;
+            var value = countElement.GetDouble();
+            if (value >= 0 && value <= int.MaxValue && value == Math.Floor(value))
+            {
+                return (int)value;
+            }
         }
 
         errors.Add(new RuleError($"{path}.count", "count must be at least 0"));
