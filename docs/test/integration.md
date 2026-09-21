@@ -119,14 +119,15 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given the seed dataset
 - When `POST /v1/segments/preview` with fixture `seed-pro-id.json` twice within 60 s
 - Then both return `count = 412` (fixture-defined), the second response has the same `cachedAt`, and only one `SELECT COUNT(*)` appears in the SQL trace
-- Planned: tests/Crm.IntegrationTests/Segments/PreviewTests.cs
+- Note (ruling H21): "one `SELECT COUNT(*)`" is not read off a SQL trace directly — it is asserted by counting `ISegmentationHooks.RewriteQuery(Preview, …)` calls via the test's own callback. Every `CompiledQueryExecutor.CountAsync` execution passes the whole `SELECT COUNT(*) FROM (...) q` statement through that hook exactly once, so one call proves one execution; a cache hit skips `CountAsync` (and the hook) entirely. The test also confirms a second tenant posting the identical definition gets its own call (its own cache key), not the first tenant's cached count.
+- Implemented: tests/Crm.IntegrationTests/Segments/PreviewTests.cs
 
 ### IT-015 — preview timeout reports timedOut
 - Traces: FR-17
 - Given a `WAITFOR DELAY '00:00:06'` injected via the test compiler hook
 - When `POST /v1/segments/preview`
 - Then the response is 200 `{count: null, timedOut: true}` within 5.5 s
-- Planned: tests/Crm.IntegrationTests/Segments/PreviewTests.cs
+- Implemented: tests/Crm.IntegrationTests/Segments/PreviewTests.cs
 
 ### IT-016 — queued run is picked up and materialized
 - Traces: FR-15

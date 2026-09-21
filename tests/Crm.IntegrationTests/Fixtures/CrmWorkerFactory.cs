@@ -1,4 +1,5 @@
 using Crm.Profiles.Application.Pipeline;
+using Crm.Segmentation.Application;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -48,6 +49,8 @@ public sealed class CrmWorkerFactory : WebApplicationFactory<Crm.Worker.Program>
         {
             services.RemoveAll<IPipelineHooks>();
             services.AddSingleton<IPipelineHooks>(_hooks);
+            services.RemoveAll<ISegmentationHooks>();
+            services.AddSingleton<ISegmentationHooks>(_stack.SegmentHooks);
         });
     }
 }

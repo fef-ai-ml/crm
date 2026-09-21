@@ -5,8 +5,9 @@ namespace Crm.Segmentation.Infrastructure.Endpoints;
 public static class SegmentsEndpointExtensions
 {
     /// <summary>
-    /// Maps GET /segments and GET /segments/{id} onto a group the HOST has already secured (AdminOrViewer
-    /// policy, Segments tag): the policy names live in Tenancy, and a module may not reference another module.
+    /// Maps GET /segments, GET /segments/{id} and POST /segments/preview onto a group the HOST has already
+    /// secured (AdminOrViewer policy, Segments tag): the policy names live in Tenancy, and a module may not
+    /// reference another module. Preview is a read (a Viewer may call it) even though it is a POST.
     /// </summary>
     public static RouteGroupBuilder MapSegmentsReadEndpoints(this RouteGroupBuilder secured)
     {

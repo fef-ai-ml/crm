@@ -44,6 +44,8 @@ public sealed class CrmStackFixture : IAsyncLifetime
 
     public SwitchableHooks Hooks { get; } = new();
 
+    public SwitchableSegmentationHooks SegmentHooks { get; } = new();
+
     public CrmWorkerFactory Worker { get; private set; } = null!;
 
     public async Task InitializeAsync()

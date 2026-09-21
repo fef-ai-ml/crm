@@ -1,10 +1,15 @@
 using Crm.Kernel.Data;
+using Crm.Segmentation.Application;
+using Crm.Segmentation.Application.Compilation;
 using Crm.Segmentation.Application.Segments;
+using Crm.Segmentation.Infrastructure.Preview;
 using Crm.Segmentation.Infrastructure.Queries;
 using Crm.Segmentation.Infrastructure.Segments;
+using Crm.Segmentation.Infrastructure.Sql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Crm.Segmentation.Infrastructure;
 
@@ -21,6 +26,11 @@ public static class SegmentationModule
 
         services.AddScoped<ISegmentQueries, EfSegmentQueries>();
         services.AddScoped<ISegmentService, EfSegmentService>();
+
+        services.TryAddSingleton<ISegmentationHooks, NoSegmentationHooks>();
+        services.AddScoped<RuleCompiler>();
+        services.AddScoped<CompiledQueryExecutor>();
+        services.AddScoped<PreviewService>();
 
         return services;
     }

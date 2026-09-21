@@ -1,6 +1,10 @@
+using Crm.Segmentation.Application;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Crm.IntegrationTests.Fixtures;
 
@@ -41,5 +45,10 @@ public sealed class CrmApiFactory : WebApplicationFactory<Crm.Api.Program>
             ["Kafka:BootstrapServers"] = _stack.KafkaBootstrapServers,
             ["Auth:SigningKey"] = SigningKey,
         }));
+        builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<ISegmentationHooks>();
+            services.AddSingleton<ISegmentationHooks>(_stack.SegmentHooks);
+        });
     }
 }

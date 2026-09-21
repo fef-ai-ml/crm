@@ -1063,6 +1063,72 @@
         ]
       }
     },
+    "/v1/segments/preview": {
+      "post": {
+        "tags": [
+          "Segments"
+        ],
+        "summary": "Counts profiles matching a rule definition without saving it; cached for 60 s, capped at a 5 s command budget.",
+        "operationId": "PreviewSegment",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is not allowed to do this.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [ ]
+          }
+        ]
+      }
+    },
     "/v1/segments/{id}": {
       "get": {
         "tags": [
@@ -1637,6 +1703,56 @@
             "nullable": true
           }
         }
+      },
+      "PreviewRequest": {
+        "required": [
+          "definition"
+        ],
+        "type": "object",
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        },
+        "description": "Body of POST /segments/preview (task-6 brief): the same raw-JsonElement definition as\n            SegmentWriteRequest, with no name, description or status — a preview never persists anything."
+      },
+      "PreviewResponse": {
+        "required": [
+          "count",
+          "timedOut",
+          "cachedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "count": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "format": "int32",
+            "nullable": true
+          },
+          "timedOut": {
+            "type": "boolean"
+          },
+          "cachedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "description": "int? PreviewResponse.Count and DateTime? PreviewResponse.CachedAt are null exactly when bool PreviewResponse.TimedOut is true —\n        the five-second command budget elapsed without a countable answer, and nothing was cached (task-6 brief)."
       },
       "ProblemDetails": {
         "type": "object",

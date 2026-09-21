@@ -1,4 +1,5 @@
 using Crm.Segmentation.Application.Segments;
+using Crm.Segmentation.Infrastructure.Preview;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -16,6 +17,13 @@ internal static class SegmentEndpoints
             .WithName("ListSegments")
             .WithSummary("Draft and Active segments, newest first; status=Draft|Active|Archived filters to exactly one.")
             .Produces<SegmentListResponse>()
+            .ProducesProblem(StatusCodes.Status400BadRequest);
+
+        // A literal path segment: never captured by the {id:guid}-constrained routes above or below.
+        segments.MapPost("/preview", PreviewAsync)
+            .WithName("PreviewSegment")
+            .WithSummary("Counts profiles matching a rule definition without saving it; cached for 60 s, capped at a 5 s command budget.")
+            .Produces<PreviewResponse>()
             .ProducesProblem(StatusCodes.Status400BadRequest);
 
         segments.MapGet("/{id:guid}", GetAsync)
@@ -59,6 +67,10 @@ internal static class SegmentEndpoints
     private static async Task<object> GetAsync(Guid id, ISegmentQueries queries, CancellationToken cancellationToken)
         => (await queries.GetAsync(id, cancellationToken))
             .Match<object>(segment => TypedResults.Ok(segment), error => error);
+
+    private static async Task<object> PreviewAsync(PreviewRequest request, PreviewService preview, CancellationToken cancellationToken)
+        => (await preview.PreviewAsync(request.Definition, cancellationToken))
+            .Match<object>(response => TypedResults.Ok(response), error => error);
 
     private static async Task<object> CreateAsync(SegmentWriteRequest request, ISegmentService service, CancellationToken cancellationToken)
         => (await service.CreateAsync(request, cancellationToken))

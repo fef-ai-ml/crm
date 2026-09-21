@@ -7,4 +7,9 @@
     <ProjectReference Include="..\..\..\Shared\Crm.Contracts\Crm.Contracts.csproj" />
     <ProjectReference Include="..\..\..\Shared\Crm.Kernel\Crm.Kernel.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- NoSegmentationHooks (ISegmentationHooks.cs) is internal by design (task-6 brief); Infrastructure's
+         SegmentationModule registers it as the production default. -->
+    <InternalsVisibleTo Include="Segmentation.Infrastructure" />
+  </ItemGroup>
 </Project>

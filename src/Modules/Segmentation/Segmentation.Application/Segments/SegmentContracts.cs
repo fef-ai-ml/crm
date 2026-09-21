@@ -19,3 +19,11 @@ public sealed record SegmentListResponse(IReadOnlyList<SegmentListItem> Items, s
 public sealed record SegmentResponse(
     Guid Id, string Name, string? Description, JsonElement Definition, string Status, bool IsRealtimeEligible,
     int MemberCount, int? RealtimeMemberCount, DateTime? LastRunAt, Guid? CurrentRunId, DateTime CreatedAt, DateTime UpdatedAt);
+
+/// <summary>Body of POST /segments/preview (task-6 brief): the same raw-<see cref="JsonElement"/> definition as
+/// <see cref="SegmentWriteRequest"/>, with no name, description or status — a preview never persists anything.</summary>
+public sealed record PreviewRequest(JsonElement Definition);
+
+/// <summary><see cref="Count"/> and <see cref="CachedAt"/> are null exactly when <see cref="TimedOut"/> is true —
+/// the five-second command budget elapsed without a countable answer, and nothing was cached (task-6 brief).</summary>
+public sealed record PreviewResponse(int? Count, bool TimedOut, DateTime? CachedAt);
