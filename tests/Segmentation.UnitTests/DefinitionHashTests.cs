@@ -7,7 +7,11 @@ namespace Crm.Segmentation.UnitTests;
 
 public class DefinitionHashTests
 {
-    private static JsonElement Json(string text) => JsonDocument.Parse(text).RootElement.Clone();
+    private static JsonElement Json(string text)
+    {
+        using var document = JsonDocument.Parse(text);
+        return document.RootElement.Clone();
+    }
 
     [Fact]
     public void UT058_different_serializations_of_the_same_tree_hash_identically()

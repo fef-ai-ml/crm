@@ -216,7 +216,7 @@ public static class RuleParser
             JsonValueKind.String => ParseBoundedString(valueElement.GetString()!, path, errors),
             JsonValueKind.Number => new RuleValue.Number(valueElement.GetDouble()),
             JsonValueKind.True or JsonValueKind.False => new RuleValue.Bool(valueElement.GetBoolean()),
-            _ => FailValue(path, "value must be a string", errors),
+            _ => FailValue(path, "value must be a string, number or boolean", errors),
         };
 
     private static RuleValue? FailValue(string path, string message, List<RuleError> errors)
@@ -297,14 +297,18 @@ public static class RuleParser
 
     private static int ParseCount(JsonElement node, string path, List<RuleError> errors)
     {
-        // A whole-number check, not TryGetInt32: `3.0` is a valid count (UT-058 hashes it the same as `3`).
-        if (node.TryGetProperty("count", out var countElement) && countElement.ValueKind == JsonValueKind.Number)
+        // A whole-number check, not TryGetInt32: `3.0`/`3e0` are valid counts (UT-058 hashes `3.0` like `3`).
+        // TryGetDouble, not GetDouble, and an explicit finiteness check: a JSON number with an extreme exponent
+        // (e.g. `1e400`) is syntactically valid but has no finite double value, and must be rejected, not thrown.
+        if (node.TryGetProperty("count", out var countElement)
+            && countElement.ValueKind == JsonValueKind.Number
+            && countElement.TryGetDouble(out var value)
+            && double.IsFinite(value)
+            && value >= 0
+            && value <= int.MaxValue
+            && value == Math.Floor(value))
         {
-            var value = countElement.GetDouble();
-            if (value >= 0 && value <= int.MaxValue && value == Math.Floor(value))
-            {
-                return (int)value;
-            }
+            return (int)value;
         }
 
         errors.Add(new RuleError($"{path}.count", "count must be at least 0"));
@@ -317,13 +321,14 @@ public static class RuleParser
 
         var text = GetString(node, "window") ?? string.Empty;
         var match = RuleLimits.WindowPattern().Match(text);
-        if (!match.Success)
+
+        // TryParse, not Parse: even with the regex's digit bound, never let a malformed amount throw (C-1).
+        if (!match.Success || !int.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var amount))
         {
             errors.Add(new RuleError($"{path}.window", message));
             return default;
         }
 
-        var amount = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
         var unit = match.Groups[2].Value[0];
         var max = unit == 'd' ? RuleLimits.MaxWindowDays : RuleLimits.MaxWindowHours;
         if (amount < 1 || amount > max)

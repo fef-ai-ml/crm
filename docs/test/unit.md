@@ -273,9 +273,9 @@ Each case loads `tests/fixtures/rules/valid/<name>.json`, compiles it for tenant
 
 ### UT-037 — no user value appears in SQL text
 - Traces: FR-14
-- Given fixtures whose values include `'; DROP TABLE x; --`, `%`, `_`, `\`, and `$.evil`
+- Given fixtures whose values include `'; DROP TABLE x; --`, `%`, `_`, and `\`, and a hand-built node with key `$.evil`
 - When compiled
-- Then none of those strings appear in the SQL text; each appears only in the parameter list
+- Then the hostile values appear only in the parameter list, never in `Sql`; a hostile key cannot come out of `RuleParser` (it enforces `^[A-Za-z0-9_]{1,64}$`), and `RuleCompiler` re-checks the key pattern itself and throws `ArgumentException` for a hand-built node that bypasses the parser (defence in depth)
 - Implemented: tests/Segmentation.UnitTests/RuleCompilerTests.cs
 
 ### UT-038 — booleans compare as strings

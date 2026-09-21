@@ -17,6 +17,8 @@ public static partial class RuleLimits
     [GeneratedRegex(@"^[A-Za-z0-9_]{1,64}\z", RegexOptions.CultureInvariant)]
     public static partial Regex KeyPattern();
 
-    [GeneratedRegex(@"^(\d+)(d|h)\z", RegexOptions.CultureInvariant)]
+    // [0-9], not \d: \d matches any Unicode decimal digit (full-width, Arabic-Indic, ...), not just ASCII.
+    // Bounded to 4 digits: no valid amount needs more (MaxWindowHours is 8760), and it keeps int.Parse in range.
+    [GeneratedRegex(@"^([0-9]{1,4})(d|h)\z", RegexOptions.CultureInvariant)]
     public static partial Regex WindowPattern();
 }

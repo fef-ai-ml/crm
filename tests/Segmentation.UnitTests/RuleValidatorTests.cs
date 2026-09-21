@@ -7,7 +7,11 @@ namespace Crm.Segmentation.UnitTests;
 
 public class RuleValidatorTests
 {
-    private static JsonElement Json(string text) => JsonDocument.Parse(text).RootElement.Clone();
+    private static JsonElement Json(string text)
+    {
+        using var document = JsonDocument.Parse(text);
+        return document.RootElement.Clone();
+    }
 
     private static JsonElement NestedAndGroups(int depth)
     {
@@ -232,6 +236,20 @@ public class RuleValidatorTests
         result.Errors[0].Should().Be(new RuleError("definition.value", "value is required"));
     }
 
+    // M-2: eq/neq accept string, number, or bool — the message for anything else should say so, not overclaim
+    // "a string" specifically.
+
+    [Theory]
+    [InlineData("""["a","b"]""")]
+    [InlineData("""{"nested":true}""")]
+    [InlineData("null")]
+    public void M2_eq_with_a_non_scalar_value_reports_the_accepted_types(string valueLiteral)
+    {
+        var result = RuleParser.Parse(Json($$"""{"type":"attribute","key":"plan","cmp":"eq","value":{{valueLiteral}}}"""));
+
+        result.Errors[0].Should().Be(new RuleError("definition.value", "value must be a string, number or boolean"));
+    }
+
     [Fact]
     public void unknown_comparator_is_rejected()
     {
@@ -264,6 +282,69 @@ public class RuleValidatorTests
 
         RuleParser.Parse(Json("""{"type":"event","name":"purchase","cmp":"gte","count":1.5,"window":"30d"}"""))
             .Errors[0].Should().Be(new RuleError("definition.count", "count must be at least 0"));
+    }
+
+    // I-2: two H23 edges the review found untested, plus the extreme-exponent case it asked to harden.
+
+    [Fact]
+    public void I2_a_count_greater_than_int_max_value_is_rejected()
+    {
+        var result = RuleParser.Parse(Json("""{"type":"event","name":"purchase","cmp":"gte","count":2147483648,"window":"30d"}"""));
+
+        result.Errors[0].Should().Be(new RuleError("definition.count", "count must be at least 0"));
+    }
+
+    [Fact]
+    public void I2_a_string_count_is_rejected()
+    {
+        var result = RuleParser.Parse(Json("""{"type":"event","name":"purchase","cmp":"gte","count":"3","window":"30d"}"""));
+
+        result.Errors[0].Should().Be(new RuleError("definition.count", "count must be at least 0"));
+    }
+
+    [Theory]
+    [InlineData("3.0")]
+    [InlineData("3e0")]
+    public void I2_whole_number_counts_in_any_numeric_form_are_accepted(string countLiteral)
+    {
+        var result = RuleParser.Parse(Json($$"""{"type":"event","name":"purchase","cmp":"gte","count":{{countLiteral}},"window":"30d"}"""));
+
+        result.IsValid.Should().BeTrue();
+        ((EventNode)result.Tree!).Count.Should().Be(3);
+    }
+
+    [Fact]
+    public void I2_an_extreme_exponent_count_is_rejected_without_throwing()
+    {
+        var result = RuleParser.Parse(Json("""{"type":"event","name":"purchase","cmp":"gte","count":1e400,"window":"30d"}"""));
+
+        result.Errors[0].Should().Be(new RuleError("definition.count", "count must be at least 0"));
+    }
+
+    // C-1: a window amount that overflows Int32 must be rejected, not thrown.
+
+    [Theory]
+    [InlineData("99999999999d")]
+    [InlineData("99999999999h")]
+    [InlineData("2147483648d")]
+    public void C1_window_amounts_that_overflow_an_int_are_rejected_without_throwing(string window)
+    {
+        var result = RuleParser.Parse(EventWithWindow(window));
+
+        result.Errors[0].Should().Be(new RuleError("definition.window", "window must match ^\\d+(d|h)$ and be at most 365 days"));
+    }
+
+    // I-1: \d matches Unicode decimal digits generally, not just ASCII; the pattern and int.Parse must not
+    // silently accept (or throw on) a window built from them.
+
+    [Theory]
+    [InlineData("３０d")] // full-width "30"
+    [InlineData("٣٠d")] // Arabic-Indic "30"
+    public void I1_non_ascii_digit_windows_are_rejected_without_throwing(string window)
+    {
+        var result = RuleParser.Parse(EventWithWindow(window));
+
+        result.Errors[0].Should().Be(new RuleError("definition.window", "window must match ^\\d+(d|h)$ and be at most 365 days"));
     }
 
     [Fact]

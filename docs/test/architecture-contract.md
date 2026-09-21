@@ -48,7 +48,7 @@ Architecture cases (`AT`) run with NetArchTest against the compiled solution on 
 
 ### AT-007 — Segmentation SQL touches only the sanctioned profile tables
 - Traces: NFR-08
-- Given all string constants and golden files in `Segmentation.Infrastructure` and `tests/fixtures/golden/`
+- Given the text of every `*.cs` file under `src/Modules/Segmentation` (all three projects) and every `*.sql` file under `tests/fixtures/golden/`
 - When they are scanned for `profiles.` table references and for `INSERT`, `UPDATE`, `DELETE`, `MERGE` against them
 - Then the only referenced tables are `profiles.Profiles` and `profiles.Events` and no write statement targets a `profiles.` table
 - Implemented: tests/Crm.ArchTests/CrossSchemaReadTests.cs
