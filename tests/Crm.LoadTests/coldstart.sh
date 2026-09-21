@@ -61,6 +61,6 @@ verdict=pass
 echo ""
 echo "| Case | make up | budget | make seed | budget | probe | verdict | date | machine |"
 echo "|---|---|---|---|---|---|---|---|---|"
-echo "| LT-005 (foundation scope) | ${up_seconds} s | ${UP_BUDGET} s | ${seed_seconds} s | ${SEED_BUDGET} s | ${probe_status} | ${verdict} | $(date +%Y-%m-%d) | ${MACHINE} |"
+echo "| LT-005 | ${up_seconds} s | ${UP_BUDGET} s | ${seed_seconds} s | ${SEED_BUDGET} s | ${probe_status} | ${verdict} | $(date +%Y-%m-%d) | ${MACHINE} |"
 
 [ "$verdict" = pass ]

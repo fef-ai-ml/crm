@@ -94,9 +94,9 @@ make compose-check docs-check
 
 | Case | make up | budget | make seed | budget | probe | verdict | date | machine |
 |---|---|---|---|---|---|---|---|---|
-| LT-005 (foundation scope) | 52 s | 180 s | 2 s | 120 s | 202 | pass | 2026-09-20 | home-lab: Rocky 10.2, 4 vCPU, 15 GB, Podman 5.8 (remote over ssh); image layers cached |
+| LT-005 | 74 s | 180 s | 13 s | 120 s | 202 | pass | 2026-09-21 | home-lab: Rocky 10.2, 4 vCPU, 15 GB, Podman 5.8 (remote over ssh); image layers cached |
 
-LT-005 is recorded at foundation scope with `tests/Crm.LoadTests/coldstart.sh`: stack stopped, volumes removed, image layers cached; the probe is the quickstart's first event (`POST /v1/track` → 202). A first build on a machine without cached layers additionally pays the NuGet restore and publish inside the image build. Throughput results (LT-001…LT-003) are added by the load-test plan.
+LT-005 is measured with `tests/Crm.LoadTests/coldstart.sh`: stack stopped, volumes removed, image layers cached. `make seed` includes loading and self-verifying the demo dataset (5,000 profiles, 100,000 events — about 10 s of the 13 s); the probe is the quickstart's first event (`POST /v1/track` → 202). With the api and worker images rebuilt after a code change (restore and publish inside the image build, base layers cached) the same run measured `make up` at 171 s; a machine without any cached layers pays more. Throughput results (LT-001…LT-003) are added by the load-test plan.
 
 Minimum local resources: 8 GB RAM allocated to the container engine.
 
