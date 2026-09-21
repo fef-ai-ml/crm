@@ -2,6 +2,8 @@
 
 Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcontainers; the API runs in-process via `WebApplicationFactory`, the Worker as a hosted service in the same test host. The Worker runs once per test run: one host started by `CrmStackFixture` and shared across test classes (group `profiles`, like production), with `IPipelineHooks` implemented by `SwitchableHooks` so a test's callback reacts only to its own data (ruling E16). Each test class gets a fresh tenant created through the bootstrap endpoint (FR-25). Timing assertions use the local budgets from NFR-02 with a 3× CI multiplier. Seed dataset and rule fixtures: [fixtures.md](fixtures.md).
 
+`ReadPathPlanTests` pins measured plan shapes, not behaviour, and is engine-sensitive: `MSSQL_IMAGE` is a floating `2022-latest` tag in CI, and arm64 dev machines may run Azure SQL Edge instead. Failure messages carry `@@VERSION` for exactly this reason. Decision rule when it fails: `Index Seek` turning into a Scan, a new Sort appearing on search, or a lookup into `CX_Profiles_TenantId_Id` appearing is a regression to investigate; anything else is a version artifact — record the new operator list in the data dictionary and update the assertion in the same commit. Never `Skip` it.
+
 ## Ingestion pipeline
 
 ### IT-001 — track round-trip appears in the timeline

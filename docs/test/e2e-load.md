@@ -67,6 +67,7 @@ End-to-end cases (`E2E`) run Playwright against the full `docker compose` stack 
 - Given `tests/Crm.LoadTests/ingest.js` with 1,000 events/s constant arrival rate for 60 s across 10,000 distinct user ids
 - When k6 runs against `http://localhost:8080/v1/track`
 - Then thresholds hold: `http_req_failed < 0.1%`, `http_req_duration p(95) < 50 ms`, all responses 202; `crm_consumer_lag` returns to 0 within 30 s after the run ends
+- During the run also capture `sys.dm_db_index_operational_stats` deltas for `IX_Profiles_TenantId_LastSeenAt_Id` (`leaf_allocation_count`, `page_latch_wait_count`, `page_latch_wait_in_ms`) and "Number of Deadlocks/sec" next to `crm_dlq_total`; revisit the index if latch wait exceeds ~1% of run wall time (ruling G2, focus A).
 - Planned: tests/Crm.LoadTests/ingest.js
 
 ### LT-002 — ingest-to-timeline latency under load
