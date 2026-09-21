@@ -142,6 +142,14 @@ class DatasetReportTests(unittest.TestCase):
     def test_exists_status_is_reported_as_such(self):
         self.assertIn("dataset exists:", seed.dataset_report({**DATASET_OK, "status": "exists"})[0])
 
+    def test_exists_status_appends_the_drift_note(self):
+        lines = seed.dataset_report({**DATASET_OK, "status": "exists"})
+        self.assertEqual(lines[-1], "seed:   (counts are the tenant's current totals; they drift about 4 days after loading — docs/test/fixtures.md)")
+
+    def test_loaded_status_has_no_drift_note(self):
+        lines = seed.dataset_report(DATASET_OK)
+        self.assertFalse(any("drift" in line for line in lines))
+
 
 class LoadDatasetTests(unittest.TestCase):
     def test_posts_to_the_dev_endpoint_with_the_admin_token_and_a_long_timeout(self):

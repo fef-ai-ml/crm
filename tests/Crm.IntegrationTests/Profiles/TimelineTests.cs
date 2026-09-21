@@ -58,7 +58,9 @@ public sealed class TimelineTests(CrmStackFixture stack) : IAsyncLifetime
             type = "track",
             userId = "u-timeline",
             @event = i % 3 == 0 ? "purchase" : "app_open",
-            timestamp = newest.AddSeconds(-(i is 11 or 61 ? i - 1 : i)).ToString("O"),
+            // Ties sit at i=49/50 and i=99/100, straddling the limit=50 page boundaries (I4), not buried
+            // mid-page where a missing Id tiebreak would go unnoticed.
+            timestamp = newest.AddSeconds(-(i is 50 or 100 ? i - 1 : i)).ToString("O"),
             properties = new { n = i },
         }).ToArray();
 
@@ -94,6 +96,7 @@ public sealed class TimelineTests(CrmStackFixture stack) : IAsyncLifetime
         page3.NextCursor.Should().BeNull();
 
         var all = page1.Items.Concat(page2.Items).Concat(page3.Items).ToList();
+        all.Should().HaveCount(120);
         all.Select(e => e.Id).Should().OnlyHaveUniqueItems();
         all.Select(e => e.OccurredAt).Should().BeInDescendingOrder();
         all[0].OccurredAt.Should().Be(_newest);
@@ -141,6 +144,14 @@ public sealed class TimelineTests(CrmStackFixture stack) : IAsyncLifetime
     {
         using var response = await _client.GetAsync($"/v1/profiles/{Guid.NewGuid()}/events", _viewer);
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task IT012_a_profiles_scoped_cursor_is_rejected_by_the_timeline()
+    {
+        var foreign = new Crm.Kernel.Paging.KeysetCursor(DateTime.UtcNow, Guid.NewGuid()).Encode("profiles");
+        using var response = await _client.GetAsync($"/v1/profiles/{_profileId}/events?cursor={foreign}", _viewer);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     private Task<TimelineResponse> PageAsync(string query)

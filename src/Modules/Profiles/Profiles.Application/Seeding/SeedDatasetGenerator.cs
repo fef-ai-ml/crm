@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Crm.Profiles.Application.Seeding;
 
 /// <summary>
@@ -46,7 +48,7 @@ public static class SeedDatasetGenerator
         var profiles = BuildProfiles(prng);
         var events = BuildEvents(prng, profiles);
         var merges = Enumerable.Range(1, SeedExpectations.MergedProfiles)
-            .Select(n => new SeedMerge(n, $"anon-seed-{n:D3}", n * 100))
+            .Select(n => new SeedMerge(n, string.Create(CultureInfo.InvariantCulture, $"anon-seed-{n:D3}"), n * 100))
             .ToList();
         return new SeedData(profiles, events, merges);
     }
@@ -96,9 +98,9 @@ public static class SeedDatasetGenerator
 
             profiles.Add(new SeedProfile(
                 index,
-                $"u-{index:D5}",
+                string.Create(CultureInfo.InvariantCulture, $"u-{index:D5}"),
                 $"{FirstNames[(index - 1) % FirstNames.Length]}.{index}@example.test",
-                index % 5 < 3 ? $"+62812{1_000_000 + index:D7}" : null,
+                index % 5 < 3 ? string.Create(CultureInfo.InvariantCulture, $"+62812{1_000_000 + index:D7}") : null,
                 plan,
                 country,
                 index % 2 == 0 ? Cities[index / 2 % Cities.Length] : null,

@@ -108,6 +108,8 @@ def dataset_report(body):
     lines = [f"seed: dataset {body['status']}: {body['profiles']} profiles (+{body['mergedProfiles']} merged), "
              f"{body['events']} events in {seconds:.1f} s"]
     lines += [f"seed:   {name} = {count}" for name, count in sorted(body["segments"].items())]
+    if body["status"] == "exists":
+        lines.append("seed:   (counts are the tenant's current totals; they drift about 4 days after loading — docs/test/fixtures.md)")
     return lines
 
 

@@ -92,6 +92,12 @@ public sealed class MergeTests(CrmStackFixture stack) : IAsyncLifetime
         using var mergedTimeline = await _client.GetAsync($"/v1/profiles/{p2.Id}/events", viewer);
         mergedTimeline.StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await _client.ReadAsync<ProfileResponse>($"/v1/profiles/{p1.Id}", viewer)).EventCount.Should().Be(winner.EventCount);
+
+        // I3: search has its own MergedIntoId filter (a separate query from /{id} and /{id}/events); nothing else
+        // proved it excludes a merge loser.
+        var all = await _client.ReadAsync<ProfileListResponse>("/v1/profiles?limit=200", viewer);
+        all.Items.Should().NotContain(i => i.Id == p2.Id);
+        all.Items.Should().Contain(i => i.Id == p1.Id);
     }
 
     [Fact]

@@ -56,6 +56,12 @@ public sealed class SeedDatasetLoader(string connectionString, IClock clock)
         var data = SeedDatasetGenerator.Generate();
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
 
+        // A tenant that already has profiles (but not the pinned one) is not empty, so the six documented counts
+        // are verified as a DELTA of what this load added, not as an absolute count (I2). A pre-existing
+        // profile's segment membership is identical before and after (same @now on both sides), so the delta is
+        // exact regardless of what else is in the tenant.
+        var before = await CountAsync(connection, transaction, tenantId, now, cancellationToken);
+
         using var profiles = Table(("Id", typeof(Guid)), ("TenantId", typeof(Guid)), ("ExternalId", typeof(string)), ("Email", typeof(string)), ("Phone", typeof(string)),
             ("Attributes", typeof(string)), ("FirstSeenAt", typeof(DateTime)), ("LastSeenAt", typeof(DateTime)), ("EventCount", typeof(long)),
             ("MergedIntoId", typeof(Guid)), ("CreatedAt", typeof(DateTime)), ("UpdatedAt", typeof(DateTime)));
@@ -68,23 +74,24 @@ public sealed class SeedDatasetLoader(string connectionString, IClock clock)
         await CopyAsync(connection, transaction, "profiles.UserIdentities", identities, cancellationToken);
         await CopyAsync(connection, transaction, "profiles.Events", events, cancellationToken);
 
-        var counts = await CountAsync(connection, transaction, tenantId, now, cancellationToken);
-        var wrong = SeedExpectations.Segments.Where(s => counts[s.Key] != s.Value)
-            .Select(s => $"{s.Key}: expected {s.Value}, found {counts[s.Key]}")
+        var after = await CountAsync(connection, transaction, tenantId, now, cancellationToken);
+        var delta = after.ToDictionary(c => c.Key, c => c.Value - before[c.Key], StringComparer.Ordinal);
+        var wrong = SeedExpectations.Segments.Where(s => delta[s.Key] != s.Value)
+            .Select(s => $"{s.Key}: expected delta {s.Value}, found delta {delta[s.Key]}")
             .ToList();
-        if (counts["profiles"] != SeedExpectations.Profiles || counts["merged"] != SeedExpectations.MergedProfiles || counts["events"] != SeedExpectations.Events)
+        if (delta["profiles"] != SeedExpectations.Profiles || delta["merged"] != SeedExpectations.MergedProfiles || delta["events"] != SeedExpectations.Events)
         {
-            wrong.Add($"rows: {counts["profiles"]} profiles, {counts["merged"]} merged, {counts["events"]} events");
+            wrong.Add($"delta rows: {delta["profiles"]} profiles, {delta["merged"]} merged, {delta["events"]} events");
         }
 
         if (wrong.Count > 0)
         {
             await transaction.RollbackAsync(cancellationToken);
-            return Error.Unexpected(CountMismatchCode, "The seed dataset does not match docs/test/fixtures.md; nothing was loaded. " + string.Join("; ", wrong));
+            return Error.Unexpected(CountMismatchCode, "The seed dataset's delta does not match docs/test/fixtures.md; nothing was loaded. " + string.Join("; ", wrong));
         }
 
         await transaction.CommitAsync(cancellationToken);
-        return ToResult("loaded", counts, watch);
+        return ToResult("loaded", after, watch);
     }
 
     private static Result<SeedLoadResult> ToResult(string status, Dictionary<string, int> counts, Stopwatch watch)
@@ -119,10 +126,14 @@ public sealed class SeedDatasetLoader(string connectionString, IClock clock)
 
     private static async Task CopyAsync(SqlConnection connection, SqlTransaction transaction, string table, DataTable rows, CancellationToken cancellationToken)
     {
+        // Smaller batches reduce, but do not eliminate, lock escalation: they keep any one statement under the
+        // ~5,000-lock escalation threshold, but the whole load (profiles + identities + events) runs in one
+        // transaction, and locks are held until commit — so the transaction's cumulative lock footprint still
+        // escalates profiles.Events to a table lock for the duration of the ~10 s load, across all tenants (I9).
         using var copy = new SqlBulkCopy(connection, SqlBulkCopyOptions.CheckConstraints, transaction)
         {
             DestinationTableName = table,
-            BatchSize = 10_000,
+            BatchSize = 2_000,
             BulkCopyTimeout = 120,
         };
         foreach (DataColumn column in rows.Columns)
@@ -206,7 +217,7 @@ public sealed class SeedDatasetLoader(string connectionString, IClock clock)
 
         if (profile.Ltv is { } ltv)
         {
-            attributes["ltv"] = ltv.ToString("0.00", CultureInfo.InvariantCulture);
+            attributes["ltv"] = ltv;
         }
 
         return JsonSerializer.Serialize(attributes);

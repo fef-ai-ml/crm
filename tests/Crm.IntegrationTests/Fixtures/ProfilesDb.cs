@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.Data.SqlClient;
 
 namespace Crm.IntegrationTests.Fixtures;
@@ -48,6 +49,49 @@ public static class ProfilesDb
         }
 
         return rows;
+    }
+
+    /// <summary>
+    /// Inserts a profile directly, bypassing the pipeline: for tests that need a profile to exist without
+    /// waiting on Kafka/the Worker (I1, I4). One transaction, raw SQL, parameters only.
+    /// </summary>
+    public static async Task<Guid> InsertProfileAsync(string connectionString, Guid tenantId, string externalId, DateTime lastSeenAtUtc)
+    {
+        var at = new DateTime(lastSeenAtUtc.Ticks - (lastSeenAtUtc.Ticks % TimeSpan.TicksPerMillisecond), DateTimeKind.Utc);
+        var id = Guid.CreateVersion7(new DateTimeOffset(at));
+
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync();
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText =
+                "INSERT INTO profiles.Profiles (Id, TenantId, ExternalId, Attributes, FirstSeenAt, LastSeenAt, EventCount, CreatedAt, UpdatedAt) " +
+                "VALUES (@id, @tenant, @externalId, N'{}', @at, @at, 0, @at, @at)";
+            command.Parameters.Add(new SqlParameter("@id", id));
+            command.Parameters.Add(new SqlParameter("@tenant", tenantId));
+            command.Parameters.Add(new SqlParameter("@externalId", externalId));
+            command.Parameters.Add(new SqlParameter("@at", SqlDbType.DateTime2) { Value = at });
+            await command.ExecuteNonQueryAsync();
+        }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText =
+                "INSERT INTO profiles.UserIdentities (TenantId, Kind, Value, ProfileId, CreatedAt, UpdatedAt) " +
+                "VALUES (@tenant, 'external_id', @externalId, @id, @at, @at)";
+            command.Parameters.Add(new SqlParameter("@tenant", tenantId));
+            command.Parameters.Add(new SqlParameter("@externalId", externalId));
+            command.Parameters.Add(new SqlParameter("@id", id));
+            command.Parameters.Add(new SqlParameter("@at", SqlDbType.DateTime2) { Value = at });
+            await command.ExecuteNonQueryAsync();
+        }
+
+        await transaction.CommitAsync();
+        return id;
     }
 
     private static async Task<ProfileRow?> SingleProfileAsync(string connectionString, string sql, params SqlParameter[] parameters)

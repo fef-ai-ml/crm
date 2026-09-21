@@ -95,6 +95,37 @@ public sealed class SearchTests(CrmStackFixture stack) : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
+    /// <summary>I4: a missing `Id` tiebreak in ORDER BY would silently drop or duplicate rows across a page
+    /// boundary when several profiles share one `lastSeenAt` — exactly what a batch identity import produces.</summary>
+    [Fact]
+    public async Task IT011_profiles_sharing_one_lastSeenAt_are_paged_exactly_once()
+    {
+        var tenant = await TenancySeed.CreateTenantAsync(_factory);
+        var viewer = TenancySeed.AccessToken(_factory, tenant.ViewerUserId, tenant.TenantId, Roles.Viewer);
+        var tiedAt = DateTime.UtcNow;
+        var ids = new List<Guid>();
+        for (var i = 1; i <= 5; i++)
+        {
+            ids.Add(await ProfilesDb.InsertProfileAsync(stack.SqlConnectionString, tenant.TenantId, $"tie-{i}", tiedAt));
+        }
+
+        var seen = new List<Guid>();
+        var pageSizes = new List<int>();
+        string? cursor = null;
+        do
+        {
+            var query = cursor is null ? "/v1/profiles?q=tie-&limit=2" : $"/v1/profiles?q=tie-&limit=2&cursor={cursor}";
+            var page = await _client.ReadAsync<ProfileListResponse>(query, viewer);
+            pageSizes.Add(page.Items.Count);
+            seen.AddRange(page.Items.Select(i => i.Id));
+            cursor = page.NextCursor;
+        }
+        while (cursor is not null);
+
+        pageSizes.Should().Equal(2, 2, 1);
+        seen.Should().BeEquivalentTo(ids);
+    }
+
     private Task<ProfileListResponse> SearchAsync(string encodedQ)
         => _client.ReadAsync<ProfileListResponse>($"/v1/profiles?q={encodedQ}", _viewer);
 

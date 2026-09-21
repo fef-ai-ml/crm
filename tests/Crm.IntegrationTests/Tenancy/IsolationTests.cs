@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using Crm.IntegrationTests.Fixtures;
-using Crm.IntegrationTests.Ingestion;
 using Crm.IntegrationTests.Profiles;
 using Crm.Profiles.Application.Queries;
 using Crm.Tenancy.Domain;
@@ -77,22 +76,29 @@ public sealed class IsolationTests(CrmStackFixture stack) : IAsyncLifetime
     {
         var a = await TenancySeed.CreateTenantAsync(_factory);
         var b = await TenancySeed.CreateTenantAsync(_factory);
-        var keyB = await TenancySeed.AddApiKeyAsync(_factory, b);
-        using (var accepted = await _client.PostWithKeyAsync("/v1/track", keyB.Plaintext, new { userId = "u-of-b", @event = "app_open" }))
-        {
-            accepted.StatusCode.Should().Be(HttpStatusCode.Accepted);
-        }
 
-        var profileOfB = await Eventually.GetAsync(
-            () => ProfilesDb.FindByIdentityAsync(stack.SqlConnectionString, b.TenantId, "external_id", "u-of-b"),
-            "tenant B's profile exists");
+        // Read-path isolation does not need the pipeline (IT-001 owns that round trip), and going through it here
+        // raced a Kafka partition backlog RateLimitTests leaves on one partition right before this class (I1).
+        var profileOfBId = await ProfilesDb.InsertProfileAsync(stack.SqlConnectionString, b.TenantId, "u-of-b", DateTime.UtcNow);
         var tokenOfA = TenancySeed.AccessToken(_factory, a.AdminUserId, a.TenantId, Roles.Admin);
         var tokenOfB = TenancySeed.AccessToken(_factory, b.AdminUserId, b.TenantId, Roles.Admin);
 
-        (await _client.GetAsync($"/v1/profiles/{profileOfB.Id}", tokenOfA)).StatusCode.Should().Be(HttpStatusCode.NotFound);
-        (await _client.GetAsync($"/v1/profiles/{profileOfB.Id}/events", tokenOfA)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        using (var response = await _client.GetAsync($"/v1/profiles/{profileOfBId}", tokenOfA))
+        {
+            response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        }
+
+        using (var response = await _client.GetAsync($"/v1/profiles/{profileOfBId}/events", tokenOfA))
+        {
+            response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        }
+
         (await _client.ReadAsync<ProfileListResponse>("/v1/profiles?q=u-of-b", tokenOfA)).Items.Should().BeEmpty();
-        (await _client.GetAsync($"/v1/profiles/{profileOfB.Id}", tokenOfB)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using (var response = await _client.GetAsync($"/v1/profiles/{profileOfBId}", tokenOfB))
+        {
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
     }
 
     private async Task<int> ReadCountAsync(SeededTenant tenant)
