@@ -57,13 +57,17 @@ public sealed class Segment : Entity
             Status = status,
         };
 
-    public void Update(string name, string? description, string canonicalDefinition, byte[] definitionHash, bool isRealtimeEligible)
+    /// <summary>Full replace (PUT /segments/{id}, task 5): the write endpoint requires <paramref name="status"/>
+    /// on every call, so this does not need an "unchanged" sentinel. <see cref="Archive"/> is the narrower,
+    /// idempotent DELETE path and stays separate.</summary>
+    public void Update(string name, string? description, string canonicalDefinition, byte[] definitionHash, bool isRealtimeEligible, SegmentStatus status)
     {
         Name = name;
         Description = description;
         Definition = canonicalDefinition;
         DefinitionHash = definitionHash;
         IsRealtimeEligible = isRealtimeEligible;
+        Status = status;
     }
 
     public void Archive() => Status = SegmentStatus.Archived;

@@ -112,7 +112,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given an Admin JWT
 - When a segment is created, fetched, updated, archived, and a second segment with the same name is created
 - Then responses are 201, 200, 200, 204 (status Archived), and 409 with `type` ending `/problems/conflict`
-- Planned: tests/Crm.IntegrationTests/Segments/SegmentCrudTests.cs
+- Implemented: tests/Crm.IntegrationTests/Segments/SegmentCrudTests.cs
 
 ### IT-014 — preview count is correct and cached
 - Traces: FR-17
@@ -242,7 +242,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given tenants A and B each with a profile and a segment
 - When A's JWT requests B's `GET /v1/profiles/{id}`, `/segments/{id}`, `/segments/{id}/members`, and A's API key tracks an event for B's user id
 - Then the reads return 404, the event lands in A's tenant only, and B's data is unchanged
-- Plan F note: the profile reads are asserted by `IT030_another_tenants_profile_reads_are_404`; the segment reads arrive with the Segmentation plan.
+- Plan H note: the profile reads are asserted by `IT030_another_tenants_profile_reads_are_404`; the segment detail read is asserted by `IT030_another_tenants_segment_is_404`. `/segments/{id}/members` arrives with a later plan.
 - Implemented: tests/Crm.IntegrationTests/Tenancy/IsolationTests.cs
 
 ### IT-031 — tenant isolation through the query filter
@@ -257,7 +257,6 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given a request with no JWT and no API key to `GET /v1/segments`
 - When executed
 - Then the response is 401; a request with a JWT lacking `tenant_id` returns 500 with a `traceId` and a logged `TenantContextMissingException`, and no rows are returned
-- Plan B note: exercised through the Testing-only probes (/v1/_test/read-probe, write-probe) until /v1/segments exists; the ingest-probe was removed by plan D now that /v1/track exists.
 - Implemented: tests/Crm.IntegrationTests/Tenancy/IsolationTests.cs
 
 ### IT-033 — API key authentication
@@ -265,7 +264,6 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given a valid key, a key with one character changed, a revoked key
 - When each calls `POST /v1/track` and the valid key calls `GET /v1/segments`
 - Then 202, 401, 401, and 403 respectively; `LastUsedAt` on the valid key is set once even after 10 calls within a minute
-- Plan B note: `POST /v1/track` now runs directly (plan D, ruling D12); `GET /v1/segments` is still exercised through the Testing-only probes (/v1/_test/read-probe, write-probe) until /v1/segments exists.
 - Implemented: tests/Crm.IntegrationTests/Tenancy/ApiKeyTests.cs
 
 ### IT-034 — full key is shown once
@@ -295,7 +293,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given a Viewer JWT
 - When it calls `GET /v1/segments`, `POST /v1/segments`, `POST /v1/segments/{id}/run`, `POST /v1/api-keys`
 - Then 200, 403, 403, 403
-- Plan B note: exercised through the Testing-only probes (/v1/_test/read-probe, write-probe) until /v1/segments exists; the ingest-probe was removed by plan D now that /v1/track exists.
+- Plan H note: the run leg is asserted against `PUT /v1/segments/{id}` (also Admin-only, so a Viewer still gets 403) until Task 7 maps `POST /v1/segments/{id}/run`; the fact is marked `// completed in Task 7`.
 - Implemented: tests/Crm.IntegrationTests/Tenancy/AuthTests.cs
 
 ### IT-038 — tenant bootstrap is development-only

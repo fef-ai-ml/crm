@@ -49,7 +49,7 @@ public sealed class ApiKeyTests(CrmStackFixture stack) : IAsyncLifetime
         (await SendAsync(HttpMethod.Post, Ingest, tampered)).Should().Be(HttpStatusCode.Unauthorized, "the cache is warm now and must still verify the full key");
         (await SendAsync(HttpMethod.Post, Ingest, revoked.Plaintext)).Should().Be(HttpStatusCode.Unauthorized);
         (await SendAsync(HttpMethod.Post, Ingest, "crm_live_not-even-a-key")).Should().Be(HttpStatusCode.Unauthorized);
-        (await SendAsync(HttpMethod.Get, "/v1/_test/read-probe", valid.Plaintext)).Should().Be(HttpStatusCode.Forbidden, "API keys may call Ingest endpoints only");
+        (await SendAsync(HttpMethod.Get, "/v1/segments", valid.Plaintext)).Should().Be(HttpStatusCode.Forbidden, "API keys may call Ingest endpoints only");
     }
 
     [Fact]

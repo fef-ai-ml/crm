@@ -43,7 +43,7 @@ Every error is `application/problem+json` (RFC 9457):
 | 503 | Kafka unavailable at ingest; retry after `Retry-After` seconds |
 | 500 | Unexpected error; `traceId` identifies the trace |
 
-Every problem body also carries `code`, a stable machine-readable error code, safe to branch on in client code. A specific failure (for example `auth.invalid_credentials`, `tenant.slug_taken`, `user.email_taken`, `pagination.invalid_limit`, `pagination.invalid_cursor`, `profiles.invalid_query`, `profiles.invalid_filter`, `profile.not_found`) gets its own code; anything else falls back to one derived from the status: `request.invalid` (400), `auth.unauthorized` (401), `auth.forbidden` (403), `resource.not_found` (404), `request.conflict` (409), `rate_limit.exceeded` (429), `service.unavailable` (503), `server.unexpected` (otherwise).
+Every problem body also carries `code`, a stable machine-readable error code, safe to branch on in client code. A specific failure (for example `auth.invalid_credentials`, `tenant.slug_taken`, `user.email_taken`, `pagination.invalid_limit`, `pagination.invalid_cursor`, `profiles.invalid_query`, `profiles.invalid_filter`, `profile.not_found`, `segment.not_found`, `segment.name_taken`, `segments.invalid_definition`, `segments.invalid_request`, `segments.invalid_filter`) gets its own code; anything else falls back to one derived from the status: `request.invalid` (400), `auth.unauthorized` (401), `auth.forbidden` (403), `resource.not_found` (404), `request.conflict` (409), `rate_limit.exceeded` (429), `service.unavailable` (503), `server.unexpected` (otherwise).
 
 ## Pagination
 
@@ -138,7 +138,11 @@ Auth: JWT. Writes require Admin.
 | GET | `/segments/{id}/members?limit=&cursor=` | Profiles in the current run (id, externalId, email, lastSeenAt) |
 | GET | `/segments/{id}/changes?since=&limit=&cursor=` | Membership changes: `profileId`, `change`, `source`, `occurredAt` |
 
-`memberCount` is from the current batch run; `realtimeMemberCount` is the live Redis set size for eligible segments and `null` otherwise.
+`memberCount` is from the current batch run; `realtimeMemberCount` is the live Redis set size for eligible segments and `null` otherwise. As of this plan's slice, `realtimeMemberCount` is always `null` — the real-time evaluator arrives in a later plan.
+
+`status` defaults to `Draft` on create when omitted; `PUT` requires it explicitly (a full replace of name, description, definition and status). `DELETE` archives (soft delete): `204`, idempotent — archiving an already-archived segment still returns `204`, and an unknown id is `404 segment.not_found` (the same code for a missing id and another tenant's id — nothing about a segment's existence leaks). `name` is trimmed and must be 1–128 characters, unique per tenant **including archived segments** — a duplicate is `409 segment.name_taken`. `description` is optional, at most 1024 characters. Field errors (`name`, `description`, `status`) are checked before the rule definition is parsed: a request invalid in both ways reports `400 segments.invalid_request`, never `segments.invalid_definition`. A missing or `null` `definition` is `400 segments.invalid_definition` with a `definition` field error, not a framework binding error and not a `500`.
+
+`GET /segments` without `status` returns `Draft` and `Active` segments only (`Archived` is hidden); `status=Draft|Active|Archived` (case-insensitive) filters to exactly that one status; any other value is `400 segments.invalid_filter`.
 
 Definition example (see spec §5.1 for the grammar):
 

@@ -32,7 +32,7 @@ public sealed class IsolationTests(CrmStackFixture stack) : IAsyncLifetime
     [Fact]
     public async Task IT032_request_without_credentials_is_401_problem_json()
     {
-        using var response = await _client.GetAsync("/v1/_test/read-probe");
+        using var response = await _client.GetAsync("/v1/segments");
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
@@ -46,7 +46,7 @@ public sealed class IsolationTests(CrmStackFixture stack) : IAsyncLifetime
     public async Task IT032_jwt_without_tenant_id_fails_closed_with_500_and_trace_id()
     {
         var tenant = await TenancySeed.CreateTenantAsync(_factory);
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/v1/_test/read-probe");
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/v1/segments");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TenancySeed.TokenWithoutTenant(_factory, tenant.AdminUserId, Roles.Admin));
 
         using var response = await _client.SendAsync(request);
@@ -57,7 +57,7 @@ public sealed class IsolationTests(CrmStackFixture stack) : IAsyncLifetime
         body.RootElement.GetProperty("type").GetString().Should().Be("https://crm.example/problems/unexpected");
         body.RootElement.GetProperty("traceId").GetString().Should().NotBeNullOrWhiteSpace();
         body.RootElement.GetProperty("code").GetString().Should().Be("server.unexpected");
-        text.Should().NotContain("count", "no rows may be returned without a tenant");
+        text.Should().NotContain("items", "no rows may be returned without a tenant");
     }
 
     [Fact]
@@ -101,13 +101,39 @@ public sealed class IsolationTests(CrmStackFixture stack) : IAsyncLifetime
         }
     }
 
+    /// <summary>IT-030's segment-detail half (the profile half is IT030_another_tenants_profile_reads_are_404 above).</summary>
+    [Fact]
+    public async Task IT030_another_tenants_segment_is_404()
+    {
+        var a = await TenancySeed.CreateTenantAsync(_factory);
+        var b = await TenancySeed.CreateTenantAsync(_factory);
+
+        var segmentOfBId = await SegmentsDb.InsertSegmentAsync(stack.SqlConnectionString, b.TenantId, "b-only", DateTime.UtcNow);
+        var tokenOfA = TenancySeed.AccessToken(_factory, a.AdminUserId, a.TenantId, Roles.Admin);
+        var tokenOfB = TenancySeed.AccessToken(_factory, b.AdminUserId, b.TenantId, Roles.Admin);
+
+        using (var response = await _client.GetAsync($"/v1/segments/{segmentOfBId}", tokenOfA))
+        {
+            response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+            using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            body.RootElement.GetProperty("code").GetString().Should().Be("segment.not_found");
+        }
+
+        using (var response = await _client.GetAsync($"/v1/segments/{segmentOfBId}", tokenOfB))
+        {
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+    }
+
+    /// <summary>Repointed off the deleted read-probe (which counted the caller's ApiKeys): GET /v1/api-keys is
+    /// AdminOnly and already tenant-scoped by the same query filter, so it exercises the identical isolation path.</summary>
     private async Task<int> ReadCountAsync(SeededTenant tenant)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/v1/_test/read-probe");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TenancySeed.AccessToken(_factory, tenant.ViewerUserId, tenant.TenantId, Roles.Viewer));
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/v1/api-keys");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TenancySeed.AccessToken(_factory, tenant.AdminUserId, tenant.TenantId, Roles.Admin));
         using var response = await _client.SendAsync(request);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        return body.RootElement.GetProperty("count").GetInt32();
+        return body.RootElement.GetProperty("items").GetArrayLength();
     }
 }

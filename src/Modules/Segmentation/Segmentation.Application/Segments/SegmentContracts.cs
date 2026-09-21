@@ -1,0 +1,21 @@
+using System.Text.Json;
+
+namespace Crm.Segmentation.Application.Segments;
+
+/// <summary>Body of POST /segments and PUT /segments/{id} (task 5 brief, JSON camelCase). <see cref="Definition"/>
+/// is a raw <see cref="JsonElement"/> so <c>RuleParser</c> validates it; a missing or JSON-null "definition"
+/// property deserializes to <c>default(JsonElement)</c> (ValueKind Undefined), which the rule parser itself
+/// rejects at path "definition" — no separate null check is needed.</summary>
+public sealed record SegmentWriteRequest(string? Name, string? Description, JsonElement Definition, string? Status);
+
+/// <summary>Row of GET /segments — the columns covered by <c>IX_Segments_TenantId_CreatedAt_Id</c> (H11) plus
+/// <c>Id</c>/<c>CreatedAt</c>; no <c>description</c> or <c>definition</c> here (detail-only, ruling H2/F7 idiom).</summary>
+public sealed record SegmentListItem(Guid Id, string Name, string Status, int MemberCount, DateTime? LastRunAt, bool IsRealtimeEligible, DateTime CreatedAt);
+
+public sealed record SegmentListResponse(IReadOnlyList<SegmentListItem> Items, string? NextCursor);
+
+/// <summary><see cref="Definition"/> is always the canonical form (<c>CanonicalRuleWriter.Write</c>).
+/// <see cref="RealtimeMemberCount"/> is always null in this plan (H2); it arrives with the real-time plan.</summary>
+public sealed record SegmentResponse(
+    Guid Id, string Name, string? Description, JsonElement Definition, string Status, bool IsRealtimeEligible,
+    int MemberCount, int? RealtimeMemberCount, DateTime? LastRunAt, Guid? CurrentRunId, DateTime CreatedAt, DateTime UpdatedAt);

@@ -45,7 +45,7 @@ public sealed class AuthTests(CrmStackFixture stack) : IAsyncLifetime
         setCookie.Should().StartWith("crm_refresh=").And.Contain("httponly").And.Contain("secure").And.Contain("samesite=strict").And.Contain("path=/v1/auth");
         var firstCookie = CookieValue(login);
 
-        using var probe = new HttpRequestMessage(HttpMethod.Get, "/v1/_test/read-probe");
+        using var probe = new HttpRequestMessage(HttpMethod.Get, "/v1/segments");
         probe.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         using (var probeResponse = await _client.SendAsync(probe))
         {
@@ -218,13 +218,15 @@ public sealed class AuthTests(CrmStackFixture stack) : IAsyncLifetime
         var tenant = await TenancySeed.CreateTenantAsync(_factory);
         var viewer = TenancySeed.AccessToken(_factory, tenant.ViewerUserId, tenant.TenantId, Roles.Viewer);
 
-        (await StatusAsync(HttpMethod.Get, "/v1/_test/read-probe", viewer)).Should().Be(HttpStatusCode.OK);
-        (await StatusAsync(HttpMethod.Post, "/v1/_test/write-probe", viewer)).Should().Be(HttpStatusCode.Forbidden);
+        (await StatusAsync(HttpMethod.Get, "/v1/segments", viewer)).Should().Be(HttpStatusCode.OK);
+        (await StatusAsync(HttpMethod.Post, "/v1/segments", viewer)).Should().Be(HttpStatusCode.Forbidden);
+
+        // completed in Task 7: stands in for POST /v1/segments/{id}/run, which does not exist yet. Both routes
+        // are AdminOnly, so a Viewer gets Forbidden from either one; Task 7 flips this to the run route.
+        (await StatusAsync(HttpMethod.Put, $"/v1/segments/{Guid.NewGuid()}", viewer)).Should().Be(HttpStatusCode.Forbidden);
+
         (await StatusAsync(HttpMethod.Post, "/v1/api-keys", viewer)).Should().Be(HttpStatusCode.Forbidden);
         (await StatusAsync(HttpMethod.Get, "/v1/api-keys", viewer)).Should().Be(HttpStatusCode.Forbidden);
-
-        var admin = TenancySeed.AccessToken(_factory, tenant.AdminUserId, tenant.TenantId, Roles.Admin);
-        (await StatusAsync(HttpMethod.Post, "/v1/_test/write-probe", admin)).Should().Be(HttpStatusCode.OK);
     }
 
     private async Task<HttpStatusCode> StatusAsync(HttpMethod method, string path, string bearer)

@@ -10,6 +10,7 @@ using Crm.Kernel.Time;
 using Crm.Profiles.Infrastructure;
 using Crm.Profiles.Infrastructure.Endpoints;
 using Crm.Segmentation.Infrastructure;
+using Crm.Segmentation.Infrastructure.Endpoints;
 using Crm.Tenancy.Infrastructure;
 using Crm.Tenancy.Infrastructure.Auth;
 using Crm.Tenancy.Infrastructure.Endpoints;
@@ -102,6 +103,18 @@ public class Program
             .WithTags(EndpointTags.Profiles)
             .MapProfilesEndpoints();
 
+        // Same composition-root rule: Segmentation may not name Tenancy's policies or tags. Reads are
+        // AdminOrViewer; writes (create/update/archive) require Admin (docs/api/README.md, Segments).
+        v1.MapGroup(string.Empty)
+            .RequireAuthorization(AuthPolicies.AdminOrViewer)
+            .WithTags(EndpointTags.Segments)
+            .MapSegmentsReadEndpoints();
+
+        v1.MapGroup(string.Empty)
+            .RequireAuthorization(AuthPolicies.AdminOnly)
+            .WithTags(EndpointTags.Segments)
+            .MapSegmentsWriteEndpoints();
+
         if (app.Environment.IsDevelopment() || exportPath is not null)
         {
             v1.MapTenancyBootstrap(); // in the exported contract regardless of the exporting environment
@@ -110,11 +123,6 @@ public class Program
         if (app.Environment.IsDevelopment())
         {
             v1.MapGroup(string.Empty).RequireAuthorization(AuthPolicies.AdminOnly).MapProfilesDevSeed();
-        }
-
-        if (app.Environment.IsEnvironment("Testing"))
-        {
-            v1.MapTenancyTestProbes();
         }
 
         if (exportPath is not null)
