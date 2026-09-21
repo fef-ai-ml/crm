@@ -27,3 +27,13 @@ public sealed record PreviewRequest(JsonElement Definition);
 /// <summary><see cref="Count"/> and <see cref="CachedAt"/> are null exactly when <see cref="TimedOut"/> is true —
 /// the five-second command budget elapsed without a countable answer, and nothing was cached (task-6 brief).</summary>
 public sealed record PreviewResponse(int? Count, bool TimedOut, DateTime? CachedAt);
+
+/// <summary>Body of the 202 response to POST /segments/{id}/run (task-7 brief, H5): the existing run's id when a
+/// Queued or Running run for the segment already exists, otherwise the newly queued run's id.</summary>
+public sealed record RunQueuedResponse(Guid RunId);
+
+/// <summary>Row of GET /segments/{id}/runs, newest first (H10).</summary>
+public sealed record SegmentRunListItem(
+    Guid RunId, string Status, string Trigger, DateTime? StartedAt, DateTime? FinishedAt, int? MemberCount, string? Error, DateTime CreatedAt);
+
+public sealed record SegmentRunListResponse(IReadOnlyList<SegmentRunListItem> Items, string? NextCursor);

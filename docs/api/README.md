@@ -134,7 +134,7 @@ Auth: JWT. Writes require Admin.
 | DELETE | `/segments/{id}` | Archive (soft delete) |
 | POST | `/segments/preview` | Body `{ definition }`; returns `{ "count": 1234, "timedOut": false, "cachedAt": "..." }` or `{ "count": null, "timedOut": true }` after 5 s |
 | POST | `/segments/{id}/run` | Queue a batch run; `202 { "runId": "..." }` |
-| GET | `/segments/{id}/runs?limit=&cursor=` | Runs newest first: `runId`, `status`, `startedAt`, `finishedAt`, `memberCount`, `trigger`, `error` |
+| GET | `/segments/{id}/runs?limit=&cursor=` | Runs newest first: `runId`, `status`, `trigger`, `startedAt`, `finishedAt`, `memberCount`, `error`, `createdAt` |
 | GET | `/segments/{id}/members?limit=&cursor=` | Profiles in the current run (id, externalId, email, lastSeenAt) |
 | GET | `/segments/{id}/changes?since=&limit=&cursor=` | Membership changes: `profileId`, `change`, `source`, `occurredAt` |
 

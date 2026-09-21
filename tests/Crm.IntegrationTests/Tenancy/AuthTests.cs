@@ -220,10 +220,7 @@ public sealed class AuthTests(CrmStackFixture stack) : IAsyncLifetime
 
         (await StatusAsync(HttpMethod.Get, "/v1/segments", viewer)).Should().Be(HttpStatusCode.OK);
         (await StatusAsync(HttpMethod.Post, "/v1/segments", viewer)).Should().Be(HttpStatusCode.Forbidden);
-
-        // completed in Task 7: stands in for POST /v1/segments/{id}/run, which does not exist yet. Both routes
-        // are AdminOnly, so a Viewer gets Forbidden from either one; Task 7 flips this to the run route.
-        (await StatusAsync(HttpMethod.Put, $"/v1/segments/{Guid.NewGuid()}", viewer)).Should().Be(HttpStatusCode.Forbidden);
+        (await StatusAsync(HttpMethod.Post, $"/v1/segments/{Guid.NewGuid()}/run", viewer)).Should().Be(HttpStatusCode.Forbidden);
 
         (await StatusAsync(HttpMethod.Post, "/v1/api-keys", viewer)).Should().Be(HttpStatusCode.Forbidden);
         (await StatusAsync(HttpMethod.Get, "/v1/api-keys", viewer)).Should().Be(HttpStatusCode.Forbidden);

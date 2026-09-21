@@ -1,4 +1,5 @@
 using System.Data;
+using System.Data.Common;
 using System.Globalization;
 using Crm.Segmentation.Application;
 using Crm.Segmentation.Application.Compilation;
@@ -64,6 +65,41 @@ internal sealed class CompiledQueryExecutor(SegmentationDbContext db, ISegmentat
                 await connection.CloseAsync();
             }
         }
+    }
+
+    /// <summary>
+    /// The run's member-insert (task-7 brief): `INSERT INTO segments.SegmentRunMembers (...) SELECT @tenant,
+    /// @run, q.Id FROM (&lt;compiled&gt;) q`, passed through <see cref="ISegmentationHooks.RewriteQuery"/> with
+    /// <see cref="SegmentQueryKind.Run"/>, executed on the run's own <paramref name="transaction"/> — never a
+    /// connection of its own — so it shares the run's single transaction and command budget (H6).
+    /// <paramref name="query"/>'s own parameters already include `@tenant` (<see cref="RuleCompiler.Compile"/>);
+    /// only `@run` is added here. Returns the number of members inserted.
+    /// </summary>
+    public async Task<int> InsertMembersAsync(CompiledQuery query, Guid runId, DbTransaction transaction, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(transaction);
+
+        var sql = hooks.RewriteQuery(
+            SegmentQueryKind.Run,
+            $"INSERT INTO segments.SegmentRunMembers (TenantId, RunId, ProfileId) SELECT @tenant, @run, q.Id FROM ({query.Sql}) q");
+
+        var connection = (SqlConnection)transaction.Connection!;
+        using var command = connection.CreateCommand();
+#pragma warning disable CA2100 // text comes from RuleCompiler, which emits validated keys and parameters only (UT-037, AT-007)
+        command.CommandText = sql;
+#pragma warning restore CA2100
+        command.Transaction = (SqlTransaction)transaction;
+        command.CommandTimeout = (int)timeout.TotalSeconds;
+
+        foreach (var parameter in query.Parameters)
+        {
+            command.Parameters.Add(ToSqlParameter(parameter));
+        }
+
+        command.Parameters.Add(new SqlParameter("@run", SqlDbType.UniqueIdentifier) { Value = runId });
+
+        return await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static SqlParameter ToSqlParameter(SqlParameterValue value) => value.Kind switch

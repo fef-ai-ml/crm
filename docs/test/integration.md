@@ -134,42 +134,46 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given segment `seed-pro-id` saved
 - When `POST /v1/segments/{id}/run`
 - Then the response is `202 {runId}`, the run reaches `Running` within 5 s and `Finished` with `MemberCount = 412`, `SegmentRunMembers` has 412 rows for that run, `Segments.CurrentRunId` equals the run id, and `Trigger = Manual`
-- Planned: tests/Crm.IntegrationTests/Segments/BatchRunTests.cs
+- Plan H note: also covers H5 — a second `POST` while a run is Queued or Running returns the same `runId` (proven by pausing `SegmentRunWorker` at the `MembersInsertedAsync` hook), an Archived segment's run is `409 segment.archived`, and an unknown segment's run is `404 segment.not_found`
+- Implemented: tests/Crm.IntegrationTests/Segments/BatchRunTests.cs
 
 ### IT-017 — run diff records entered and exited
 - Traces: FR-15
 - Given a finished run, then 5 profiles gain `plan = pro` and 3 lose it via identify
 - When a second run finishes
 - Then `MembershipChanges` has 5 `Entered` and 3 `Exited` rows with `Source = Batch` and the new run id's timestamp
-- Planned: tests/Crm.IntegrationTests/Segments/BatchRunTests.cs
+- Plan H note: "via identify" is written directly through `ProfilesDb` against `profiles.Profiles.Attributes` (the promoted `Attr_plan` column), not through identify → Kafka — the pipeline is not what is under test, and RateLimitTests leaves an undrained `events.raw` partition that pipeline-dependent tests must not run next to
+- Implemented: tests/Crm.IntegrationTests/Segments/BatchRunTests.cs
 
 ### IT-018 — readers never see a partial run
 - Traces: FR-15
 - Given a run in progress (test hook pauses after inserting half the members)
 - When `GET /v1/segments/{id}/members` and `GET /v1/segments/{id}` are called
 - Then they return the previous run's 412 members and `memberCount = 412`, not a partial count
-- Planned: tests/Crm.IntegrationTests/Segments/BatchRunTests.cs
+- Plan H note: `GET /segments/{id}/members` arrives in Task 8; until then the members half is asserted directly against `segments.Segments` through `SegmentsDb` (`CurrentRunId` and `MemberCount` unchanged) alongside the `GET /segments/{id}` half
+- Implemented: tests/Crm.IntegrationTests/Segments/BatchRunTests.cs
 
 ### IT-019 — only the last three runs are kept
 - Traces: FR-15
 - Given five finished runs
 - When the fifth completes
 - Then `SegmentRuns` holds the newest three, their `SegmentRunMembers` rows exist, and the two oldest runs and their members are gone
-- Planned: tests/Crm.IntegrationTests/Segments/BatchRunTests.cs
+- Implemented: tests/Crm.IntegrationTests/Segments/BatchRunTests.cs
 
 ### IT-020 — failed run leaves the previous run current
 - Traces: FR-15
 - Given a finished run R1 and a compiler hook that makes the next run's SQL raise an error
 - When a second run executes
 - Then R2 has `Status = Failed` with `Error` text, `CurrentRunId` is still R1, and `memberCount` is unchanged
-- Planned: tests/Crm.IntegrationTests/Segments/BatchRunTests.cs
+- Implemented: tests/Crm.IntegrationTests/Segments/BatchRunTests.cs
 
 ### IT-021 — schedule runs Active segments only
 - Traces: FR-15
-- Given segments in Draft, Active, Archived and the Quartz clock advanced 6 h
-- When the scheduled job fires
-- Then exactly one run with `Trigger = Schedule` exists, for the Active segment
-- Planned: tests/Crm.IntegrationTests/Segments/ScheduleTests.cs
+- Given segments in Draft, Active, Archived
+- When `SegmentScheduler.EnqueueScheduledRunsAsync` is called
+- Then exactly one run with `Trigger = Schedule` exists, for the Active segment, and calling it again while that run is still outstanding adds none
+- Plan H note (H3): no Quartz.NET — `SegmentScheduler` is a `BackgroundService` with its own timer (`Segmentation:Schedule:Interval`, default six hours); the test calls the public `EnqueueScheduledRunsAsync` method directly instead of waiting on the timer
+- Implemented: tests/Crm.IntegrationTests/Segments/ScheduleTests.cs
 
 ## Segments: real-time
 
@@ -294,7 +298,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given a Viewer JWT
 - When it calls `GET /v1/segments`, `POST /v1/segments`, `POST /v1/segments/{id}/run`, `POST /v1/api-keys`
 - Then 200, 403, 403, 403
-- Plan H note: the run leg is asserted against `PUT /v1/segments/{id}` (also Admin-only, so a Viewer still gets 403) until Task 7 maps `POST /v1/segments/{id}/run`; the fact is marked `// completed in Task 7`.
+- Plan H note: Task 7 maps `POST /v1/segments/{id}/run` (AdminOnly), so the run leg is asserted against that route directly.
 - Implemented: tests/Crm.IntegrationTests/Tenancy/AuthTests.cs
 
 ### IT-038 — tenant bootstrap is development-only

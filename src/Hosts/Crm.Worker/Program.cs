@@ -29,7 +29,8 @@ public class Program
         builder.Services
             .AddProfilesModule(builder.Configuration)
             .AddProfilesWorker(builder.Configuration)
-            .AddSegmentationModule(builder.Configuration);
+            .AddSegmentationModule(builder.Configuration)
+            .AddSegmentationWorker(builder.Configuration);
 
         builder.Services.AddSingleton<IKafkaMetadataSource>(sp => new AdminClientMetadataSource(sp.GetRequiredService<CrmHostingOptions>().KafkaBootstrapServers));
         builder.Services.AddHostedService<StartupProbeService>();

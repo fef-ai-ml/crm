@@ -13,6 +13,7 @@ namespace Crm.Segmentation.Infrastructure.Queries;
 internal sealed class EfSegmentQueries(SegmentationDbContext db) : ISegmentQueries
 {
     private const string ListScope = "segments";
+    private const string RunsListScope = "segment-runs";
 
     public async Task<Result<SegmentListResponse>> ListAsync(string? status, int? limit, string? cursor, CancellationToken cancellationToken)
     {
@@ -86,6 +87,48 @@ internal sealed class EfSegmentQueries(SegmentationDbContext db) : ISegmentQueri
             row.MemberCount,
             null, // realtimeMemberCount is always null in this plan (H2).
             UtcOrNull(row.LastRunAt), row.CurrentRunId, Utc(row.CreatedAt), Utc(row.UpdatedAt));
+    }
+
+    /// <summary>H10: keyset-paged by (CreatedAt, RunId) descending, tagged `segments-runs`, cursor scope
+    /// `segment-runs`. Not found mirrors <see cref="GetAsync"/> — nothing about the segment's existence leaks.</summary>
+    public async Task<Result<SegmentRunListResponse>> ListRunsAsync(Guid segmentId, int? limit, string? cursor, CancellationToken cancellationToken)
+    {
+        var size = PageLimit.Resolve(limit);
+        if (size.IsFailure)
+        {
+            return size.Error!;
+        }
+
+        if (!await db.Segments.AsNoTracking().AnyAsync(s => s.Id == segmentId, cancellationToken))
+        {
+            return SegmentErrors.NotFound;
+        }
+
+        var query = db.SegmentRuns.AsNoTracking().TagWith("segments-runs").Where(r => r.SegmentId == segmentId);
+
+        if (cursor is not null)
+        {
+            if (!KeysetCursor.TryDecode(RunsListScope, cursor, out var after))
+            {
+                return PagingErrors.InvalidCursor;
+            }
+
+            var at = after.Timestamp;
+            var id = after.Id;
+            query = query.Where(r => r.CreatedAt <= at && (r.CreatedAt < at || r.Id.CompareTo(id) < 0));
+        }
+
+        var rows = await query
+            .OrderByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id)
+            .Take(size.Value + 1)
+            .Select(r => new { r.Id, r.Status, r.Trigger, r.StartedAt, r.FinishedAt, r.MemberCount, r.Error, r.CreatedAt })
+            .ToListAsync(cancellationToken);
+
+        var page = rows.Take(size.Value)
+            .Select(r => new SegmentRunListItem(r.Id, r.Status.ToString(), r.Trigger.ToString(), UtcOrNull(r.StartedAt), UtcOrNull(r.FinishedAt), r.MemberCount, r.Error, Utc(r.CreatedAt)))
+            .ToList();
+        var next = rows.Count > size.Value ? new KeysetCursor(page[^1].CreatedAt, page[^1].RunId).Encode(RunsListScope) : null;
+        return new SegmentRunListResponse(page, next);
     }
 
     private static DateTime Utc(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc);

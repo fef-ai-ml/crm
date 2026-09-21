@@ -1,4 +1,6 @@
+using Crm.Segmentation.Application.Runs;
 using Crm.Segmentation.Application.Segments;
+using Crm.Segmentation.Domain.Segments;
 using Crm.Segmentation.Infrastructure.Preview;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -30,6 +32,13 @@ internal static class SegmentEndpoints
             .WithName("GetSegment")
             .Produces<SegmentResponse>()
             .ProducesProblem(StatusCodes.Status404NotFound);
+
+        segments.MapGet("/{id:guid}/runs", ListRunsAsync)
+            .WithName("ListSegmentRuns")
+            .WithSummary("Runs for a segment, newest first (H10).")
+            .Produces<SegmentRunListResponse>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
     }
 
     public static void MapWrite(RouteGroupBuilder secured)
@@ -56,6 +65,13 @@ internal static class SegmentEndpoints
             .WithSummary("Archives the segment (soft delete); idempotent.")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound);
+
+        segments.MapPost("/{id:guid}/run", RunAsync)
+            .WithName("RunSegment")
+            .WithSummary("Queues a batch run. A Queued or Running run for the segment is returned as-is (H5).")
+            .Produces<RunQueuedResponse>(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
     }
 
     private static async Task<object> ListAsync(
@@ -67,6 +83,11 @@ internal static class SegmentEndpoints
     private static async Task<object> GetAsync(Guid id, ISegmentQueries queries, CancellationToken cancellationToken)
         => (await queries.GetAsync(id, cancellationToken))
             .Match<object>(segment => TypedResults.Ok(segment), error => error);
+
+    private static async Task<object> ListRunsAsync(
+        Guid id, [FromQuery] int? limit, [FromQuery] string? cursor, ISegmentQueries queries, CancellationToken cancellationToken)
+        => (await queries.ListRunsAsync(id, limit, cursor, cancellationToken))
+            .Match<object>(page => TypedResults.Ok(page), error => error);
 
     private static async Task<object> PreviewAsync(PreviewRequest request, PreviewService preview, CancellationToken cancellationToken)
         => (await preview.PreviewAsync(request.Definition, cancellationToken))
@@ -90,4 +111,8 @@ internal static class SegmentEndpoints
 
         return TypedResults.NoContent();
     }
+
+    private static async Task<object> RunAsync(Guid id, ISegmentRunQueue queue, CancellationToken cancellationToken)
+        => (await queue.EnqueueAsync(id, SegmentRunTrigger.Manual, cancellationToken))
+            .Match<object>(runId => TypedResults.Accepted((string?)null, new RunQueuedResponse(runId)), error => error);
 }

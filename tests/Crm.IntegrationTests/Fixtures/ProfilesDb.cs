@@ -94,6 +94,25 @@ public static class ProfilesDb
         return id;
     }
 
+    /// <summary>
+    /// Sets or removes the `plan` attribute directly against schema `profiles` (Task 7's IT-017: a batch run
+    /// diff is under test, not identify → Kafka). `Attr_plan` is a persisted computed column over `Attributes`
+    /// (PromotedAttributes), so this is visible to the rule compiler's `p.Attr_plan` column immediately.
+    /// A null <paramref name="plan"/> removes the key (JSON_MODIFY's documented behaviour for a NULL new value).
+    /// </summary>
+    public static async Task SetPlanAsync(string connectionString, Guid tenantId, Guid profileId, string? plan)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "UPDATE profiles.Profiles SET Attributes = JSON_MODIFY(Attributes, '$.plan', @plan), UpdatedAt = SYSUTCDATETIME() WHERE TenantId = @tenant AND Id = @id";
+        command.Parameters.Add(new SqlParameter("@tenant", tenantId));
+        command.Parameters.Add(new SqlParameter("@id", profileId));
+        command.Parameters.Add(new SqlParameter("@plan", SqlDbType.NVarChar) { Value = (object?)plan ?? DBNull.Value });
+        await command.ExecuteNonQueryAsync();
+    }
+
     private static async Task<ProfileRow?> SingleProfileAsync(string connectionString, string sql, params SqlParameter[] parameters)
     {
         await using var connection = new SqlConnection(connectionString);

@@ -20,4 +20,15 @@ public static class WorkerMetrics
         var afterLabels = line[(line.LastIndexOf('}') + 1)..].Trim();
         return double.Parse(afterLabels.Split(' ')[0], CultureInfo.InvariantCulture);
     }
+
+    /// <summary>Sum of `crm_segment_run_seconds_count{trigger,outcome}` across every label combination — a batch
+    /// run histogram (task-7 brief), so IT-016's proof is just "at least one observation happened".</summary>
+    public static async Task<double> SegmentRunSecondsCountAsync(HttpClient worker)
+    {
+        ArgumentNullException.ThrowIfNull(worker);
+        var body = await worker.GetStringAsync(new Uri("/metrics", UriKind.Relative));
+        return body.Split('\n')
+            .Where(l => l.StartsWith("crm_segment_run_seconds_count{", StringComparison.Ordinal))
+            .Sum(l => double.Parse(l[(l.LastIndexOf('}') + 1)..].Trim().Split(' ')[0], CultureInfo.InvariantCulture));
+    }
 }
