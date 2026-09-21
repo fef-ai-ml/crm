@@ -31,8 +31,9 @@ internal sealed class QueryPlan(string xml, string engine)
     /// <summary>Columns a seek predicate actually ranges on — SeekPredicates//RangeColumns, not merely referenced
     /// somewhere under SeekPredicates. RangeExpressions (the bind values/parameters) is deliberately excluded so a
     /// parameter name is never mistaken for a seek column. This is what tells a cursor seek (ranges on the sort
-    /// column) apart from a tenant-range seek with the cursor evaluated as a residual predicate (ruling G3) — an
-    /// operator list alone cannot: both shapes report "Index Seek".</summary>
+    /// column) apart from a tenant-range seek with the cursor evaluated as a residual predicate — an operator list
+    /// alone cannot: both shapes report "Index Seek". It does not tell the conjunctive cursor form (ruling G3) from
+    /// the disjunctive one: measured on SQL Server 2022, both range on the sort column.</summary>
     public IReadOnlyList<string> SeekColumns
         => _document.Descendants(Ns + "SeekPredicates")
             .Descendants(Ns + "RangeColumns")
