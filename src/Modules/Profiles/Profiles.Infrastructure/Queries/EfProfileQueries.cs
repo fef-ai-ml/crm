@@ -53,9 +53,10 @@ internal sealed class EfProfileQueries(ProfilesDbContext db) : IProfileQueries
 
             var at = after.Timestamp;
             var id = after.Id;
-            // Conjunctive form (ruling G3): SQL Server can seek to the cursor position on the keyset index. The
-            // disjunctive form it replaces (sort < at || (sort == at && rowId < cursorId)) returns the same rows
-            // but can only be evaluated as a residual predicate, forcing a scan from the start of the index.
+            // Conjunctive form (ruling G3): one contiguous range on the sort column, seekable without relying on the
+            // optimizer. The disjunctive form it replaces (sort < at || (sort == at && rowId < cursorId)) returns
+            // the same rows; measured on SQL Server 2022 it compiles to an equally good two-range seek, so this
+            // form is a portability choice, not a measured speed-up.
             query = query.Where(p => p.LastSeenAt <= at && (p.LastSeenAt < at || p.Id.CompareTo(id) < 0));
         }
 

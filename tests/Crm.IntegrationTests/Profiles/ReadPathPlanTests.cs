@@ -59,9 +59,10 @@ public sealed class ReadPathPlanTests(CrmStackFixture stack, ITestOutputHelper t
 
         await _client.ReadAsync<ProfileListResponse>($"/v1/profiles?limit=50&cursor={first.NextCursor}", viewer);
         // "@at" only appears in the cursor-page shape (EF Core 10 names the parameter @at, not @__at_0). Matching on
-        // the parameter name rather than "<= @at" keeps the discriminator valid even if the predicate's shape
-        // changes (e.g. reverting to the disjunctive form the mutation check below exercises), so a plan is still
-        // found and the SeekColumns assertion — not a "no plan found" error — is what catches the mutation.
+        // the parameter name rather than "<= @at" keeps the discriminator valid whatever the predicate's shape.
+        // What SeekColumns guards: a cursor that stops being seekable (evaluated as a residual predicate after a
+        // tenant-range seek). What it does not: the conjunctive vs disjunctive form — measured on SQL Server 2022,
+        // both compile to a seek ranging on LastSeenAt (the disjunctive one as two ranges under one Index Seek).
         var paged = await QueryPlans.LatestAsync(stack.SqlConnectionString, "profiles-search", "@at");
         if (Found(paged, "browse, second page"))
         {
