@@ -4,7 +4,7 @@ Shared inputs referenced by cases in [unit.md](unit.md), [integration.md](integr
 
 ## Seed Dataset
 
-Produced by `make seed` (compose) and by `SeedDataset.Load()` in integration tests. Tenant slug `demo`, users `admin@demo.local` / `Demo-Passw0rd!` (Admin) and `viewer@demo.local` / `Demo-Passw0rd!` (Viewer), one API key named `sdk` whose plaintext is printed once by the seeder and written to `.env.local`.
+Produced by `SeedDatasetGenerator` (`Profiles.Application/Seeding`), loaded by `SeedDatasetLoader` — reached by `make seed` through the Development-only `POST /v1/dev/seed-dataset` and by integration tests through `SeedDataset.LoadAsync(factory, tenantId)`. Tenant slug `demo`, users `admin@demo.local` / `Demo-Passw0rd!` (Admin) and `viewer@demo.local` / `Demo-Passw0rd!` (Viewer), one API key named `sdk` whose plaintext is printed once by the seeder and written to `.env.local`.
 
 | Dimension | Distribution |
 |---|---|
@@ -13,10 +13,12 @@ Produced by `make seed` (compose) and by `SeedDataset.Load()` in integration tes
 | `country` | `ID` 40 %, `SG` 25 %, `MY` 15 %, `TH` 10 %, absent 10 % |
 | `city` | set for 50 % of profiles from a 10-city list |
 | `opted_in` | `true` 30 %, `false` 30 %, absent 40 % |
-| `ltv` | numeric string, log-normal, present for 80 % |
+| `ltv` | numeric string with two decimals, right-skewed, present for 80 % |
 | Events | 100,000 over the last 90 days; names `app_open` 60 %, `purchase` 20 %, `add_to_cart` 15 %, `logout` 5 %; `purchase.properties.amount` uniform 5–200 |
 | Activity | 30 % of profiles have no event in the last 7 days; 5 % have no events at all |
 | Merges | 50 profiles were created anonymous then identified, leaving 50 rows with `MergedIntoId` set (excluded from all counts below) |
+
+The dataset is quota-based: a fixed cell table of plan × country × dormancy decides each profile's labels so the six counts below come out exact; the PRNG (SplitMix64, seed `20260915`) only shuffles profiles over those cells and spreads filler events. Event times are stored as ages relative to the load time, not absolute timestamps, so the six expected counts hold for four days after loading — dormancy (`app_open eq 0 in 7d`) and the 30-day purchase window both move with the clock after that. Profile `u-00001` (`alice.1@example.test`) is pinned as an active pro purchaser in `ID` with more than 120 events, for E2E-006. The 50 merged rows have no contact points; their `anon-seed-NNN` identities point at the winners `u-00100`, `u-00200`, … `u-05000`.
 
 Expected counts (asserted by IT-014, IT-016, IT-042, E2E-002, E2E-004):
 

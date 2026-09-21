@@ -5,7 +5,9 @@ Idempotent: an existing tenant (409) is reused. The CRM_API_KEY stored in
 .env.local is kept only when it is an active (non-revoked) key of the tenant,
 per GET /v1/api-keys; otherwise (no stored key, an unparsable one, or one
 belonging to a deleted or revoked key) a new key is minted and replaces it.
-Standard library only.
+Also loads the 5k-profile / 100k-event demo dataset through the
+Development-only POST /v1/dev/seed-dataset (idempotent on the server: a
+second run reports "exists"). Standard library only.
 """
 import json
 import os
@@ -29,14 +31,14 @@ def parse(raw):
         return {"detail": raw.decode(errors="replace")[:200]}
 
 
-def call(method, path, body=None, token=None):
+def call(method, path, body=None, token=None, timeout=30):
     data = json.dumps(body).encode() if body is not None else None
     request = urllib.request.Request(BASE + path, data=data, method=method)
     request.add_header("Content-Type", "application/json")
     if token:
         request.add_header("Authorization", "Bearer " + token)
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.status, parse(response.read())
     except urllib.error.HTTPError as error:
         return error.code, parse(error.read())
@@ -100,6 +102,26 @@ def write_key(path: str, key: str) -> None:
         handle.write("\n".join(result) + "\n")
 
 
+def dataset_report(body):
+    """Lines printed for the answer of POST /v1/dev/seed-dataset."""
+    seconds = body["elapsedMilliseconds"] / 1000
+    lines = [f"seed: dataset {body['status']}: {body['profiles']} profiles (+{body['mergedProfiles']} merged), "
+             f"{body['events']} events in {seconds:.1f} s"]
+    lines += [f"seed:   {name} = {count}" for name, count in sorted(body["segments"].items())]
+    return lines
+
+
+def load_dataset(token):
+    """5k profiles / 100k events (docs/test/fixtures.md). Idempotent on the server: a second run reports 'exists'."""
+    status, body = call("POST", "/v1/dev/seed-dataset", {}, token, timeout=600)
+    if status == 404:
+        sys.exit("seed: POST /v1/dev/seed-dataset is not available — the API must run in Development and include plan F")
+    if status != 200:
+        fail("load seed dataset", status, body)
+    for line in dataset_report(body):
+        print(line)
+
+
 def main():
     status, body = call("POST", "/v1/tenants", {
         "name": "Demo", "slug": "demo",
@@ -135,16 +157,18 @@ def main():
     stored = existing_key()
     if not should_mint(stored, active_prefixes(items)):
         print(f"seed: {ENV_LOCAL} already holds CRM_API_KEY; not minting another")
-        return
-    if stored:
-        print(f"seed: the CRM_API_KEY in {ENV_LOCAL} is not an active key of this tenant "
-              f"(database recreated or key revoked); replacing it")
+    else:
+        if stored:
+            print(f"seed: the CRM_API_KEY in {ENV_LOCAL} is not an active key of this tenant "
+                  f"(database recreated or key revoked); replacing it")
 
-    status, body = call("POST", "/v1/api-keys", {"name": "sdk"}, token)
-    if status != 201:
-        fail("create api key", status, body)
-    write_key(ENV_LOCAL, body['key'])
-    print(f"seed: API key sdk ({body['prefix']}…) written to {ENV_LOCAL}")
+        status, body = call("POST", "/v1/api-keys", {"name": "sdk"}, token)
+        if status != 201:
+            fail("create api key", status, body)
+        write_key(ENV_LOCAL, body['key'])
+        print(f"seed: API key sdk ({body['prefix']}…) written to {ENV_LOCAL}")
+
+    load_dataset(token)
 
 
 if __name__ == "__main__":

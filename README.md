@@ -8,7 +8,7 @@ Stack: .NET 10 modular monolith (API + Worker), React 19 dashboard, SQL Server 2
 
 ## Status
 
-Slice 1 (events → profiles → segments) has its foundation complete: solution structure, Kernel, Contracts, the API/Worker/Web hosts, multi-tenant auth, CI, and an opt-in observability stack. The Ingestion API is also complete, and the Profiles pipeline's write side (Worker consumer, identity resolution, merge, DLQ) now turns those events into profiles; the profile read API and Segmentation land next, each behind its own plan under `docs/superpowers/plans/`.
+Slice 1 (events → profiles → segments) has its foundation complete: solution structure, Kernel, Contracts, the API/Worker/Web hosts, multi-tenant auth, CI, and an opt-in observability stack. The Ingestion API is also complete, and the Profiles pipeline's write side (Worker consumer, identity resolution, merge, DLQ) now turns those events into profiles; profiles are now readable through `GET /v1/profiles`, `GET /v1/profiles/{id}` and `GET /v1/profiles/{id}/events`. Segmentation lands next, behind its own plan under `docs/superpowers/plans/`.
 
 | Phase | State |
 |---|---|
@@ -19,7 +19,7 @@ Slice 1 (events → profiles → segments) has its foundation complete: solution
 | Implementation: developer experience (observability profile, Dependabot, cold-start measurement) | Complete |
 | Implementation: Ingestion API (track, identify, batch → Kafka) | Complete |
 | Implementation: Profiles pipeline — write side (Worker consumer, identity resolution, merge, DLQ) | Complete |
-| Implementation: Profiles read API | Planned |
+| Implementation: Profiles read API | Complete |
 | Implementation: Segmentation | Planned |
 | Implementation: Web dashboard | Planned |
 | Load test and results | Planned |
@@ -50,7 +50,7 @@ Three commands from a fresh clone:
 
 ```bash
 make up          # infrastructure + api + worker + web, builds images, waits until healthy
-make seed        # demo tenant, Admin + Viewer users, an API key written to .env.local
+make seed        # demo tenant, users, API key, 5k profiles / 100k events
 source .env.local && curl -X POST http://localhost:8080/v1/track \
   -H "X-Api-Key: $CRM_API_KEY" -H "Content-Type: application/json" \
   -d '{"userId":"u-123","event":"purchase","properties":{"amount":49.9}}'    # 202 {"eventId":"…"}
@@ -60,7 +60,14 @@ Then open http://localhost:3000 (status page) and http://localhost:8080/swagger 
 
 See [Developer Setup](docs/dev-setup.md) for prerequisites, Podman specifics, and running against a remote engine.
 
-The event is now on Kafka topic `events.raw`; the Worker resolves the profile, appends the event, and publishes `EventTracked` to `events.processed` — the profile read API (`GET /v1/profiles`) arrives with plan F.
+The event is now on Kafka topic `events.raw`; the Worker resolves the profile, appends the event, and publishes `EventTracked` to `events.processed`. Read it back through the profile read API:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/v1/auth/login -H "Content-Type: application/json" -d '{"email":"admin@demo.local","password":"Demo-Passw0rd!"}' | python3 -c 'import json,sys;print(json.load(sys.stdin)["accessToken"])')
+curl -s "http://localhost:8080/v1/profiles?q=u-123" -H "Authorization: Bearer $TOKEN"    # the profile the curl above created
+```
+
+The Web dashboard comes later.
 
 ## Observability
 

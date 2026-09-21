@@ -78,3 +78,7 @@ Indexes:
 | IX_Events_TenantId_Name_OccurredAt | TenantId, Name, OccurredAt | includes ProfileId; segment event predicates |
 
 Constraint: `CK_Events_Properties_IsJson CHECK (ISJSON(Properties) = 1)`; `FK_Events_ProfileId` references `Profiles(Id)`, created without a supporting index of its own. Retention: none in slice 1 (partitions allow cheap future purge).
+
+## Read paths
+
+Search (`GET /v1/profiles`) is a prefix `LIKE` against the columns of the three filtered unique indexes (`ExternalId`, `Email`, `Phone`), relying on the database's default collation for case-insensitivity, ordered by `IX_Profiles_TenantId_LastSeenAt`. The timeline (`GET /v1/profiles/{id}/events`) is a backward range scan of `CX_Events_TenantId_ProfileId_OccurredAt` with `Id` as the keyset tiebreak. Every profile read filters `MergedIntoId IS NULL` itself.

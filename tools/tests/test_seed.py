@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -121,6 +122,46 @@ class SeedConstantsMatchTheDomainTests(unittest.TestCase):
                           "seed.KEY_SCHEME has drifted from ApiKey.KeyPrefix")
         self.assertEqual(seed.PREFIX_LENGTH, int(prefix_length.group(1)),
                           "seed.PREFIX_LENGTH has drifted from ApiKey.PrefixLength")
+
+
+DATASET_OK = {
+    "status": "loaded", "profiles": 5000, "mergedProfiles": 50, "events": 100000, "elapsedMilliseconds": 8400,
+    "segments": {"seed-pro-id": 412, "seed-purchasers": 2731, "seed-dormant": 1500,
+                 "seed-no-plan": 500, "seed-not-pro": 4000, "seed-high-ltv-sg": 187},
+}
+
+
+class DatasetReportTests(unittest.TestCase):
+    def test_summary_line_then_one_sorted_line_per_segment(self):
+        lines = seed.dataset_report(DATASET_OK)
+        self.assertEqual(lines[0], "seed: dataset loaded: 5000 profiles (+50 merged), 100000 events in 8.4 s")
+        self.assertEqual(lines[1:], [
+            "seed:   seed-dormant = 1500", "seed:   seed-high-ltv-sg = 187", "seed:   seed-no-plan = 500",
+            "seed:   seed-not-pro = 4000", "seed:   seed-pro-id = 412", "seed:   seed-purchasers = 2731"])
+
+    def test_exists_status_is_reported_as_such(self):
+        self.assertIn("dataset exists:", seed.dataset_report({**DATASET_OK, "status": "exists"})[0])
+
+
+class LoadDatasetTests(unittest.TestCase):
+    def test_posts_to_the_dev_endpoint_with_the_admin_token_and_a_long_timeout(self):
+        with mock.patch.object(seed, "call", return_value=(200, DATASET_OK)) as call, mock.patch("builtins.print"):
+            seed.load_dataset("admin-token")
+        call.assert_called_once_with("POST", "/v1/dev/seed-dataset", {}, "admin-token", timeout=600)
+
+    def test_404_explains_development_and_the_endpoint(self):
+        with mock.patch.object(seed, "call", return_value=(404, None)):
+            with self.assertRaises(SystemExit) as exit_:
+                seed.load_dataset("t")
+        self.assertIn("seed-dataset", str(exit_.exception))
+        self.assertIn("Development", str(exit_.exception))
+
+    def test_problem_detail_is_shown_on_failure(self):
+        problem = {"code": "seed.count_mismatch", "detail": "seed-dormant: expected 1500, found 1499"}
+        with mock.patch.object(seed, "call", return_value=(500, problem)):
+            with self.assertRaises(SystemExit) as exit_:
+                seed.load_dataset("t")
+        self.assertIn("expected 1500, found 1499", str(exit_.exception))
 
 
 if __name__ == "__main__":

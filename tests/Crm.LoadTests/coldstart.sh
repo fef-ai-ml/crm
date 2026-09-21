@@ -4,9 +4,9 @@
 #   tests/Crm.LoadTests/coldstart.sh                          # local engine
 #   tests/Crm.LoadTests/coldstart.sh MSSQL_HOST_PORT=11433    # extra args are passed to make
 #
-# Foundation scope (plan C, ruling C3): budgets are `make up` <= 180 s and `make seed` <= 120 s. The
-# quickstart probe (ruling D13) is the README's first event: POST /v1/track -> 202. Only the
-# Profiles plan's 5k-profile / 100k-event seed volume is still outstanding.
+# Budgets (ruling C3): `make up` <= 180 s and `make seed` <= 120 s. `make seed` now loads and
+# self-verifies the full 5k-profile / 100k-event dataset (plan F). The quickstart probe (ruling D13)
+# is the README's first event: POST /v1/track -> 202.
 #
 # Preconditions: no container of the compose project is running (`make down` first), and with a remote
 # engine the app tunnel is already up (`make tunnel-apps`), because seeding and the probe use localhost.
