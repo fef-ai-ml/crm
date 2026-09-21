@@ -2,16 +2,19 @@ using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
 using Crm.IntegrationTests.Fixtures;
+using Crm.Kernel.Redis;
+using Crm.Segmentation.Domain.Rules;
 using Crm.Tenancy.Domain;
 using FluentAssertions;
+using StackExchange.Redis;
 using Xunit;
 
 namespace Crm.IntegrationTests.Segments;
 
 /// <summary>IT-014 and IT-015. This class does not depend on the Kafka pipeline: it seeds through
 /// `SeedDataset.LoadAsync`, which writes profile rows directly (bypassing ingestion), so it is safe to run in any
-/// position relative to RateLimitTests' undrained `events.raw` partition (docs/superpowers/sdd .../global-constraints.md).
-/// `SegmentHooks` is reset in <see cref="DisposeAsync"/> so a rewrite callback never leaks into another test class.</summary>
+/// position relative to RateLimitTests' undrained `events.raw` partition. `SegmentHooks` is reset in
+/// <see cref="DisposeAsync"/> so a rewrite callback never leaks into another test class.</summary>
 [Collection(StackCollectionDefinition.Name)]
 [Trait("Category", "Integration")]
 public sealed class PreviewTests(CrmStackFixture stack) : IAsyncLifetime
@@ -101,6 +104,32 @@ public sealed class PreviewTests(CrmStackFixture stack) : IAsyncLifetime
         using var following = await _client.PostAsync("/v1/segments/preview", admin, new { definition });
         following.StatusCode.Should().Be(HttpStatusCode.OK);
         (await ReadBodyAsync(following)).GetProperty("count").GetInt32().Should().Be(412, "a timed-out attempt must never be cached");
+    }
+
+    [Fact]
+    public async Task A_corrupted_cache_entry_is_treated_as_a_miss_and_overwritten()
+    {
+        var tenant = await CreateSeededTenantAsync();
+        var admin = TenancySeed.AccessToken(_factory, tenant.AdminUserId, tenant.TenantId, Roles.Admin);
+        var definition = LoadDefinition("seed-pro-id.json");
+
+        var tree = RuleParser.Parse(definition).Tree!;
+        var hashHex = DefinitionHash.ToHex(DefinitionHash.Compute(tree));
+        var cacheKey = RedisKeys.PreviewCount(tenant.TenantId, hashHex);
+
+        using var redis = ConnectionMultiplexer.Connect(stack.RedisConfiguration);
+        await redis.GetDatabase().StringSetAsync(cacheKey, "{not valid json", TimeSpan.FromSeconds(60));
+
+        using var response = await _client.PostAsync("/v1/segments/preview", admin, new { definition });
+        response.StatusCode.Should().Be(HttpStatusCode.OK, "a corrupted cache entry must be a miss, never a failed preview (fix1)");
+        var body = await ReadBodyAsync(response);
+        body.GetProperty("count").GetInt32().Should().Be(412);
+        body.GetProperty("timedOut").GetBoolean().Should().BeFalse();
+
+        var overwritten = await redis.GetDatabase().StringGetAsync(cacheKey);
+        overwritten.HasValue.Should().BeTrue();
+        using var overwrittenJson = JsonDocument.Parse((string)overwritten!);
+        overwrittenJson.RootElement.GetProperty("count").GetInt32().Should().Be(412, "the corrupted entry must be replaced with a valid one, not left in place");
     }
 
     private async Task<SeededTenant> CreateSeededTenantAsync()

@@ -21,10 +21,12 @@ internal sealed class CompiledQueryExecutor(SegmentationDbContext db, ISegmentat
     /// <summary>
     /// Wraps <paramref name="query"/> as `SELECT COUNT(*) FROM (...) q`, passes that whole statement through
     /// <see cref="ISegmentationHooks.RewriteQuery"/>, then executes it against the current
-    /// <see cref="SegmentationDbContext"/> connection with a <paramref name="timeout"/> command budget.
-    /// Throws <see cref="SqlException"/> (Number -2) or an <see cref="OperationCanceledException"/> tied to the
-    /// budget's own token when that budget elapses; a cancellation of <paramref name="cancellationToken"/> itself
-    /// propagates unchanged, so a client disconnect is never mistaken for a timeout.
+    /// <see cref="SegmentationDbContext"/> connection with a <paramref name="timeout"/> command budget that
+    /// covers both opening the connection (fix1: a cache-miss preview usually finds it closed) and running the
+    /// command, as one bounded operation. Throws <see cref="SqlException"/> (Number -2) or an
+    /// <see cref="OperationCanceledException"/> tied to the budget's own token when that budget elapses; a
+    /// cancellation of <paramref name="cancellationToken"/> itself propagates unchanged, so a client disconnect
+    /// is never mistaken for a timeout.
     /// </summary>
     public async Task<int> CountAsync(CompiledQuery query, TimeSpan timeout, CancellationToken cancellationToken)
     {
@@ -32,11 +34,14 @@ internal sealed class CompiledQueryExecutor(SegmentationDbContext db, ISegmentat
 
         var sql = hooks.RewriteQuery(SegmentQueryKind.Preview, $"SELECT COUNT(*) FROM ({query.Sql}) q");
 
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(timeout);
+
         var connection = db.Database.GetDbConnection();
         var openedHere = connection.State != ConnectionState.Open;
         if (openedHere)
         {
-            await connection.OpenAsync(cancellationToken);
+            await connection.OpenAsync(budget.Token);
         }
 
         try
@@ -51,9 +56,6 @@ internal sealed class CompiledQueryExecutor(SegmentationDbContext db, ISegmentat
             {
                 command.Parameters.Add(ToSqlParameter(parameter));
             }
-
-            using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            budget.CancelAfter(timeout);
 
             var result = await command.ExecuteScalarAsync(budget.Token);
             return Convert.ToInt32(result, CultureInfo.InvariantCulture);
