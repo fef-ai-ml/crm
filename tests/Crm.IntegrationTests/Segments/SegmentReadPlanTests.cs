@@ -54,26 +54,42 @@ public sealed class SegmentReadPlanTests(CrmStackFixture stack, ITestOutputHelpe
         var runId = await PostRunAsync(segmentId, admin);
         await WaitForFinishedAsync(segmentId, runId, admin);
 
+        // H28: a second segment sharing the same rule was tried here (a finished run whose members fully overlap
+        // the one under test), meant to give a wrong access path more same-ProfileId rows to walk through. Diagnosed
+        // and dropped — see the fix-round-1 report: on this dataset it had the opposite of the intended effect
+        // (with it present, the mutation check below stayed green with the hint removed; without it, the same
+        // mutation reddens correctly). A single run is what actually keeps the mutation check honest here.
+
         var first = await _client.ReadAsync<SegmentMemberListResponse>($"/v1/segments/{segmentId}/members?limit=50", admin);
         await _client.ReadAsync<SegmentMemberListResponse>($"/v1/segments/{segmentId}/members?limit=50&cursor={Uri.EscapeDataString(first.NextCursor!)}", admin);
 
-        // H13: raw SQL cannot carry a TagWith tag — its first line "-- segments-members" is the tag itself.
-        // "m.ProfileId <" is bracket-free and only appears once @after stops being NULL, i.e. the cursor page.
-        var paged = await QueryPlans.LatestAsync(stack.SqlConnectionString, "segments-members", "m.ProfileId <");
+        // H13/H28: raw SQL cannot carry a TagWith tag — its first line "-- segments-members" is the tag itself.
+        // "RunId)))" (bracket-free — parentheses are not a T-SQL LIKE wildcard, only [ and ] are) is the FORCESEEK
+        // hint's closing on the first-page statement only: "(PK_SegmentRunMembers (RunId)))" vs the cursor page's
+        // "(PK_SegmentRunMembers (RunId, ProfileId)))". "m.ProfileId <" is likewise unique to the cursor page
+        // (only appears once @after stops being NULL — there is no @after at all in the first-page statement).
+        var firstPage = await QueryPlans.LatestAsync(stack.SqlConnectionString, "segments-members", "RunId)))");
+        var cursorPage = await QueryPlans.LatestAsync(stack.SqlConnectionString, "segments-members", "m.ProfileId <");
 
         using var scope = new AssertionScope();
-        if (Found(paged, "members, cursor page"))
+        if (Found(firstPage, "members, first page"))
         {
-            // Measured on SQL Server 2022 (report has the full evidence): the optimizer serves this seek from
-            // IX_SegmentRunMembers_TenantId_ProfileId, not the H11-predicted PK_SegmentRunMembers (RunId,
-            // ProfileId) — a plan defect in the brief's ruling, not this test: both index shapes let RunId = @run
-            // be a cheap residual filter, and IX_SegmentRunMembers_TenantId_ProfileId already orders by ProfileId
-            // within the tenant, so it needs no Sort either. Both are accepted; either would be a legitimate H11
-            // index to add if the mutation check below ever stops discriminating.
-            paged.HasSort.Should().BeFalse($"members, cursor page: rows must come out of an index already ordered by ProfileId; operators were {string.Join(" > ", paged.PhysicalOperators)}; engine: {paged.Engine}");
-            paged.Indexes.Should().BeSubsetOf(["PK_SegmentRunMembers", "IX_SegmentRunMembers_TenantId_ProfileId", "CX_Profiles_TenantId_Id"], $"members, cursor page: indexes were {string.Join(", ", paged.Indexes)}");
-            paged.SeekColumns.Should().Contain("ProfileId", $"members, cursor page: the cursor predicate must seek on ProfileId; seek columns were {string.Join(", ", paged.SeekColumns)}; engine: {paged.Engine}");
-            testOutput.WriteLine($"members, cursor page: sort={paged.HasSort}; indexes={string.Join(", ", paged.Indexes)}; seek columns={string.Join(", ", paged.SeekColumns)}; operators={string.Join(" > ", paged.PhysicalOperators)}");
+            // H28: FORCESEEK pins this to the run's own clustered key — IX_SegmentRunMembers_TenantId_ProfileId
+            // is no longer accepted (it is keyed across every run of every segment of the tenant; its RunId
+            // residual is not bounded by the pruning retention, it grows with the tenant's segment count).
+            firstPage.HasSort.Should().BeFalse($"members, first page: rows must come out of the clustered index already ordered; operators were {string.Join(" > ", firstPage.PhysicalOperators)}; engine: {firstPage.Engine}");
+            firstPage.Indexes.Should().BeSubsetOf(["PK_SegmentRunMembers", "CX_Profiles_TenantId_Id"], $"members, first page: indexes were {string.Join(", ", firstPage.Indexes)}");
+            firstPage.SeekColumns.Should().Contain("RunId", $"members, first page: FORCESEEK must seek on RunId; seek columns were {string.Join(", ", firstPage.SeekColumns)}; engine: {firstPage.Engine}");
+            testOutput.WriteLine($"members, first page: sort={firstPage.HasSort}; indexes={string.Join(", ", firstPage.Indexes)}; seek columns={string.Join(", ", firstPage.SeekColumns)}; operators={string.Join(" > ", firstPage.PhysicalOperators)}");
+        }
+
+        if (Found(cursorPage, "members, cursor page"))
+        {
+            cursorPage.HasSort.Should().BeFalse($"members, cursor page: rows must come out of the clustered index already ordered; operators were {string.Join(" > ", cursorPage.PhysicalOperators)}; engine: {cursorPage.Engine}");
+            cursorPage.Indexes.Should().BeSubsetOf(["PK_SegmentRunMembers", "CX_Profiles_TenantId_Id"], $"members, cursor page: indexes were {string.Join(", ", cursorPage.Indexes)}");
+            cursorPage.SeekColumns.Should().Contain("RunId", $"members, cursor page: FORCESEEK must seek on RunId; seek columns were {string.Join(", ", cursorPage.SeekColumns)}; engine: {cursorPage.Engine}");
+            cursorPage.SeekColumns.Should().Contain("ProfileId", $"members, cursor page: the cursor predicate must seek on ProfileId; seek columns were {string.Join(", ", cursorPage.SeekColumns)}; engine: {cursorPage.Engine}");
+            testOutput.WriteLine($"members, cursor page: sort={cursorPage.HasSort}; indexes={string.Join(", ", cursorPage.Indexes)}; seek columns={string.Join(", ", cursorPage.SeekColumns)}; operators={string.Join(" > ", cursorPage.PhysicalOperators)}");
         }
     }
 

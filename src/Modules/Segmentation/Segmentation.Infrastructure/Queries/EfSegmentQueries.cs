@@ -20,22 +20,27 @@ internal sealed class EfSegmentQueries(SegmentationDbContext db) : ISegmentQueri
     private const string MembersScope = "segment-members";
     private const string ChangesScope = "segment-changes";
 
-    /// <summary>H13, measured (task-8 report has the full plan/mutation evidence): the brief's single-statement
-    /// `(@after IS NULL OR m.ProfileId &lt; @after)` form does not seek on <c>ProfileId</c> — SQL Server 2022
-    /// instead ranges <c>IX_SegmentRunMembers_TenantId_ProfileId</c> on <c>TenantId</c> alone and evaluates
-    /// <c>RunId</c>/the cursor as residual predicates (no <c>Sort</c>, because that index happens to already be
-    /// ordered by <c>ProfileId</c>, but every row of the tenant's other runs is walked to find the page). Split
-    /// into two constant statements instead — one per page shape — so each seeks <c>PK_SegmentRunMembers</c> on
-    /// <c>(RunId, ProfileId)</c> directly. Both are constant strings (no interpolation or concatenation): CA2100
-    /// never fires, and no test hook rewrite is wired in (module-boundary read of `profiles.Profiles`, AT-007) —
-    /// <see cref="Application.SegmentQueryKind.Members"/> exists for one, but calling
-    /// <see cref="Application.ISegmentationHooks.RewriteQuery"/> here would mean building the final command text
-    /// from that return value, which is no longer a compile-time constant.</summary>
+    /// <summary>H13/H28, measured (task-8 report and fix-round-1 report have the full plan/mutation evidence): the
+    /// brief's single-statement `(@after IS NULL OR m.ProfileId &lt; @after)` form does not seek on
+    /// <c>ProfileId</c> — SQL Server 2022 instead ranges <c>IX_SegmentRunMembers_TenantId_ProfileId</c> on
+    /// <c>TenantId</c> alone and evaluates <c>RunId</c>/the cursor as residual predicates (no <c>Sort</c>, because
+    /// that index happens to already be ordered by <c>ProfileId</c>). Splitting into two constant statements (one
+    /// per page shape) was not enough on its own: SQL Server still preferred that same index even with a hard
+    /// `&lt;` predicate, because it is keyed <c>(TenantId, ProfileId)</c> across EVERY run of EVERY segment of the
+    /// tenant — the <c>RunId</c> residual it evaluates after the seek is NOT bounded by "at most 4 runs per
+    /// segment" (pruning's retention), it grows with the tenant's segment count (200 segments × 4 runs ≈ 800
+    /// candidate rows per returned row in the worst case). <c>FORCESEEK</c> pins both statements to
+    /// <c>PK_SegmentRunMembers (RunId, ProfileId)</c> instead: a seek straight to the run, then a backward range
+    /// on <c>ProfileId</c> — O(page), not O(the tenant's total membership rows). Both are constant strings (no
+    /// interpolation or concatenation): CA2100 never fires, and no test hook rewrite is wired in (module-boundary
+    /// read of `profiles.Profiles`, AT-007) — <see cref="Application.SegmentQueryKind.Members"/> exists for one,
+    /// but calling <see cref="Application.ISegmentationHooks.RewriteQuery"/> here would mean building the final
+    /// command text from that return value, which is no longer a compile-time constant.</summary>
     private const string MembersFirstPageSql =
         """
         -- segments-members
         SELECT TOP (@take) m.ProfileId AS Id, p.ExternalId, p.Email, p.LastSeenAt
-        FROM segments.SegmentRunMembers m
+        FROM segments.SegmentRunMembers m WITH (FORCESEEK (PK_SegmentRunMembers (RunId)))
         JOIN profiles.Profiles p ON p.TenantId = m.TenantId AND p.Id = m.ProfileId
         WHERE m.RunId = @run AND m.TenantId = @tenant
         ORDER BY m.ProfileId DESC
@@ -45,7 +50,7 @@ internal sealed class EfSegmentQueries(SegmentationDbContext db) : ISegmentQueri
         """
         -- segments-members
         SELECT TOP (@take) m.ProfileId AS Id, p.ExternalId, p.Email, p.LastSeenAt
-        FROM segments.SegmentRunMembers m
+        FROM segments.SegmentRunMembers m WITH (FORCESEEK (PK_SegmentRunMembers (RunId, ProfileId)))
         JOIN profiles.Profiles p ON p.TenantId = m.TenantId AND p.Id = m.ProfileId
         WHERE m.RunId = @run AND m.TenantId = @tenant AND m.ProfileId < @after
         ORDER BY m.ProfileId DESC
