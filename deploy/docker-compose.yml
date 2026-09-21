@@ -8,7 +8,7 @@ services:
   sqlserver:
     # Target engine is SQL Server 2022 (CI, amd64). On arm64 hosts without Rosetta the
     # 2022 image cannot run, so deploy/.env selects the arm64-native Azure SQL Edge image.
-    image: ${MSSQL_IMAGE:-mcr.microsoft.com/mssql/server:2022-latest}
+    image: ${MSSQL_IMAGE:-mcr.microsoft.com/mssql/server:2025-latest}
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
