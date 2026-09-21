@@ -17,4 +17,7 @@
     <PackageReference Include="Scalar.AspNetCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Crm.IntegrationTests" />
+  </ItemGroup>
 </Project>

@@ -30,6 +30,7 @@ open http://localhost:8080/swagger # API reference (Development only)
 - Testcontainers needs the engine socket and no Ryuk: `make test-integration` uses `DOCKER_HOST` when set (e.g. the ssh tunnel socket), else the active docker context; it also sets `TESTCONTAINERS_RYUK_DISABLED=true` and `MSSQL_IMAGE` from `deploy/.env`. Run it directly with those variables set if you bypass the Makefile.
 - Port conflicts show up as `proxy already running` from the Podman API. Check `docker ps -a --format '{{.Names}} {{.Ports}}'` for the container holding the port and change the host port in `deploy/.env`.
 - `NU1301 … api.nuget.org … timed out after 100000ms` during `make up`, for many minutes, means the engine host resolves nuget.org to an IPv6 address but has a dead IPv6 route. Fix with `make up DOTNET_SYSTEM_NET_DISABLEIPV6=1`, or set `DOTNET_SYSTEM_NET_DISABLEIPV6=1` in `deploy/.env`; it is a build argument of the api and worker images and affects the build stage only. Changing the value rebuilds the restore layer once.
+- On a fresh `sqldata` volume, the API creates the Development database itself and switches `READ_COMMITTED_SNAPSHOT` on `WITH ROLLBACK IMMEDIATE` before running its first migration, instead of letting EF Core's own database creator do it: the Worker starts in parallel by design and only waits for the schema, so it may already hold a session in the brand-new database, and EF Core's unguarded `ALTER DATABASE` would otherwise wait for that session until its 60 s command timeout and crash the API (ruling F18).
 
 ## Remote engine (ssh tunnel)
 

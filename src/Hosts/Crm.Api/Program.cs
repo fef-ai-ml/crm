@@ -127,6 +127,9 @@ public class Program
         if (app.Environment.IsDevelopment())
         {
             using var scope = app.Services.CreateScope();
+            var connectionString = app.Configuration.GetConnectionString("Crm")
+                ?? throw new InvalidOperationException("ConnectionStrings:Crm is not configured.");
+            await DevelopmentDatabase.EnsureCreatedAsync(connectionString, scope.ServiceProvider.GetRequiredService<ILogger<Program>>(), CancellationToken.None);
             await scope.ServiceProvider.GetRequiredService<TenancyDbContext>().Database.MigrateAsync();
             await scope.ServiceProvider.GetRequiredService<ProfilesDbContext>().Database.MigrateAsync();
             await scope.ServiceProvider.GetRequiredService<SegmentationDbContext>().Database.MigrateAsync();
