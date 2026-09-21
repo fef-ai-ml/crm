@@ -12,8 +12,8 @@ Produced by `SeedDatasetGenerator` (`Profiles.Application/Seeding`), loaded by `
 | `plan` | `pro` 20 % (1,000), `free` 70 %, absent 10 % |
 | `country` | `ID` 40 %, `SG` 25 %, `MY` 15 %, `TH` 10 %, absent 10 % |
 | `city` | set for 50 % of profiles from a 10-city list |
-| `opted_in` | `true` 30 %, `false` 30 %, absent 40 % |
-| `ltv` | numeric string with two decimals, right-skewed, present for 80 % |
+| `opted_in` | `true` 30 %, `false` 30 %, absent 40 % — absent is not `false`: "opted_in = false" (1,500) and "not opted in" (3,500) are different filters |
+| `ltv` | JSON number with two decimals, right-skewed, present for 80 % |
 | Events | 100,000 over the last 90 days; names `app_open` 60 %, `purchase` 20 %, `add_to_cart` 15 %, `logout` 5 %; `purchase.properties.amount` uniform 5–200 |
 | Activity | 30 % of profiles have no event in the last 7 days; 5 % have no events at all |
 | Merges | 50 profiles were created anonymous then identified, leaving 50 rows with `MergedIntoId` set (excluded from all counts below) |

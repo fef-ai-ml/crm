@@ -60,7 +60,7 @@ Then open http://localhost:3000 (status page) and http://localhost:8080/swagger 
 
 See [Developer Setup](docs/dev-setup.md) for prerequisites, Podman specifics, and running against a remote engine.
 
-The event is now on Kafka topic `events.raw`; the Worker resolves the profile, appends the event, and publishes `EventTracked` to `events.processed`. Read it back through the profile read API:
+The event is now on Kafka topic `events.raw`; the Worker resolves the profile, appends the event, and publishes `EventTracked` to `events.processed`. Read it back through the profile read API after a moment — the Worker builds the profile asynchronously:
 
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8080/v1/auth/login -H "Content-Type: application/json" -d '{"email":"admin@demo.local","password":"Demo-Passw0rd!"}' | python3 -c 'import json,sys;print(json.load(sys.stdin)["accessToken"])')

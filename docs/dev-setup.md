@@ -111,6 +111,8 @@ Requests to `/health/*` and `/metrics` are deliberately excluded from tracing, s
 | `make compose-check` | CT-005 for both compose files |
 | `tests/Crm.LoadTests/coldstart.sh` | LT-005: times `make up` + `make seed` from a stopped stack and runs the quickstart probe |
 
+`make seed`'s dataset load verifies a **delta**, not an absolute count: it runs into a tenant that already has profiles (from earlier manual testing, for example) without failing, because it checks what *this* load added against `docs/test/fixtures.md`, not the tenant's total. The load still briefly blocks all writers on `profiles.*` — the single transaction's cumulative lock footprint escalates `profiles.Events` to a table lock for the ~10 s it runs — so do not run it against a shared or busy database. The seed endpoint (`POST /v1/dev/seed-dataset`) exists only when `ASPNETCORE_ENVIRONMENT=Development`; never run an exposed host in that environment (it also maps tenant bootstrap and auto-applies migrations). It is Admin-only and loads only into the caller's own tenant.
+
 ## Profiles Worker
 
 The `events.raw` consumer waits for schema `profiles` to exist before subscribing (`SchemaGate` polls every 2 s, ruling E11) and logs `Waiting for schema 'profiles' (applied by the API in Development, or by \`make migrate\`)` until it does. In compose the API applies migrations in Development, so a Worker that starts first is expected to log this for a few seconds.

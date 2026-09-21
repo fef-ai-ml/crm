@@ -9,7 +9,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given a tenant with API key `K`
 - When `POST /v1/track` `{userId: "u1", event: "purchase", properties: {amount: 49.9}}` with `X-Api-Key: K`
 - Then the response is `202 {eventId}` within 50 ms (p95 over 20 calls), and `GET /v1/profiles?q=u1` then `/events` shows the event with the same id within 2 s
-- Plan D note: the ingest half (202, record on `events.raw`) is implemented in tests/Crm.IntegrationTests/Ingestion/{TrackTests,IdentifyAndBatchTests}.cs; the profile and timeline half arrives with the Profiles plan. The 50 ms p95 budget is a local-Docker figure only: it relaxes to 250 ms in CI (`CI=true`) and 500 ms against the remote engine (`TESTCONTAINERS_HOST_OVERRIDE` set); NFR-02 itself is measured by the load tests (LT-001). Plan E: `tests/Crm.IntegrationTests/Ingestion/TrackPipelineTests.cs` proves track → `profiles.Events` → `events.processed`.
+- Plan D note: the ingest half (202, record on `events.raw`) is implemented in tests/Crm.IntegrationTests/Ingestion/{TrackTests,IdentifyAndBatchTests}.cs. The 50 ms p95 budget is a local-Docker figure only: it relaxes to 250 ms in CI (`CI=true`) and 500 ms against the remote engine (`TESTCONTAINERS_HOST_OVERRIDE` set); NFR-02 itself is measured by the load tests (LT-001). Plan E: `tests/Crm.IntegrationTests/Ingestion/TrackPipelineTests.cs` proves track → `profiles.Events` → `events.processed`.
 - Implemented: tests/Crm.IntegrationTests/Ingestion/TrackRoundTripTests.cs
 
 ### IT-002 — identify creates a profile and applies traits

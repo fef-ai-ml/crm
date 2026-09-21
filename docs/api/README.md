@@ -107,7 +107,7 @@ Auth: JWT (Admin or Viewer).
 | GET | `/profiles/{id}` | Core fields plus `attributes` object |
 | GET | `/profiles/{id}/events?from=&to=&name=&limit=&cursor=` | Timeline, newest first |
 
-`q` matches a case-insensitive **prefix** of `externalId`, `email`, or — when `q` is a `+` and/or digits with optional separators (spaces, `-`, `.`, `(`, `)`) — `phone`; `q` absent lists every live profile of the tenant. `q` is at most 256 characters (`400 profiles.invalid_query`). Anonymous ids are not searchable. Search items are thin: `{ "id", "externalId", "email", "phone", "lastSeenAt", "eventCount" }` — no `attributes`; only the detail endpoint returns those.
+`q` matches a case-insensitive **prefix** of `externalId`, `email`, or — when `q` minus separators (spaces, `-`, `.`, `(`, `)`) is an optional `+` followed by 1–15 digits (E.164) — `phone`; `q` absent lists every live profile of the tenant. `q` is at most 256 characters (`400 profiles.invalid_query`). LIKE metacharacters (`\ % _ [`) in `q` are escaped and match literally. Anonymous ids are not searchable. Search items are thin: `{ "id", "externalId", "email", "phone", "lastSeenAt", "eventCount" }` — no `attributes`; only the detail endpoint returns those.
 
 Profile shape (detail):
 
