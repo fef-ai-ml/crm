@@ -49,7 +49,7 @@ internal sealed class SegmentRunWorker(
 
     private async Task TickAsync(CancellationToken stoppingToken)
     {
-        await ReapAbandonedAsync(stoppingToken);
+        await ReapAbandonedRunsAsync(stoppingToken);
 
         foreach (var queued in await ReadQueuedAsync(stoppingToken))
         {
@@ -57,7 +57,10 @@ internal sealed class SegmentRunWorker(
         }
     }
 
-    private async Task ReapAbandonedAsync(CancellationToken cancellationToken)
+    /// <summary>H4: fails any run stuck `Running` past <see cref="AbandonedAfter"/>. Public, mirroring
+    /// <c>SegmentScheduler.EnqueueScheduledRunsAsync</c>'s exposure (fix round 1, item 4), so a test can invoke
+    /// the reap directly instead of waiting on the 5 s poll and an 11-minute clock.</summary>
+    public async Task ReapAbandonedRunsAsync(CancellationToken cancellationToken)
     {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SegmentationDbContext>();

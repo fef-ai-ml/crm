@@ -23,6 +23,13 @@ internal sealed class SegmentRunConfiguration : IEntityTypeConfiguration<Segment
             .IsDescending(false, false, true, true)
             .HasDatabaseName("IX_SegmentRuns_TenantId_SegmentId_CreatedAt_RunId");
 
+        // Fix round 1, Important 1 (H5 race-free): at most one Queued or Running run per segment, enforced by the
+        // database — SegmentRunQueue's check-then-insert is a cheap pre-check, not the actual guarantee.
+        builder.HasIndex(r => new { r.TenantId, r.SegmentId })
+            .IsUnique()
+            .HasFilter("[Status] IN ('Queued','Running')")
+            .HasDatabaseName("UX_SegmentRuns_TenantId_SegmentId_Active");
+
         builder.Property(r => r.Status).HasConversion<string>().HasMaxLength(16).IsUnicode(false);
         builder.Property(r => r.Trigger).HasConversion<string>().HasMaxLength(16).IsUnicode(false);
         builder.Property(r => r.StartedAt).HasPrecision(3);

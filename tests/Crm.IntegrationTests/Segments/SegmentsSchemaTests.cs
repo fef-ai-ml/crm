@@ -65,10 +65,35 @@ public class SegmentsSchemaTests(CrmStackFixture stack)
         indexes.Should().Equal(
             "IX_SegmentRuns_SegmentId|NONCLUSTERED|0",
             "IX_SegmentRuns_TenantId_SegmentId_CreatedAt_RunId|NONCLUSTERED|0",
-            "PK_SegmentRuns|CLUSTERED|1");
+            "PK_SegmentRuns|CLUSTERED|1",
+            "UX_SegmentRuns_TenantId_SegmentId_Active|NONCLUSTERED|1");
 
         (await QueryAsync("SELECT name FROM sys.columns WHERE object_id = OBJECT_ID(N'segments.SegmentRuns') AND column_id = 1"))
             .Should().Equal("RunId");
+    }
+
+    /// <summary>Fix round 1, Important 1 (H5 race-free): the database, not `SegmentRunQueue`'s check-then-insert,
+    /// is what actually enforces at most one Queued/Running run per segment.</summary>
+    [Fact]
+    public async Task SegmentRuns_active_run_index_is_unique_on_TenantId_SegmentId_filtered_to_queued_or_running()
+    {
+        var columns = await QueryAsync(
+            """
+            SELECT c.name + '|' + CAST(ic.key_ordinal AS varchar(2))
+            FROM sys.indexes i
+            JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+            JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+            WHERE i.object_id = OBJECT_ID(N'segments.SegmentRuns') AND i.name = N'UX_SegmentRuns_TenantId_SegmentId_Active'
+            ORDER BY ic.key_ordinal
+            """);
+        columns.Should().Equal("TenantId|1", "SegmentId|2");
+
+        (await QueryAsync(
+            """
+            SELECT CAST(is_unique AS char(1)) + '|' + filter_definition COLLATE DATABASE_DEFAULT
+            FROM sys.indexes WHERE object_id = OBJECT_ID(N'segments.SegmentRuns') AND name = N'UX_SegmentRuns_TenantId_SegmentId_Active'
+            """))
+            .Should().Equal("1|([Status] IN ('Queued', 'Running'))");
     }
 
     [Fact]
@@ -185,6 +210,17 @@ public class SegmentsSchemaTests(CrmStackFixture stack)
             "FK_SegmentRunMembers_RunId",
             "FK_SegmentRuns_SegmentId",
             "FK_Segments_CurrentRunId");
+    }
+
+    /// <summary>Fix round 1, Important 3: <c>SegmentRunner</c>'s comment on its transaction's statement order
+    /// claims readers of `segments.Segments` see the last committed version rather than blocking during the
+    /// short swap, which depends on this being on. If this ever fails, stop and report it — do not "fix" the
+    /// fixture to make it pass.</summary>
+    [Fact]
+    public async Task Test_database_has_read_committed_snapshot_on()
+    {
+        (await QueryAsync("SELECT CAST(is_read_committed_snapshot_on AS char(1)) FROM sys.databases WHERE name = DB_NAME()"))
+            .Should().Equal("1");
     }
 
     [Fact]

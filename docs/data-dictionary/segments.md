@@ -46,7 +46,7 @@ Constraints: `CK_Segments_Definition_IsJson CHECK (ISJSON([Definition]) = 1)`; `
 | CreatedAt | datetime2(3) | no | |
 | UpdatedAt | datetime2(3) | no | |
 
-Indexes: `PK_SegmentRuns (RunId)` clustered; `IX_SegmentRuns_TenantId_SegmentId_CreatedAt_RunId (TenantId, SegmentId, CreatedAt DESC, RunId DESC)` (H11 keyset index); `IX_SegmentRuns_SegmentId` — EF's automatic index backing `FK_SegmentRuns_SegmentId` (SegmentId is only the second key column of the composite index above, so it does not already cover the FK).
+Indexes: `PK_SegmentRuns (RunId)` clustered; `IX_SegmentRuns_TenantId_SegmentId_CreatedAt_RunId (TenantId, SegmentId, CreatedAt DESC, RunId DESC)` (H11 keyset index); `IX_SegmentRuns_SegmentId` — EF's automatic index backing `FK_SegmentRuns_SegmentId` (SegmentId is only the second key column of the composite index above, so it does not already cover the FK); `UX_SegmentRuns_TenantId_SegmentId_Active (TenantId, SegmentId) UNIQUE WHERE Status IN ('Queued','Running')` (fix round 1, H5) — the database, not the application's check-then-insert, is what enforces at most one active run per segment; `SegmentRunQueue.EnqueueAsync` catches the resulting unique-violation and returns the winning run instead of a 500.
 
 Constraints: `CK_SegmentRuns_Status CHECK (Status IN ('Queued','Running','Finished','Failed'))`; `CK_SegmentRuns_Trigger CHECK (Trigger IN ('Manual','Schedule'))`; `FK_SegmentRuns_SegmentId (SegmentId) REFERENCES Segments(Id) ON DELETE NO ACTION`.
 

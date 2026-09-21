@@ -221,6 +221,11 @@ namespace Crm.Segmentation.Infrastructure.Migrations
 
                     b.HasIndex("SegmentId");
 
+                    b.HasIndex("TenantId", "SegmentId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_SegmentRuns_TenantId_SegmentId_Active")
+                        .HasFilter("[Status] IN ('Queued','Running')");
+
                     b.HasIndex("TenantId", "SegmentId", "CreatedAt", "Id")
                         .IsDescending(false, false, true, true)
                         .HasDatabaseName("IX_SegmentRuns_TenantId_SegmentId_CreatedAt_RunId");

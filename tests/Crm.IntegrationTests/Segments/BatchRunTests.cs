@@ -6,9 +6,12 @@ using Crm.IntegrationTests.Fixtures;
 using Crm.IntegrationTests.Profiles;
 using Crm.Segmentation.Application;
 using Crm.Segmentation.Application.Segments;
+using Crm.Segmentation.Infrastructure.Runs;
 using Crm.Tenancy.Domain;
 using FluentAssertions;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Xunit;
 
 namespace Crm.IntegrationTests.Segments;
@@ -54,10 +57,13 @@ public sealed class BatchRunTests(CrmStackFixture stack) : IAsyncLifetime
 
         var runId = await PostRunAsync(segmentId, admin);
 
+        // Fix round 1, Minor 6: the worker polls every 5 s, so "reaches Running promptly" needs margin against
+        // the worst case (queued just after a tick fires) plus real network round trips against the remote
+        // Testcontainers host — 15 s, not the brief's original 5 s.
         await Eventually.TrueAsync(
             async () => (await FindRunAsync(segmentId, runId, admin)) is { Status: "Running" or "Finished" },
             "the run leaves Queued promptly",
-            TimeSpan.FromSeconds(5));
+            TimeSpan.FromSeconds(15));
 
         var finished = await Eventually.GetAsync(
             async () => (await FindRunAsync(segmentId, runId, admin)) is { Status: "Finished" } run ? run : null,
@@ -66,6 +72,12 @@ public sealed class BatchRunTests(CrmStackFixture stack) : IAsyncLifetime
         finished.Trigger.Should().Be("Manual");
 
         (await SegmentsDb.CountRunMembersAsync(stack.SqlConnectionString, runId)).Should().Be(412);
+
+        // Fix round 1, Important 2: proves H20 end to end — CompiledSql is the un-rewritten compiled SELECT, not
+        // whatever a test hook (or a future regression) might substitute at execution time.
+        var compiledSql = await SegmentsDb.GetCompiledSqlAsync(stack.SqlConnectionString, runId);
+        compiledSql.Should().StartWith("SELECT p.Id FROM profiles.Profiles p");
+        compiledSql.Should().Contain("@tenant = ");
 
         var segment = await _client.ReadAsync<SegmentResponse>($"/v1/segments/{segmentId}", admin);
         segment.CurrentRunId.Should().Be(runId);
@@ -99,6 +111,45 @@ public sealed class BatchRunTests(CrmStackFixture stack) : IAsyncLifetime
         }
 
         await WaitForFinishedAsync(segmentId, firstRunId, admin);
+    }
+
+    /// <summary>Fix round 1, Important 1: the happy-path dedupe test above serializes the two POSTs (it waits for
+    /// a hook before firing the second one), which never exercises two `EnqueueAsync` calls actually racing each
+    /// other before either commits. This test fires 8 real concurrent POSTs instead, with the worker held on the
+    /// first one it claims (so nothing reaches Finished mid-burst and none of the tick's later claims fire), and
+    /// checks the actual guarantee: `UX_SegmentRuns_TenantId_SegmentId_Active`, not the check-then-insert.</summary>
+    [Fact]
+    public async Task IT016_eight_concurrent_runs_produce_exactly_one_active_run()
+    {
+        var (tenant, admin) = await SeededTenantAsync();
+        var segmentId = await CreateSegmentAsync(admin, "run-concurrent", "seed-pro-id.json");
+
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using (stack.SegmentHooks.OnMembersInserted((_, _) => release.Task))
+        {
+            var responses = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => _client.PostAsync($"/v1/segments/{segmentId}/run", admin, new { })));
+            try
+            {
+                responses.Select(r => r.StatusCode).Should().OnlyContain(s => s == HttpStatusCode.Accepted);
+                var runIds = await Task.WhenAll(responses.Select(async r => (await r.Content.ReadFromJsonAsync<RunQueuedResponse>())!.RunId));
+                runIds.Distinct().Should().ContainSingle("H5: eight concurrent POSTs for one segment must still resolve to one run");
+
+                (await SegmentsDb.ListRunIdsAsync(stack.SqlConnectionString, tenant.TenantId, segmentId))
+                    .Should().ContainSingle("only one Queued/Running row may exist for the segment at a time");
+            }
+            finally
+            {
+                foreach (var response in responses)
+                {
+                    response.Dispose();
+                }
+            }
+
+            release.TrySetResult();
+        }
+
+        var runId = (await SegmentsDb.ListRunIdsAsync(stack.SqlConnectionString, tenant.TenantId, segmentId)).Single();
+        await WaitForFinishedAsync(segmentId, runId, admin);
     }
 
     [Fact]
@@ -242,6 +293,81 @@ public sealed class BatchRunTests(CrmStackFixture stack) : IAsyncLifetime
         var state = await SegmentsDb.GetSegmentStateAsync(stack.SqlConnectionString, tenant.TenantId, segmentId);
         state.CurrentRunId.Should().Be(firstRunId);
         state.MemberCount.Should().Be(412);
+    }
+
+    /// <summary>Fix round 1, item 4 (H4, a known gap in the original Task 7): a run stuck `Running` for more
+    /// than 10 minutes is abandoned. Calls the worker's reap directly (exposed the same way
+    /// `SegmentScheduler.EnqueueScheduledRunsAsync` is) instead of waiting on an 11-minute clock.</summary>
+    [Fact]
+    public async Task IT_H4_abandoned_run_is_failed_a_recent_one_is_left_alone_and_a_new_run_can_follow()
+    {
+        var (tenant, admin) = await SeededTenantAsync();
+        var segmentId = await CreateSegmentAsync(admin, "run-abandoned", "seed-pro-id.json");
+
+        var abandonedRunId = await SegmentsDb.InsertRunningSegmentRunAsync(stack.SqlConnectionString, tenant.TenantId, segmentId, DateTime.UtcNow.AddMinutes(-11));
+
+        var worker = stack.Worker.Services.GetServices<IHostedService>().OfType<SegmentRunWorker>().Single();
+        await worker.ReapAbandonedRunsAsync(CancellationToken.None);
+
+        var abandoned = await SegmentsDb.GetRunStatusAsync(stack.SqlConnectionString, abandonedRunId);
+        abandoned.Status.Should().Be("Failed");
+        abandoned.Error.Should().Be("abandoned");
+        abandoned.FinishedAt.Should().NotBeNull();
+
+        // With item 1's unique index in place, the abandoned run no longer blocks a new one for this segment.
+        var newRunId = await PostRunAsync(segmentId, admin);
+        newRunId.Should().NotBe(abandonedRunId);
+        await WaitForFinishedAsync(segmentId, newRunId, admin);
+    }
+
+    [Fact]
+    public async Task IT_H4_a_recent_running_run_is_left_alone_by_the_reap()
+    {
+        var (tenant, admin) = await SeededTenantAsync();
+        var segmentId = await CreateSegmentAsync(admin, "run-not-abandoned", "seed-pro-id.json");
+
+        var recentRunId = await SegmentsDb.InsertRunningSegmentRunAsync(stack.SqlConnectionString, tenant.TenantId, segmentId, DateTime.UtcNow.AddMinutes(-2));
+
+        var worker = stack.Worker.Services.GetServices<IHostedService>().OfType<SegmentRunWorker>().Single();
+        await worker.ReapAbandonedRunsAsync(CancellationToken.None);
+
+        (await SegmentsDb.GetRunStatusAsync(stack.SqlConnectionString, recentRunId)).Status.Should().Be("Running", "2 minutes is well under the 10-minute abandon threshold");
+    }
+
+    /// <summary>Fix round 1, item 5 (Minor 4): prune must also run after a Failed run, or a segment that keeps
+    /// failing accumulates Failed rows forever. One success (R1, becomes CurrentRunId) then five failures via
+    /// IT-020's hook (R2..R6): terminal rows end up being the newest three (R4, R5, R6) plus R1, since R1 is not
+    /// among the newest three but is still CurrentRunId — 4 total, R2 and R3 pruned.</summary>
+    [Fact]
+    public async Task IT_H8_failed_runs_are_pruned_too_current_plus_newest_three_survive()
+    {
+        var (tenant, admin) = await SeededTenantAsync();
+        var segmentId = await CreateSegmentAsync(admin, "run-fail-prune", "seed-pro-id.json");
+
+        var currentRunId = await PostRunAsync(segmentId, admin);
+        await WaitForFinishedAsync(segmentId, currentRunId, admin);
+
+        var failedRunIds = new List<Guid>();
+        using (stack.SegmentHooks.OnRewriteQuery((kind, sql) =>
+            kind == SegmentQueryKind.Run ? "SELECT CAST('x' AS uniqueidentifier) AS Id" : sql))
+        {
+            for (var i = 0; i < 5; i++)
+            {
+                var runId = await PostRunAsync(segmentId, admin);
+                await Eventually.GetAsync(
+                    async () => (await FindRunAsync(segmentId, runId, admin)) is { Status: "Failed" } run ? run : null,
+                    $"failing run {i} finishes failing");
+                failedRunIds.Add(runId);
+            }
+        }
+
+        var remaining = await SegmentsDb.ListRunIdsAsync(stack.SqlConnectionString, tenant.TenantId, segmentId);
+        remaining.Should().HaveCount(4, "the newest three failures plus the current run, which is not among them");
+        remaining.Should().BeEquivalentTo(failedRunIds.TakeLast(3).Append(currentRunId));
+
+        var state = await SegmentsDb.GetSegmentStateAsync(stack.SqlConnectionString, tenant.TenantId, segmentId);
+        state.CurrentRunId.Should().Be(currentRunId);
+        (await SegmentsDb.CountRunMembersAsync(stack.SqlConnectionString, currentRunId)).Should().Be(412, "the current run's members survive its own pruning immunity");
     }
 
     private async Task<(SeededTenant Tenant, string Admin)> SeededTenantAsync()

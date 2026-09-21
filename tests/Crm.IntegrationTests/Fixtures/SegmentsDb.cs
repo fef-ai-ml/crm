@@ -44,6 +44,49 @@ public static class SegmentsDb
         return id;
     }
 
+    /// <summary>Fix round 1, item 4: a `Running` run the worker's reap should find (or not, if young enough).</summary>
+    public static async Task<Guid> InsertRunningSegmentRunAsync(string connectionString, Guid tenantId, Guid segmentId, DateTime startedAt)
+    {
+        var id = Guid.CreateVersion7(new DateTimeOffset(startedAt));
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "INSERT INTO segments.SegmentRuns (RunId, TenantId, SegmentId, Status, StartedAt, [Trigger], CreatedAt, UpdatedAt) " +
+            "VALUES (@id, @tenant, @segment, 'Running', @startedAt, 'Manual', @startedAt, @startedAt)";
+        command.Parameters.Add(new SqlParameter("@id", id));
+        command.Parameters.Add(new SqlParameter("@tenant", tenantId));
+        command.Parameters.Add(new SqlParameter("@segment", segmentId));
+        command.Parameters.Add(new SqlParameter("@startedAt", SqlDbType.DateTime2) { Value = startedAt });
+        await command.ExecuteNonQueryAsync();
+        return id;
+    }
+
+    /// <summary>Fix round 1, item 4: reads back what the reap (or any other writer) left on a run's row.</summary>
+    public static async Task<(string Status, string? Error, DateTime? FinishedAt)> GetRunStatusAsync(string connectionString, Guid runId)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT Status, Error, FinishedAt FROM segments.SegmentRuns WHERE RunId = @run";
+        command.Parameters.Add(new SqlParameter("@run", runId));
+        await using var reader = await command.ExecuteReaderAsync();
+        await reader.ReadAsync();
+        return (reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetDateTime(2));
+    }
+
+    /// <summary>Fix round 1, Important 2: IT-016's required proof that `CompiledSql` is the un-rewritten
+    /// compiled `SELECT`, not the hook-rewritten statement the executor actually ran (H20).</summary>
+    public static async Task<string?> GetCompiledSqlAsync(string connectionString, Guid runId)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT CompiledSql FROM segments.SegmentRuns WHERE RunId = @run";
+        command.Parameters.Add(new SqlParameter("@run", runId));
+        return (string?)await command.ExecuteScalarAsync();
+    }
+
     public static async Task InsertSegmentRunMemberAsync(string connectionString, Guid tenantId, Guid runId, Guid profileId)
     {
         await using var connection = new SqlConnection(connectionString);
