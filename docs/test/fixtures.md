@@ -33,6 +33,8 @@ Expected counts (asserted by IT-014, IT-016, IT-042, E2E-002, E2E-004):
 
 The seeder asserts these counts after loading and fails if any differ, so a distribution change must update this table.
 
+The six segments themselves — same names, same rules — are seeded separately by `SeedSegments` (`Segmentation.Application/Seeding`) through the Development-only `POST /v1/dev/seed-segments` (H22): `make seed` calls it right after the dataset loads, and `GoldenExecutionTests` (IT-042) proves each constant hashes equal to its fixture file and executes to the count above against the real schema.
+
 ## Rule Fixtures
 
 Directory `tests/fixtures/rules/`. Both the C# validator theory and the Zod test iterate every file (CT-002). File names are the identifiers used in unit cases. Each file is `{ "definition": <tree> }`; an invalid file adds `"expectedErrorPath"` as a sibling property of `definition` (H19). `depth-5.json`/`leaves-20.json` and their invalid counterparts `depth-6.json`/`leaves-21.json` are the boundary cases added for UT-016/UT-017.

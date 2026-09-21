@@ -50,7 +50,7 @@ Three commands from a fresh clone:
 
 ```bash
 make up          # infrastructure + api + worker + web, builds images, waits until healthy
-make seed        # demo tenant, users, API key, 5k profiles / 100k events
+make seed        # demo tenant, users, API key, 5k profiles / 100k events, 6 demo segments
 source .env.local && curl -X POST http://localhost:8080/v1/track \
   -H "X-Api-Key: $CRM_API_KEY" -H "Content-Type: application/json" \
   -d '{"userId":"u-123","event":"purchase","properties":{"amount":49.9}}'    # 202 {"eventId":"…"}

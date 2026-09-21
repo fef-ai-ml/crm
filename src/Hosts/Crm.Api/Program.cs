@@ -123,6 +123,7 @@ public class Program
         if (app.Environment.IsDevelopment())
         {
             v1.MapGroup(string.Empty).RequireAuthorization(AuthPolicies.AdminOnly).MapProfilesDevSeed();
+            v1.MapGroup(string.Empty).RequireAuthorization(AuthPolicies.AdminOnly).MapSegmentationDevSeed();
         }
 
         if (exportPath is not null)

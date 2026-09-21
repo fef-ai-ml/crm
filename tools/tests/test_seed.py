@@ -172,5 +172,103 @@ class LoadDatasetTests(unittest.TestCase):
         self.assertIn("expected 1500, found 1499", str(exit_.exception))
 
 
+EXPECTED_SEGMENT_COUNTS = {"seed-pro-id": 412, "seed-purchasers": 2731, "seed-dormant": 1500,
+                           "seed-no-plan": 500, "seed-not-pro": 4000, "seed-high-ltv-sg": 187}
+
+SEED_SEGMENTS_RESPONSE = [
+    {"id": "1", "name": "seed-pro-id", "status": "Active", "runId": "r1"},
+    {"id": "2", "name": "seed-purchasers", "status": "Active", "runId": "r2"},
+    {"id": "3", "name": "seed-dormant", "status": "Active", "runId": "r3"},
+    {"id": "4", "name": "seed-no-plan", "status": "Active", "runId": "r4"},
+    {"id": "5", "name": "seed-not-pro", "status": "Active", "runId": "r5"},
+    {"id": "6", "name": "seed-high-ltv-sg", "status": "Draft", "runId": None},
+]
+
+
+def _segments_page(counts, finished):
+    """A GET /v1/segments body: every EXPECTED_SEGMENT_COUNTS name, with `lastRunAt` set once `finished` for the
+    five Active names — `seed-high-ltv-sg` (Draft) never gets one, matching the real endpoint."""
+    return {"items": [{"name": name, "memberCount": counts.get(name, 0),
+                        "lastRunAt": "2026-09-22T00:00:00Z" if finished and name != "seed-high-ltv-sg" else None}
+                       for name in EXPECTED_SEGMENT_COUNTS], "nextCursor": None}
+
+
+class CompareSegmentCountsTests(unittest.TestCase):
+    def test_no_mismatches_when_everything_matches(self):
+        self.assertEqual(seed.compare_segment_counts(EXPECTED_SEGMENT_COUNTS, EXPECTED_SEGMENT_COUNTS), [])
+
+    def test_missing_name_is_reported(self):
+        actual = {k: v for k, v in EXPECTED_SEGMENT_COUNTS.items() if k != "seed-dormant"}
+        self.assertEqual(seed.compare_segment_counts(EXPECTED_SEGMENT_COUNTS, actual),
+                          ["seed-dormant: missing from GET /v1/segments"])
+
+    def test_wrong_count_is_reported(self):
+        actual = {**EXPECTED_SEGMENT_COUNTS, "seed-not-pro": 3999}
+        self.assertEqual(seed.compare_segment_counts(EXPECTED_SEGMENT_COUNTS, actual),
+                          ["seed-not-pro: expected 4000, found 3999"])
+
+    def test_multiple_mismatches_are_all_reported(self):
+        actual = {**EXPECTED_SEGMENT_COUNTS, "seed-not-pro": 1, "seed-dormant": 2}
+        messages = seed.compare_segment_counts(EXPECTED_SEGMENT_COUNTS, actual)
+        self.assertEqual(len(messages), 2)
+
+    def test_extra_actual_name_is_not_a_mismatch(self):
+        actual = {**EXPECTED_SEGMENT_COUNTS, "some-other-segment": 1}
+        self.assertEqual(seed.compare_segment_counts(EXPECTED_SEGMENT_COUNTS, actual), [])
+
+
+class SeedSegmentsTests(unittest.TestCase):
+    def test_posts_then_polls_until_every_active_segment_has_run_and_reports_no_mismatch(self):
+        with mock.patch.object(seed, "call", side_effect=[
+            (200, SEED_SEGMENTS_RESPONSE),
+            (200, _segments_page(EXPECTED_SEGMENT_COUNTS, finished=False)),
+            (200, _segments_page(EXPECTED_SEGMENT_COUNTS, finished=True)),
+        ]) as call, mock.patch("time.sleep"), mock.patch("builtins.print"):
+            seed.seed_segments("admin-token", EXPECTED_SEGMENT_COUNTS)
+
+        self.assertEqual(call.call_count, 3)
+        call.assert_any_call("POST", "/v1/dev/seed-segments", {}, "admin-token", timeout=60)
+
+    def test_draft_segment_is_never_waited_on(self):
+        """seed-high-ltv-sg is Draft (never queued) — a lastRunAt-less Draft row must not stall the poll."""
+        with mock.patch.object(seed, "call", side_effect=[
+            (200, SEED_SEGMENTS_RESPONSE),
+            (200, _segments_page(EXPECTED_SEGMENT_COUNTS, finished=True)),
+        ]), mock.patch("time.sleep") as sleep_, mock.patch("builtins.print"):
+            seed.seed_segments("admin-token", EXPECTED_SEGMENT_COUNTS)
+
+        sleep_.assert_not_called()
+
+    def test_exits_nonzero_on_a_count_mismatch_once_runs_finish(self):
+        wrong_counts = {**EXPECTED_SEGMENT_COUNTS, "seed-dormant": 1}
+        with mock.patch.object(seed, "call", side_effect=[
+            (200, SEED_SEGMENTS_RESPONSE),
+            (200, _segments_page(wrong_counts, finished=True)),
+        ]), mock.patch("builtins.print"):
+            with self.assertRaises(SystemExit) as exit_:
+                seed.seed_segments("admin-token", EXPECTED_SEGMENT_COUNTS)
+
+        self.assertIn("seed-dormant: expected 1500, found 1", str(exit_.exception))
+
+    def test_times_out_when_a_run_never_finishes(self):
+        pending = _segments_page(EXPECTED_SEGMENT_COUNTS, finished=False)
+        clock = {"t": 0.0}
+
+        with mock.patch.object(seed, "call", side_effect=[(200, SEED_SEGMENTS_RESPONSE)] + [(200, pending)] * 5):
+            with mock.patch("time.time", side_effect=lambda: clock["t"]), \
+                 mock.patch("time.sleep", side_effect=lambda _: clock.__setitem__("t", clock["t"] + 121)):
+                with self.assertRaises(SystemExit) as exit_:
+                    seed.seed_segments("admin-token", EXPECTED_SEGMENT_COUNTS)
+
+        self.assertIn("120 s", str(exit_.exception))
+
+    def test_404_explains_development_and_the_endpoint(self):
+        with mock.patch.object(seed, "call", return_value=(404, None)):
+            with self.assertRaises(SystemExit) as exit_:
+                seed.seed_segments("t", EXPECTED_SEGMENT_COUNTS)
+        self.assertIn("seed-segments", str(exit_.exception))
+        self.assertIn("Development", str(exit_.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

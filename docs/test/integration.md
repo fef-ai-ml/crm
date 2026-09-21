@@ -240,8 +240,9 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Traces: FR-14
 - Given every `tests/fixtures/rules/valid/*.json`
 - When each is compiled and executed against the seed dataset
-- Then every statement executes without error and returns the count listed in [fixtures.md](fixtures.md)
-- Planned: tests/Crm.IntegrationTests/Segments/GoldenExecutionTests.cs
+- Then every statement executes without error and the six `seed-*` fixtures return the counts listed in [fixtures.md](fixtures.md)
+- Plan H note: also asserts H18's promoted-column check (`COL_LENGTH` on `profiles.Attr_plan`/`Attr_country`/`Attr_city`) and that `PromotedAttributeColumns`' key set equals Profiles' own `PromotedAttributes` key set, plus `POST /v1/dev/seed-segments` (H22): six segments upserted by name, five queued/finished runs, a second call idempotent, Viewer 403, 404 outside Development
+- Implemented: tests/Crm.IntegrationTests/Segments/GoldenExecutionTests.cs
 
 ## Tenancy, auth, isolation
 

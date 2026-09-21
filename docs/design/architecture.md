@@ -82,7 +82,7 @@ C4Component
     Component(processedprod, "Processed Producer", "Confluent.Kafka", "EventTracked, ProfileUpdated, ProfileMerged")
     Component(segconsumer, "Segmentation Consumer", "Confluent.Kafka, group segmentation", "Real-time evaluation of eligible segments")
     Component(evaluator, "Realtime Evaluator", "Segmentation.Application", "Evaluates rule tree against snapshot + counters")
-    Component(runner, "Segment Runner", "Quartz.NET: polls Queued runs every 5 s + 6 h schedule", "Compile, materialize, diff, swap, prune")
+    Component(runner, "Segment Runner", "BackgroundService: polls Queued runs every 5 s + 6 h schedule timer", "Compile, materialize, diff, swap, prune")
     Component(dlq, "DLQ Publisher", "Retry loop + Confluent.Kafka", "After 3 retries, publish with error headers")
   }
   ContainerQueue(kafka, "Kafka")

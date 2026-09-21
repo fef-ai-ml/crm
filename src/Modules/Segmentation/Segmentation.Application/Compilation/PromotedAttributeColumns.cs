@@ -12,4 +12,8 @@ public static class PromotedAttributeColumns
     };
 
     public static bool TryGetColumn(string key, out string column) => Columns.TryGetValue(key, out column!);
+
+    /// <summary>The promoted key set itself (H18's drift guard): asserted equal to Profiles' own
+    /// `PromotedAttributes.Keys` by an integration test, since Segmentation may not reference Profiles.</summary>
+    public static IReadOnlyCollection<string> Keys => Columns.Keys;
 }

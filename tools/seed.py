@@ -7,11 +7,15 @@ per GET /v1/api-keys; otherwise (no stored key, an unparsable one, or one
 belonging to a deleted or revoked key) a new key is minted and replaces it.
 Also loads the 5k-profile / 100k-event demo dataset through the
 Development-only POST /v1/dev/seed-dataset (idempotent on the server: a
-second run reports "exists"). Standard library only.
+second run reports "exists"), then upserts and runs the six demo segments
+through the Development-only POST /v1/dev/seed-segments (H22; also
+idempotent — an existing segment is left untouched and an already-run one
+is not re-queued). Standard library only.
 """
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -114,7 +118,8 @@ def dataset_report(body):
 
 
 def load_dataset(token):
-    """5k profiles / 100k events (docs/test/fixtures.md). Idempotent on the server: a second run reports 'exists'."""
+    """5k profiles / 100k events (docs/test/fixtures.md). Idempotent on the server: a second run reports 'exists'.
+    Returns the response's own `segments` dict (name -> count) so `seed_segments` never duplicates these numbers."""
     status, body = call("POST", "/v1/dev/seed-dataset", {}, token, timeout=600)
     if status == 404:
         sys.exit("seed: POST /v1/dev/seed-dataset is not available — the API must run in Development and include plan F")
@@ -122,6 +127,56 @@ def load_dataset(token):
         fail("load seed dataset", status, body)
     for line in dataset_report(body):
         print(line)
+    return body["segments"]
+
+
+def compare_segment_counts(expected: dict, actual: dict) -> list:
+    """Pure comparison (unit-tested): one message per name in `expected` that is missing from `actual` or whose
+    count differs from it. A name present in `actual` but not `expected` is not this function's concern."""
+    messages = []
+    for name, count in expected.items():
+        if name not in actual:
+            messages.append(f"{name}: missing from GET /v1/segments")
+        elif actual[name] != count:
+            messages.append(f"{name}: expected {count}, found {actual[name]}")
+    return messages
+
+
+def seed_segments(token, expected_counts):
+    """H22: upserts the six demo segments (`SeedSegments`, C# source of truth) through the Development-only
+    POST /v1/dev/seed-segments and queues a run for each Active one, then polls GET /v1/segments until every
+    Active seed segment has a `lastRunAt` (timeout 120 s, 1 s interval) and compares `memberCount` against
+    `expected_counts` — the same six counts `load_dataset`'s own response just printed, never duplicated here.
+    Idempotent on the server: an existing segment is left untouched and an already-run one is not re-queued."""
+    status, body = call("POST", "/v1/dev/seed-segments", {}, token, timeout=60)
+    if status == 404:
+        sys.exit("seed: POST /v1/dev/seed-segments is not available — the API must run in Development and include plan H")
+    if status != 200:
+        fail("seed segments", status, body)
+
+    active_names = {item["name"] for item in body if item["status"] == "Active"}
+
+    deadline = time.time() + 120
+    segments = {}
+    while True:
+        status, body = call("GET", "/v1/segments?limit=50", token=token)
+        if status != 200:
+            fail("list segments", status, body)
+        segments = {item["name"]: item for item in body["items"]}
+        pending = sorted(name for name in active_names if not segments.get(name, {}).get("lastRunAt"))
+        if not pending:
+            break
+        if time.time() > deadline:
+            sys.exit(f"seed: segments did not finish their first run within 120 s: {pending}")
+        time.sleep(1)
+
+    actual_counts = {name: item["memberCount"] for name, item in segments.items()}
+    for name in sorted(expected_counts):
+        print(f"seed:   {name} = {actual_counts.get(name, '?')} (expected {expected_counts[name]})")
+
+    mismatches = compare_segment_counts(expected_counts, actual_counts)
+    if mismatches:
+        sys.exit("seed: segment counts do not match the seed dataset: " + "; ".join(mismatches))
 
 
 def main():
@@ -170,7 +225,8 @@ def main():
         write_key(ENV_LOCAL, body['key'])
         print(f"seed: API key sdk ({body['prefix']}…) written to {ENV_LOCAL}")
 
-    load_dataset(token)
+    dataset_segments = load_dataset(token)
+    seed_segments(token, dataset_segments)
 
 
 if __name__ == "__main__":
