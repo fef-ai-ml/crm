@@ -63,7 +63,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given two tracks for `anonymousId: a1` (profile P1, older) and one track for `userId: u1` (profile P2)
 - When `POST /v1/identify {userId: "u1", anonymousId: "a1", traits: {plan: "pro"}}`
 - Then P1 is the winner (older `FirstSeenAt`), all three events have `ProfileId = P1`, identities `anonymous_id:a1` and `external_id:u1` point to P1, P2 has `MergedIntoId = P1`, `GET /v1/profiles/{P2}` returns 404, and a `ProfileMerged` message is on `events.processed`
-- Plan E note: the `GET /v1/profiles/{P2}` → 404 assertion arrives with plan F.
+- Plan F: `GET /v1/profiles/{P2}` and its timeline return 404 (`MergeTests.cs`).
 - Implemented: tests/Crm.IntegrationTests/Profiles/MergeTests.cs
 
 ### IT-008 — events arriving during a merge are not lost
@@ -94,14 +94,14 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given profiles with email `alice@x.io`, external id `ALI-9`, phone `+628123456789`
 - When `GET /v1/profiles?q=ali`, `?q=ALI`, `?q=%2B62812`
 - Then each returns the expected profile, results are ordered by `lastSeenAt` desc, and `?q=zzz` returns an empty `items`
-- Planned: tests/Crm.IntegrationTests/Profiles/SearchTests.cs
+- Implemented: tests/Crm.IntegrationTests/Profiles/SearchTests.cs
 
 ### IT-012 — timeline pagination and name filter
 - Traces: FR-11
 - Given a profile with 120 events, 40 named `purchase`
 - When `GET /v1/profiles/{id}/events?limit=50` is followed with `cursor` twice, and `?name=purchase`
 - Then pages have 50, 50, 20 items newest-first with no overlap, `nextCursor` is null on the last page, and the filtered query returns 40
-- Planned: tests/Crm.IntegrationTests/Profiles/TimelineTests.cs
+- Implemented: tests/Crm.IntegrationTests/Profiles/TimelineTests.cs
 
 ## Segments: CRUD, preview, batch runs
 
@@ -240,6 +240,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given tenants A and B each with a profile and a segment
 - When A's JWT requests B's `GET /v1/profiles/{id}`, `/segments/{id}`, `/segments/{id}/members`, and A's API key tracks an event for B's user id
 - Then the reads return 404, the event lands in A's tenant only, and B's data is unchanged
+- Plan F note: the profile reads are asserted by `IT030_another_tenants_profile_reads_are_404`; the segment reads arrive with the Segmentation plan.
 - Implemented: tests/Crm.IntegrationTests/Tenancy/IsolationTests.cs
 
 ### IT-031 — tenant isolation through the query filter

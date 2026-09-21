@@ -25,4 +25,5 @@ public static class EndpointTags
 {
     public const string Ingest = "Ingest";
     public const string Tenancy = "Tenancy";
+    public const string Profiles = "Profiles";
 }

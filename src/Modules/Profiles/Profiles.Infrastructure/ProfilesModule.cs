@@ -1,7 +1,9 @@
 using Crm.Kernel.Data;
 using Crm.Profiles.Application.Pipeline;
+using Crm.Profiles.Application.Queries;
 using Crm.Profiles.Infrastructure.Caching;
 using Crm.Profiles.Infrastructure.Persistence;
+using Crm.Profiles.Infrastructure.Queries;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -24,6 +26,7 @@ public static class ProfilesModule
         services.AddSingleton<IIdentityCache, RedisIdentityCache>();
         services.AddScoped<IProfileStore, EfProfileStore>();
         services.AddScoped<ProfilePipeline>();
+        services.AddScoped<IProfileQueries, EfProfileQueries>();
 
         return services;
     }

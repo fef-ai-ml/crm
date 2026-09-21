@@ -4,6 +4,8 @@ using Crm.Contracts;
 using Crm.IntegrationTests.Fixtures;
 using Crm.IntegrationTests.Ingestion;
 using Crm.Kernel.Redis;
+using Crm.Profiles.Application.Queries;
+using Crm.Tenancy.Domain;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
@@ -83,7 +85,13 @@ public sealed class MergeTests(CrmStackFixture stack) : IAsyncLifetime
         payload.LoserProfileId.Should().Be(p2.Id);
         merged.Key.Should().Be($"{tenant.TenantId:N}:{p1.Id:N}");
         processed.Should().Contain(r => r.MessageType == nameof(ProfileUpdated));
-        // `GET /v1/profiles/{P2}` → 404 is asserted when the read API exists (plan F).
+
+        var viewer = TenancySeed.AccessToken(_factory, tenant.ViewerUserId, tenant.TenantId, Roles.Viewer);
+        using var mergedProfile = await _client.GetAsync($"/v1/profiles/{p2.Id}", viewer);
+        mergedProfile.StatusCode.Should().Be(HttpStatusCode.NotFound, "a merge loser is excluded from every read (FR-09)");
+        using var mergedTimeline = await _client.GetAsync($"/v1/profiles/{p2.Id}/events", viewer);
+        mergedTimeline.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await _client.ReadAsync<ProfileResponse>($"/v1/profiles/{p1.Id}", viewer)).EventCount.Should().Be(winner.EventCount);
     }
 
     [Fact]

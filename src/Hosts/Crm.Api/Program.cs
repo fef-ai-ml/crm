@@ -8,6 +8,7 @@ using Crm.Kernel.Ids;
 using Crm.Kernel.Tenancy;
 using Crm.Kernel.Time;
 using Crm.Profiles.Infrastructure;
+using Crm.Profiles.Infrastructure.Endpoints;
 using Crm.Segmentation.Infrastructure;
 using Crm.Tenancy.Infrastructure;
 using Crm.Tenancy.Infrastructure.Auth;
@@ -94,6 +95,12 @@ public class Program
             .RequireRateLimiting(RateLimitPolicies.Ingest)
             .WithTags(EndpointTags.Ingest)
             .MapIngestionEndpoints();
+
+        // Same composition-root rule as Ingestion: Profiles may not name Tenancy's policies or tags.
+        v1.MapGroup(string.Empty)
+            .RequireAuthorization(AuthPolicies.AdminOrViewer)
+            .WithTags(EndpointTags.Profiles)
+            .MapProfilesEndpoints();
 
         if (app.Environment.IsDevelopment() || exportPath is not null)
         {

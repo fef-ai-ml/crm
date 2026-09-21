@@ -43,11 +43,13 @@ Every error is `application/problem+json` (RFC 9457):
 | 503 | Kafka unavailable at ingest; retry after `Retry-After` seconds |
 | 500 | Unexpected error; `traceId` identifies the trace |
 
-Every problem body also carries `code`, a stable machine-readable error code, safe to branch on in client code. A specific failure (for example `auth.invalid_credentials`, `tenant.slug_taken`, `user.email_taken`) gets its own code; anything else falls back to one derived from the status: `request.invalid` (400), `auth.unauthorized` (401), `auth.forbidden` (403), `resource.not_found` (404), `request.conflict` (409), `rate_limit.exceeded` (429), `service.unavailable` (503), `server.unexpected` (otherwise).
+Every problem body also carries `code`, a stable machine-readable error code, safe to branch on in client code. A specific failure (for example `auth.invalid_credentials`, `tenant.slug_taken`, `user.email_taken`, `pagination.invalid_limit`, `pagination.invalid_cursor`, `profiles.invalid_query`, `profiles.invalid_filter`, `profile.not_found`) gets its own code; anything else falls back to one derived from the status: `request.invalid` (400), `auth.unauthorized` (401), `auth.forbidden` (403), `resource.not_found` (404), `request.conflict` (409), `rate_limit.exceeded` (429), `service.unavailable` (503), `server.unexpected` (otherwise).
 
 ## Pagination
 
 List endpoints accept `limit` (default 50, max 200) and `cursor` (opaque string from the previous response). Responses have the shape `{ "items": [...], "nextCursor": "..." | null }`. Offsets are not supported.
+
+`limit` outside 1…200 is `400 pagination.invalid_limit`; a `cursor` that this endpoint did not issue (malformed, or issued by another endpoint) is `400 pagination.invalid_cursor`. A cursor is a position in the sort order, not a snapshot: rows that change their sort key between two pages can appear twice or not at all.
 
 ## Ingest
 
@@ -105,13 +107,19 @@ Auth: JWT (Admin or Viewer).
 | GET | `/profiles/{id}` | Core fields plus `attributes` object |
 | GET | `/profiles/{id}/events?from=&to=&name=&limit=&cursor=` | Timeline, newest first |
 
-Profile shape:
+`q` matches a case-insensitive **prefix** of `externalId`, `email`, or — when `q` is a `+` and/or digits with optional separators (spaces, `-`, `.`, `(`, `)`) — `phone`; `q` absent lists every live profile of the tenant. `q` is at most 256 characters (`400 profiles.invalid_query`). Anonymous ids are not searchable. Search items are thin: `{ "id", "externalId", "email", "phone", "lastSeenAt", "eventCount" }` — no `attributes`; only the detail endpoint returns those.
+
+Profile shape (detail):
 
 ```json
 { "id": "...", "externalId": "u-123", "email": "a@b.com", "phone": "+628123", "attributes": { "plan": "pro" }, "firstSeenAt": "...", "lastSeenAt": "...", "eventCount": 42 }
 ```
 
+The timeline is ordered by `occurredAt` (then `id` as a tiebreak) descending, so an event sent with an old `timestamp` appears at that position rather than at the top. `name` must match `[A-Za-z0-9_]{1,64}`; `from` is inclusive and `to` is exclusive, both ISO 8601 with an offset (`400 profiles.invalid_filter` for a bad name, or `from >= to`).
+
 Event shape: `{ "id": "...", "name": "purchase", "properties": { }, "occurredAt": "...", "receivedAt": "..." }`.
+
+`404 profile.not_found` on both `/{id}` and `/{id}/events` for an unknown id, another tenant's id, and a profile that was merged into another one — the three are indistinguishable, so nothing about a profile's existence leaks. No rate limit applies to these endpoints. All timestamps in every response are UTC (`Z` suffix).
 
 ## Segments
 
