@@ -32,7 +32,7 @@ public sealed class SeedDatasetTests(CrmStackFixture stack) : IAsyncLifetime
         // (bigger indexes, staler statistics) — clean it up rather than document the coupling.
         if (_seededTenantId is { } tenantId)
         {
-            await CleanupSeededTenantAsync(tenantId);
+            await SeedDataset.DeleteAsync(stack.SqlConnectionString, tenantId);
         }
 
         _client.Dispose();
@@ -138,23 +138,6 @@ public sealed class SeedDatasetTests(CrmStackFixture stack) : IAsyncLifetime
         using var notMapped = await PostAsync(client, "/v1/dev/seed-dataset", admin);
 
         notMapped.StatusCode.Should().Be(HttpStatusCode.NotFound);
-    }
-
-    private async Task CleanupSeededTenantAsync(Guid tenantId)
-    {
-        await using var connection = new SqlConnection(stack.SqlConnectionString);
-        await connection.OpenAsync();
-        foreach (var sql in new[]
-        {
-            "DELETE FROM profiles.Events WHERE TenantId = @t",
-            "DELETE FROM profiles.UserIdentities WHERE TenantId = @t",
-            "DELETE FROM profiles.Profiles WHERE TenantId = @t",
-        })
-        {
-            await using var command = new SqlCommand(sql, connection) { CommandTimeout = 120 };
-            command.Parameters.AddWithValue("@t", tenantId);
-            await command.ExecuteNonQueryAsync();
-        }
     }
 
     /// <summary>

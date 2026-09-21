@@ -30,7 +30,7 @@ internal sealed class EfProfileQueries(ProfilesDbContext db) : IProfileQueries
             return term.Error!;
         }
 
-        var query = db.Profiles.AsNoTracking().Where(p => p.MergedIntoId == null);
+        var query = db.Profiles.AsNoTracking().TagWith("profiles-search").Where(p => p.MergedIntoId == null);
 
         if (!term.Value.IsEmpty)
         {
@@ -53,7 +53,10 @@ internal sealed class EfProfileQueries(ProfilesDbContext db) : IProfileQueries
 
             var at = after.Timestamp;
             var id = after.Id;
-            query = query.Where(p => p.LastSeenAt < at || (p.LastSeenAt == at && p.Id.CompareTo(id) < 0));
+            // Conjunctive form (ruling G3): SQL Server can seek to the cursor position on the keyset index. The
+            // disjunctive form it replaces (sort < at || (sort == at && rowId < cursorId)) returns the same rows
+            // but can only be evaluated as a residual predicate, forcing a scan from the start of the index.
+            query = query.Where(p => p.LastSeenAt <= at && (p.LastSeenAt < at || p.Id.CompareTo(id) < 0));
         }
 
         var rows = await query
@@ -108,7 +111,7 @@ internal sealed class EfProfileQueries(ProfilesDbContext db) : IProfileQueries
             return ProfilesErrors.NotFound;
         }
 
-        var query = db.Events.AsNoTracking().Where(e => e.ProfileId == id);
+        var query = db.Events.AsNoTracking().TagWith("profiles-timeline").Where(e => e.ProfileId == id);
 
         if (filter.Name is { } name)
         {
@@ -129,7 +132,7 @@ internal sealed class EfProfileQueries(ProfilesDbContext db) : IProfileQueries
         {
             var at = position.Timestamp;
             var lastId = position.Id;
-            query = query.Where(e => e.OccurredAt < at || (e.OccurredAt == at && e.Id.CompareTo(lastId) < 0));
+            query = query.Where(e => e.OccurredAt <= at && (e.OccurredAt < at || e.Id.CompareTo(lastId) < 0));
         }
 
         var rows = await query

@@ -180,14 +180,17 @@ namespace Crm.Profiles.Infrastructure.Migrations
 
                     SqlServerIndexBuilderExtensions.IsClustered(b.HasIndex("TenantId", "Id"));
 
-                    b.HasIndex("TenantId", "LastSeenAt")
-                        .IsDescending(false, true)
-                        .HasDatabaseName("IX_Profiles_TenantId_LastSeenAt");
-
                     b.HasIndex("TenantId", "Phone")
                         .IsUnique()
                         .HasDatabaseName("UX_Profiles_TenantId_Phone")
                         .HasFilter("[Phone] IS NOT NULL");
+
+                    b.HasIndex("TenantId", "LastSeenAt", "Id")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("IX_Profiles_TenantId_LastSeenAt_Id")
+                        .HasFilter("[MergedIntoId] IS NULL");
+
+                    SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("TenantId", "LastSeenAt", "Id"), new[] { "ExternalId", "Email", "Phone", "EventCount", "MergedIntoId" });
 
                     b.ToTable("Profiles", "profiles", t =>
                         {

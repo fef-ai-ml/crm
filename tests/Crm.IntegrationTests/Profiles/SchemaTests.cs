@@ -59,11 +59,26 @@ public class SchemaTests(CrmStackFixture stack)
             "IX_Profiles_TenantId_Attr_city|NONCLUSTERED|0|0",
             "IX_Profiles_TenantId_Attr_country|NONCLUSTERED|0|0",
             "IX_Profiles_TenantId_Attr_plan|NONCLUSTERED|0|0",
-            "IX_Profiles_TenantId_LastSeenAt|NONCLUSTERED|0|0",
+            "IX_Profiles_TenantId_LastSeenAt_Id|NONCLUSTERED|0|1",
             "PK_Profiles|NONCLUSTERED|1|0",
             "UX_Profiles_TenantId_Email|NONCLUSTERED|1|1",
             "UX_Profiles_TenantId_ExternalId|NONCLUSTERED|1|1",
             "UX_Profiles_TenantId_Phone|NONCLUSTERED|1|1");
+
+        // Keyset index of GET /v1/profiles (plan G, ruling G2): key columns TenantId, LastSeenAt DESC, Id DESC,
+        // then the INCLUDEd projection columns.
+        var keyset = await QueryAsync(
+            """
+            SELECT c.name + '|' + CAST(ic.key_ordinal AS varchar(2)) + '|' + CAST(ic.is_descending_key AS char(1)) + '|' + CAST(ic.is_included_column AS char(1))
+            FROM sys.indexes i
+            JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+            JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+            WHERE i.object_id = OBJECT_ID(N'profiles.Profiles') AND i.name = N'IX_Profiles_TenantId_LastSeenAt_Id'
+            ORDER BY ic.is_included_column, ic.key_ordinal, c.name
+            """);
+        keyset.Should().Equal(
+            "TenantId|1|0|0", "LastSeenAt|2|1|0", "Id|3|1|0",
+            "Email|0|0|1", "EventCount|0|0|1", "ExternalId|0|0|1", "MergedIntoId|0|0|1", "Phone|0|0|1");
 
         var computed = await QueryAsync(
             "SELECT name + '|' + CAST(is_persisted AS char(1)) FROM sys.computed_columns WHERE object_id = OBJECT_ID(N'profiles.Profiles') ORDER BY name");

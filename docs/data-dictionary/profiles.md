@@ -30,7 +30,7 @@ Indexes:
 | UX_Profiles_TenantId_ExternalId | TenantId, ExternalId | unique, filtered `WHERE ExternalId IS NOT NULL` |
 | UX_Profiles_TenantId_Email | TenantId, Email | unique, filtered `WHERE Email IS NOT NULL` |
 | UX_Profiles_TenantId_Phone | TenantId, Phone | unique, filtered `WHERE Phone IS NOT NULL` |
-| IX_Profiles_TenantId_LastSeenAt | TenantId, LastSeenAt DESC | profile explorer default sort |
+| IX_Profiles_TenantId_LastSeenAt_Id | TenantId, LastSeenAt DESC, Id DESC; INCLUDE ExternalId, Email, Phone, EventCount, MergedIntoId; WHERE MergedIntoId IS NULL | keyset index of GET /v1/profiles: browse and search pages are an ordered scan, no sort, no lookups. `MergedIntoId` is INCLUDEd (not selected) because SQL Server only elides the filter's re-check against the base table when the filtered column is itself present in the index |
 | IX_Profiles_TenantId_Attr_plan | TenantId, Attr_plan | promoted attribute |
 | IX_Profiles_TenantId_Attr_country | TenantId, Attr_country | promoted attribute |
 | IX_Profiles_TenantId_Attr_city | TenantId, Attr_city | promoted attribute |
@@ -81,6 +81,6 @@ Constraint: `CK_Events_Properties_IsJson CHECK (ISJSON(Properties) = 1)`; `FK_Ev
 
 ## Read paths
 
-Search (`GET /v1/profiles`) filters `MergedIntoId IS NULL`, matches by prefix `LIKE` on the three contact columns (`ExternalId`, `Email`, `Phone`, relying on the database's default collation for case-insensitivity), and sorts by `(LastSeenAt, Id)` descending — today that is a scan of the tenant's live profiles plus a sort per page, which is fine at thousands of profiles per tenant and a known limitation beyond that (see the plan's "Known limitations"). The timeline (`GET /v1/profiles/{id}/events`) seeks `CX_Events_TenantId_ProfileId_OccurredAt` for the profile and sorts by `(OccurredAt, Id)` descending; `Id` is not part of that index's key, so the cost of a page grows with the profile's matching events. Covering keyset indexes for both paths are a recorded follow-up, to be added before Segmentation copies the shape. Every profile read filters `MergedIntoId IS NULL` itself.
+Search (`GET /v1/profiles`) matches by prefix `LIKE` on the three contact columns (`ExternalId`, `Email`, `Phone`, relying on the database's default collation for case-insensitivity); pages are read in index order from `IX_Profiles_TenantId_LastSeenAt_Id`, the cursor seeks to its position, `q` is a residual predicate on that scan (a rare match on a very large tenant scans until a page is full — known limitation, ruling G4); the plan is asserted by `ReadPathPlanTests`. The timeline (`GET /v1/profiles/{id}/events`) seeks `CX_Events_TenantId_ProfileId_OccurredAt` for the profile and sorts by `(OccurredAt, Id)` descending; `Id` is not part of that index's key, so the cost of a page grows with the profile's matching events. Covering keyset indexes for both paths are a recorded follow-up, to be added before Segmentation copies the shape. Every profile read filters `MergedIntoId IS NULL` itself.
 
 `JSON_VALUE` returns text for every JSON scalar (numbers included), so any numeric predicate over an `Attributes` value — e.g. `ltv` — must `TRY_CONVERT(decimal(18, 2), JSON_VALUE(Attributes, '$.ltv'))` before comparing; this is binding for the Segmentation rule compiler (IT-014).
