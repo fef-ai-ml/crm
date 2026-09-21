@@ -14,4 +14,12 @@ public static class ProfilesEndpointExtensions
         ProfileEndpoints.Map(secured);
         return secured;
     }
+
+    /// <summary>POST /dev/seed-dataset on a group the HOST has secured with AdminOnly and maps only in Development (`make seed`).</summary>
+    public static RouteGroupBuilder MapProfilesDevSeed(this RouteGroupBuilder adminOnly)
+    {
+        ArgumentNullException.ThrowIfNull(adminOnly);
+        Seeding.SeedEndpoints.Map(adminOnly);
+        return adminOnly;
+    }
 }

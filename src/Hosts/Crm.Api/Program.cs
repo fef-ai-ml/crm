@@ -107,6 +107,11 @@ public class Program
             v1.MapTenancyBootstrap(); // in the exported contract regardless of the exporting environment
         }
 
+        if (app.Environment.IsDevelopment())
+        {
+            v1.MapGroup(string.Empty).RequireAuthorization(AuthPolicies.AdminOnly).MapProfilesDevSeed();
+        }
+
         if (app.Environment.IsEnvironment("Testing"))
         {
             v1.MapTenancyTestProbes();

@@ -1,0 +1,14 @@
+using Crm.Profiles.Infrastructure.Seeding;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Crm.IntegrationTests.Fixtures;
+
+/// <summary>docs/test/fixtures.md: the demo dataset for a test tenant, loaded by the same code `make seed` reaches through the API.</summary>
+internal static class SeedDataset
+{
+    public static async Task<SeedLoadResult> LoadAsync(CrmApiFactory factory, Guid tenantId)
+    {
+        var loader = factory.Services.GetRequiredService<SeedDatasetLoader>();
+        return (await loader.LoadAsync(tenantId, CancellationToken.None)).Value;
+    }
+}
