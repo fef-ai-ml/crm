@@ -5,7 +5,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginx:1.29-alpine AS runtime
+FROM nginx:1.31-alpine AS runtime
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY resolve-nameserver.sh /docker-entrypoint.d/40-resolve-nameserver.sh
 RUN chmod +x /docker-entrypoint.d/40-resolve-nameserver.sh
