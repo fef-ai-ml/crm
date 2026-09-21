@@ -16,6 +16,10 @@ public class RuleCompilerTests
 
     private static RuleCompiler NewCompiler() => new(new FakeClock(Clock));
 
+    // Parses through RuleParser (rather than hand-building a RuleNode) so the whole path — including the
+    // parser's own value-kind selection (H17) — is covered, not just the compiler in isolation.
+    private static RuleNode Parse(string json) => RuleParser.Parse(JsonDocument.Parse(json).RootElement).Tree!;
+
     [Fact]
     public void UT035_root_always_filters_tenant_and_merged_profiles()
     {
@@ -85,6 +89,52 @@ public class RuleCompilerTests
 
         compiledEq.Sql.Should().Contain("TRY_CONVERT(float, JSON_VALUE(p.Attributes, '$.ltv')) = @p0");
         compiledIn.Sql.Should().Contain("TRY_CONVERT(float, JSON_VALUE(p.Attributes, '$.ltv')) IN (@p0, @p1)");
+    }
+
+    [Fact]
+    public void I2_numeric_neq_uses_try_convert_with_null_handling()
+    {
+        var tree = Parse("""{ "type": "attribute", "key": "ltv", "cmp": "neq", "value": 42 }""");
+
+        var compiled = NewCompiler().Compile(tree, TenantId);
+        var jv = "TRY_CONVERT(float, JSON_VALUE(p.Attributes, '$.ltv'))";
+
+        compiled.Sql.Should().Contain($"({jv} <> @p0 OR {jv} IS NULL)");
+        compiled.Parameters.Should().ContainSingle(p => p.Name == "@p0" && p.Kind == SqlValueKind.Float && (double)p.Value == 42);
+    }
+
+    [Fact]
+    public void I2_numeric_nin_uses_try_convert_with_null_handling()
+    {
+        var tree = Parse("""{ "type": "attribute", "key": "ltv", "cmp": "nin", "value": [1, 2] }""");
+
+        var compiled = NewCompiler().Compile(tree, TenantId);
+        var jv = "TRY_CONVERT(float, JSON_VALUE(p.Attributes, '$.ltv'))";
+
+        compiled.Sql.Should().Contain($"({jv} NOT IN (@p0, @p1) OR {jv} IS NULL)");
+        compiled.Parameters.Should().Contain(p => p.Name == "@p0" && p.Kind == SqlValueKind.Float && (double)p.Value == 1);
+        compiled.Parameters.Should().Contain(p => p.Name == "@p1" && p.Kind == SqlValueKind.Float && (double)p.Value == 2);
+    }
+
+    [Fact]
+    public void I3_contains_escapes_brackets()
+    {
+        var tree = Parse("""{ "type": "attribute", "key": "campaign", "cmp": "contains", "value": "a[b]%" }""");
+
+        var compiled = NewCompiler().Compile(tree, TenantId);
+
+        compiled.Sql.Should().Contain("JSON_VALUE(p.Attributes, '$.campaign') LIKE '%' + @p0 + '%' ESCAPE '\\'");
+        compiled.Parameters.Should().ContainSingle(p => p.Name == "@p0" && p.Kind == SqlValueKind.Text && (string)p.Value == "a\\[b]\\%");
+    }
+
+    [Fact]
+    public void Minor1_audit_text_doubles_embedded_single_quotes()
+    {
+        var tree = Parse("""{ "type": "attribute", "key": "tier", "cmp": "eq", "value": "O'Brien" }""");
+
+        var compiled = NewCompiler().Compile(tree, TenantId);
+
+        compiled.ToAuditText().Should().Contain("'O''Brien'");
     }
 
     [Fact]

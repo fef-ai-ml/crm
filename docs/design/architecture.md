@@ -252,7 +252,7 @@ JV = `JSON_VALUE(p.Attributes, '$.key')` or the promoted column.
 | attribute nin | `(JV NOT IN (@p0, …) OR JV IS NULL)` | included |
 | attribute eq/neq/in/nin with a numeric value | as above, with `JV` wrapped in `TRY_CONVERT(float, JV)` and float parameters (H17) | as above |
 | attribute gt/gte/lt/lte | `TRY_CONVERT(float, JV) > @p` (etc.) | excluded (NULL compares UNKNOWN) |
-| attribute contains | `JV LIKE '%' + @p + '%' ESCAPE '\'` with `%`, `_`, `\` escaped in @p | excluded |
+| attribute contains | `JV LIKE '%' + @p + '%' ESCAPE '\'` with `\`, `%`, `_`, `[` escaped in @p (backslash first) | excluded |
 | attribute exists | `JV IS NOT NULL` | excluded |
 | attribute not_exists | `JV IS NULL` | included |
 | event gte n (n ≥ 1) | `EXISTS (SELECT 1 FROM profiles.Events e WHERE e.TenantId=@t AND e.ProfileId=p.Id AND e.Name=@n AND e.OccurredAt>=@since HAVING COUNT(*) >= @c)` | — |
