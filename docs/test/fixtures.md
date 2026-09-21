@@ -35,7 +35,7 @@ The seeder asserts these counts after loading and fails if any differ, so a dist
 
 ## Rule Fixtures
 
-Directory `tests/fixtures/rules/`. Both the C# validator theory and the Zod test iterate every file (CT-002). File names are the identifiers used in unit cases.
+Directory `tests/fixtures/rules/`. Both the C# validator theory and the Zod test iterate every file (CT-002). File names are the identifiers used in unit cases. Each file is `{ "definition": <tree> }`; an invalid file adds `"expectedErrorPath"` as a sibling property of `definition` (H19). `depth-5.json`/`leaves-20.json` and their invalid counterparts `depth-6.json`/`leaves-21.json` are the boundary cases added for UT-016/UT-017.
 
 `valid/`:
 

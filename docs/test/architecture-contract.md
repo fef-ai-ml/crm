@@ -67,7 +67,7 @@ Architecture cases (`AT`) run with NetArchTest against the compiled solution on 
 - Given `tests/fixtures/rules/valid/*.json` and `tests/fixtures/rules/invalid/*.json`
 - When the C# `RuleValidator` (xUnit theory) and the Zod schema (Vitest) each run over both directories
 - Then every `valid` fixture passes both and every `invalid` fixture fails both, with the same first error path
-- Planned: tests/Segmentation.UnitTests/RuleFixtureParityTests.cs and src/Hosts/Crm.Web/src/rules/schema.test.ts
+- C# half implemented (plan H); Zod half: Web plan. Implemented: tests/Segmentation.UnitTests/RuleFixtureParityTests.cs
 
 ### CT-003 — documentation checker is green
 - Traces: NFR-09

@@ -1,0 +1,1 @@
+{ "definition": { "type": "attribute", "key": "opted_in", "cmp": "eq", "value": true } }

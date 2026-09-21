@@ -1,0 +1,4 @@
+{
+  "definition": { "type": "event", "name": "purchase", "cmp": "gte", "count": 1, "window": "0d" },
+  "expectedErrorPath": "definition.window"
+}

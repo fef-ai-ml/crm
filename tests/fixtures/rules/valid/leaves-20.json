@@ -1,0 +1,107 @@
+{
+  "definition": {
+    "op": "and",
+    "children": [
+      {
+        "type": "attribute",
+        "key": "k01",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k02",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k03",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k04",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k05",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k06",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k07",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k08",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k09",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k10",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k11",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k12",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k13",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k14",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k15",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k16",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k17",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k18",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k19",
+        "cmp": "exists"
+      },
+      {
+        "type": "attribute",
+        "key": "k20",
+        "cmp": "exists"
+      }
+    ]
+  }
+}

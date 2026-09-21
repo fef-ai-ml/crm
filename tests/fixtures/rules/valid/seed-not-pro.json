@@ -1,0 +1,1 @@
+{ "definition": { "type": "attribute", "key": "plan", "cmp": "neq", "value": "pro" } }

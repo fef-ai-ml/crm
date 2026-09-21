@@ -1,0 +1,4 @@
+{
+  "definition": { "type": "bogus" },
+  "expectedErrorPath": "definition.type"
+}

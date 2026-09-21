@@ -125,35 +125,35 @@ Pure tests: no database, no Kafka, no Redis. Fakes for `IClock`, `ITenantContext
 - Given nested `and` groups of depth 5 and depth 6
 - When the rule validator runs
 - Then depth 5 passes and depth 6 fails with path `definition` "depth must be at most 5"
-- Planned: tests/Segmentation.UnitTests/RuleValidatorTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleValidatorTests.cs
 
 ### UT-017 — rule leaf limit
 - Traces: FR-12
 - Given a flat `and` group with 20 attribute leaves and one with 21
 - When the rule validator runs
 - Then 20 passes and 21 fails with "at most 20 leaves"
-- Planned: tests/Segmentation.UnitTests/RuleValidatorTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleValidatorTests.cs
 
 ### UT-018 — not group has exactly one child
 - Traces: FR-12
 - Given `not` groups with zero, one, and two children
 - When the rule validator runs
 - Then only one child passes; the others fail with path `definition.children[i]`
-- Planned: tests/Segmentation.UnitTests/RuleValidatorTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleValidatorTests.cs
 
 ### UT-019 — event window format and maximum
 - Traces: FR-13
 - Given windows `30d`, `12h`, `365d`, `366d`, `30`, `1w`, `0d`
 - When the rule validator runs
 - Then the first three pass and the rest fail with "window must match ^\d+(d|h)$ and be at most 365 days"
-- Planned: tests/Segmentation.UnitTests/RuleValidatorTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleValidatorTests.cs
 
 ### UT-020 — attribute key pattern
 - Traces: FR-13, FR-14
 - Given keys `plan`, `a_b1`, `x` repeated 64 times, `plan.name`, `plan'`, `x` repeated 65 times
 - When the rule validator runs
 - Then the first three pass and the rest fail; the compiler is never invoked with a rejected key
-- Planned: tests/Segmentation.UnitTests/RuleValidatorTests.cs
+- Implemented: tests/Segmentation.UnitTests/RuleValidatorTests.cs
 
 ## Rule compiler (golden files)
 

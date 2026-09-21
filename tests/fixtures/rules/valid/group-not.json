@@ -1,0 +1,3 @@
+{ "definition": { "op": "not", "children": [
+  { "type": "attribute", "key": "plan", "cmp": "eq", "value": "pro" }
+]}}

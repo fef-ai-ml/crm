@@ -1,0 +1,1 @@
+{ "definition": { "type": "event", "name": "purchase", "cmp": "lte", "count": 1, "window": "30d" } }

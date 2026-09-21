@@ -1,0 +1,4 @@
+{
+  "definition": { "type": "attribute", "key": "plan", "cmp": "bogus", "value": "pro" },
+  "expectedErrorPath": "definition.cmp"
+}

@@ -1,0 +1,4 @@
+{
+  "definition": { "op": "not", "children": [] },
+  "expectedErrorPath": "definition"
+}

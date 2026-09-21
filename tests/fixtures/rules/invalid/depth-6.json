@@ -1,0 +1,39 @@
+{
+  "definition": {
+    "op": "and",
+    "children": [
+      {
+        "op": "and",
+        "children": [
+          {
+            "op": "and",
+            "children": [
+              {
+                "op": "and",
+                "children": [
+                  {
+                    "op": "and",
+                    "children": [
+                      {
+                        "op": "and",
+                        "children": [
+                          {
+                            "type": "attribute",
+                            "key": "plan",
+                            "cmp": "eq",
+                            "value": "pro"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expectedErrorPath": "definition"
+}

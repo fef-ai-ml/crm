@@ -1,0 +1,12 @@
+{
+  "definition": {
+    "op": "and",
+    "children": [
+      { "type": "attribute", "key": "plan", "cmp": "eq", "value": "pro" },
+      { "op": "or", "children": [
+        { "type": "attribute", "key": "country", "cmp": "in", "value": ["ID", "SG"] },
+        { "type": "event", "name": "app_open", "cmp": "eq", "count": 0, "window": "7d" }
+      ]}
+    ]
+  }
+}

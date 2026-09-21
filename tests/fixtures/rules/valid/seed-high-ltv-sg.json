@@ -1,0 +1,9 @@
+{
+  "definition": {
+    "op": "and",
+    "children": [
+      { "type": "attribute", "key": "ltv", "cmp": "gte", "value": 150 },
+      { "type": "attribute", "key": "country", "cmp": "eq", "value": "SG" }
+    ]
+  }
+}
