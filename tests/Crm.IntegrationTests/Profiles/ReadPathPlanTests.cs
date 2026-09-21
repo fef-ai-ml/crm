@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Crm.IntegrationTests.Fixtures;
 using Crm.Profiles.Application.Queries;
 using Crm.Tenancy.Domain;
@@ -48,15 +49,35 @@ public sealed class ReadPathPlanTests(CrmStackFixture stack, ITestOutputHelper t
         using var scope = new AssertionScope();
 
         var first = await _client.ReadAsync<ProfileListResponse>("/v1/profiles?limit=50", viewer);
-        Expect(await QueryPlans.LatestAsync(stack.SqlConnectionString, "profiles-search"), "browse, first page");
+        // No discriminator: this is the first "profiles-search" statement this test has caused to execute, and
+        // parallelizeTestCollections=false means no other test can run one concurrently, so "newest" is unambiguous.
+        var browseFirst = await QueryPlans.LatestAsync(stack.SqlConnectionString, "profiles-search");
+        if (Found(browseFirst, "browse, first page"))
+        {
+            Expect(browseFirst, "browse, first page");
+        }
 
         await _client.ReadAsync<ProfileListResponse>($"/v1/profiles?limit=50&cursor={first.NextCursor}", viewer);
-        var paged = await QueryPlans.LatestAsync(stack.SqlConnectionString, "profiles-search");
-        Expect(paged, "browse, second page");
-        paged.PhysicalOperators.Should().Contain("Index Seek", "the cursor predicate must seek into the keyset index (ruling G3)");
+        // "@at" only appears in the cursor-page shape (EF Core 10 names the parameter @at, not @__at_0). Matching on
+        // the parameter name rather than "<= @at" keeps the discriminator valid even if the predicate's shape
+        // changes (e.g. reverting to the disjunctive form the mutation check below exercises), so a plan is still
+        // found and the SeekColumns assertion — not a "no plan found" error — is what catches the mutation.
+        var paged = await QueryPlans.LatestAsync(stack.SqlConnectionString, "profiles-search", "@at");
+        if (Found(paged, "browse, second page"))
+        {
+            Expect(paged, "browse, second page");
+            paged.SeekColumns.Should().Contain("LastSeenAt",
+                $"the cursor predicate must seek to the cursor position, not filter after a tenant-range seek (ruling G3); seek columns were {string.Join(", ", paged.SeekColumns)}; engine: {paged.Engine}");
+        }
 
         await _client.ReadAsync<ProfileListResponse>("/v1/profiles?q=alice&limit=50", viewer);
-        Expect(await QueryPlans.LatestAsync(stack.SqlConnectionString, "profiles-search"), "search q=alice");
+        // "LIKE @text" only appears in the search shape (T-SQL LIKE treats [ and ] as a wildcard character class, so
+        // a bracketed column name such as "[Email] LIKE" cannot be used as a literal LIKE pattern here).
+        var searched = await QueryPlans.LatestAsync(stack.SqlConnectionString, "profiles-search", "LIKE @text");
+        if (Found(searched, "search q=alice"))
+        {
+            Expect(searched, "search q=alice");
+        }
     }
 
     [Fact]
@@ -84,22 +105,40 @@ public sealed class ReadPathPlanTests(CrmStackFixture stack, ITestOutputHelper t
 
         var window = await _client.ReadAsync<TimelineResponse>($"/v1/profiles/{pinned.Id}/events?from={from}&to={to}&limit=5", viewer);
         window.Items.Should().NotBeEmpty("the window must contain events or the plan says nothing");
-        var oneMonth = await QueryPlans.LatestAsync(stack.SqlConnectionString, "profiles-timeline");
-        oneMonth.Indexes.Should().Contain(TimelineIndex);
-        oneMonth.PhysicalOperators.Should().Contain("Clustered Index Seek");
-        oneMonth.HasSort.Should().BeFalse($"one partition, total-order key: no sort expected (ruling G6); operators were {string.Join(" > ", oneMonth.PhysicalOperators)}");
+        // ">= @from" only appears in the windowed shape.
+        var oneMonth = await QueryPlans.LatestAsync(stack.SqlConnectionString, "profiles-timeline", ">= @from");
+        if (Found(oneMonth, "one-month window"))
+        {
+            oneMonth.Indexes.Should().Contain(TimelineIndex);
+            oneMonth.PhysicalOperators.Should().Contain("Clustered Index Seek");
+            oneMonth.HasSort.Should().BeFalse($"one partition, total-order key: no sort expected (ruling G6); operators were {string.Join(" > ", oneMonth.PhysicalOperators)}; engine: {oneMonth.Engine}");
+        }
 
         var page1 = await _client.ReadAsync<TimelineResponse>($"/v1/profiles/{pinned.Id}/events?limit=50", viewer);
         await _client.ReadAsync<TimelineResponse>($"/v1/profiles/{pinned.Id}/events?limit=50&cursor={page1.NextCursor}", viewer);
-        var unrestricted = await QueryPlans.LatestAsync(stack.SqlConnectionString, "profiles-timeline");
-        unrestricted.Indexes.Should().Contain(TimelineIndex);
-        unrestricted.PhysicalOperators.Should().Contain("Clustered Index Seek").And.NotContain("Clustered Index Scan");
-        testOutput.WriteLine($"unrestricted timeline, second page: sort={unrestricted.HasSort}; operators: {string.Join(" > ", unrestricted.PhysicalOperators)}");
+        // "@at" only appears in the cursor-page shape.
+        var unrestricted = await QueryPlans.LatestAsync(stack.SqlConnectionString, "profiles-timeline", "@at");
+        if (Found(unrestricted, "unrestricted timeline, second page"))
+        {
+            unrestricted.Indexes.Should().Contain(TimelineIndex);
+            unrestricted.PhysicalOperators.Should().Contain("Clustered Index Seek").And.NotContain("Clustered Index Scan");
+            unrestricted.SeekColumns.Should().Contain("OccurredAt",
+                $"the cursor predicate must seek to the cursor position, not filter after a profile-range seek (ruling G3); seek columns were {string.Join(", ", unrestricted.SeekColumns)}; engine: {unrestricted.Engine}");
+            testOutput.WriteLine($"unrestricted timeline, second page: sort={unrestricted.HasSort}; operators: {string.Join(" > ", unrestricted.PhysicalOperators)}");
+        }
+    }
+
+    /// <summary>Asserts a plan was found without throwing inside the AssertionScope (I2-B): a miss becomes one more
+    /// collected failure instead of discarding every failure the scope already gathered.</summary>
+    private static bool Found([NotNullWhen(true)] QueryPlan? plan, string what)
+    {
+        plan.Should().NotBeNull($"a plan must be cached for a statement of '{what}' — was the endpoint called, and does the query still carry its TagWith tag?");
+        return plan is not null;
     }
 
     private static void Expect(QueryPlan plan, string what)
     {
-        plan.HasSort.Should().BeFalse($"{what}: rows must come out of the index already ordered; operators were {string.Join(" > ", plan.PhysicalOperators)}");
+        plan.HasSort.Should().BeFalse($"{what}: rows must come out of the index already ordered; operators were {string.Join(" > ", plan.PhysicalOperators)}; engine: {plan.Engine}");
         plan.Indexes.Should().Contain(SearchIndex, $"{what}: the keyset index must serve the query; indexes were {string.Join(", ", plan.Indexes)}");
         plan.Indexes.Should().NotContain("CX_Profiles_TenantId_Id", $"{what}: a covering index needs no lookup into the clustered index");
     }
