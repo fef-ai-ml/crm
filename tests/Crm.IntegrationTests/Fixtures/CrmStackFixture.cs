@@ -3,6 +3,7 @@ using Confluent.Kafka.Admin;
 using Crm.Contracts;
 using Crm.Kernel.Tenancy;
 using Crm.Profiles.Infrastructure;
+using Crm.Segmentation.Infrastructure;
 using Crm.Tenancy.Infrastructure;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
@@ -57,6 +58,7 @@ public sealed class CrmStackFixture : IAsyncLifetime
         await EnsureDatabaseAsync("crm_test");
         await MigrateTenancyAsync();
         await MigrateProfilesAsync();
+        await MigrateSegmentationAsync();
         await CreateTopicsAsync();
 
         Worker = new CrmWorkerFactory(this, Hooks);
@@ -109,6 +111,15 @@ public sealed class CrmStackFixture : IAsyncLifetime
             .UseSqlServer(SqlConnectionString, sql => sql.MigrationsHistoryTable(ProfilesDbContext.MigrationsHistoryTable, ProfilesDbContext.Schema))
             .Options;
         await using var db = new ProfilesDbContext(options, new TenantContext());
+        await db.Database.MigrateAsync();
+    }
+
+    private async Task MigrateSegmentationAsync()
+    {
+        var options = new DbContextOptionsBuilder<SegmentationDbContext>()
+            .UseSqlServer(SqlConnectionString, sql => sql.MigrationsHistoryTable(SegmentationDbContext.MigrationsHistoryTable, SegmentationDbContext.Schema))
+            .Options;
+        await using var db = new SegmentationDbContext(options, new TenantContext());
         await db.Database.MigrateAsync();
     }
 

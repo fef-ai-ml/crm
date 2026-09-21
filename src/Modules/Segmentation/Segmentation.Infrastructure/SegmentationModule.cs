@@ -13,7 +13,7 @@ public static class SegmentationModule
             ?? throw new InvalidOperationException("ConnectionStrings:Crm is not configured.");
 
         services.AddDbContext<SegmentationDbContext>((sp, options) => options
-            .UseSqlServer(connectionString, sql => sql.MigrationsHistoryTable("__EFMigrationsHistory_segments", SegmentationDbContext.Schema))
+            .UseSqlServer(connectionString, sql => sql.MigrationsHistoryTable(SegmentationDbContext.MigrationsHistoryTable, SegmentationDbContext.Schema))
             .AddInterceptors(sp.GetRequiredService<TenantSaveChangesInterceptor>()));
 
         return services;
