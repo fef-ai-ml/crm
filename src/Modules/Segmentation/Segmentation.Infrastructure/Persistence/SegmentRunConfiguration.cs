@@ -11,7 +11,7 @@ internal sealed class SegmentRunConfiguration : IEntityTypeConfiguration<Segment
     {
         builder.ToTable("SegmentRuns", t =>
         {
-            t.HasCheckConstraint("CK_SegmentRuns_Status", "[Status] IN ('Queued','Running','Succeeded','Failed')");
+            t.HasCheckConstraint("CK_SegmentRuns_Status", "[Status] IN ('Queued','Running','Finished','Failed')");
             t.HasCheckConstraint("CK_SegmentRuns_Trigger", "[Trigger] IN ('Manual','Schedule')");
         });
 

@@ -4,7 +4,7 @@ namespace Crm.Segmentation.Domain.Segments;
 public enum SegmentStatus { Draft, Active, Archived }
 
 /// <summary>segments.SegmentRuns.Status (varchar(16), CK_SegmentRuns_Status).</summary>
-public enum SegmentRunStatus { Queued, Running, Succeeded, Failed }
+public enum SegmentRunStatus { Queued, Running, Finished, Failed }
 
 /// <summary>segments.SegmentRuns.Trigger (varchar(16), CK_SegmentRuns_Trigger): who queued the run.</summary>
 public enum SegmentRunTrigger { Manual, Schedule }

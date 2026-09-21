@@ -70,7 +70,7 @@ namespace Crm.Segmentation.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_SegmentRuns", x => x.RunId);
-                    table.CheckConstraint("CK_SegmentRuns_Status", "[Status] IN ('Queued','Running','Succeeded','Failed')");
+                    table.CheckConstraint("CK_SegmentRuns_Status", "[Status] IN ('Queued','Running','Finished','Failed')");
                     table.CheckConstraint("CK_SegmentRuns_Trigger", "[Trigger] IN ('Manual','Schedule')");
                 });
 
@@ -116,6 +116,12 @@ namespace Crm.Segmentation.Infrastructure.Migrations
                 unique: true,
                 descending: new[] { false, false, true, true })
                 .Annotation("SqlServer:Clustered", true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_MembershipChanges_SegmentId",
+                schema: "segments",
+                table: "MembershipChanges",
+                column: "SegmentId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_MembershipChanges_TenantId_ProfileId",
@@ -172,6 +178,15 @@ namespace Crm.Segmentation.Infrastructure.Migrations
                 unique: true);
 
             migrationBuilder.AddForeignKey(
+                name: "FK_MembershipChanges_SegmentId",
+                schema: "segments",
+                table: "MembershipChanges",
+                column: "SegmentId",
+                principalSchema: "segments",
+                principalTable: "Segments",
+                principalColumn: "Id");
+
+            migrationBuilder.AddForeignKey(
                 name: "FK_SegmentRunMembers_RunId",
                 schema: "segments",
                 table: "SegmentRunMembers",
@@ -195,9 +210,9 @@ namespace Crm.Segmentation.Infrastructure.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropForeignKey(
-                name: "FK_Segments_CurrentRunId",
+                name: "FK_SegmentRuns_SegmentId",
                 schema: "segments",
-                table: "Segments");
+                table: "SegmentRuns");
 
             migrationBuilder.DropTable(
                 name: "MembershipChanges",
@@ -208,11 +223,11 @@ namespace Crm.Segmentation.Infrastructure.Migrations
                 schema: "segments");
 
             migrationBuilder.DropTable(
-                name: "SegmentRuns",
+                name: "Segments",
                 schema: "segments");
 
             migrationBuilder.DropTable(
-                name: "Segments",
+                name: "SegmentRuns",
                 schema: "segments");
         }
     }

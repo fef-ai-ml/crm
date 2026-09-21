@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Crm.Segmentation.Infrastructure.Migrations
 {
     [DbContext(typeof(SegmentationDbContext))]
-    [Migration("20260921145423_InitialSegments")]
+    [Migration("20260921151436_InitialSegments")]
     partial class InitialSegments
     {
         /// <inheritdoc />
@@ -60,6 +60,8 @@ namespace Crm.Segmentation.Infrastructure.Migrations
                         .HasName("PK_MembershipChanges");
 
                     SqlServerKeyBuilderExtensions.IsClustered(b.HasKey("Id"), false);
+
+                    b.HasIndex("SegmentId");
 
                     b.HasIndex("TenantId", "ProfileId")
                         .HasDatabaseName("IX_MembershipChanges_TenantId_ProfileId");
@@ -228,7 +230,7 @@ namespace Crm.Segmentation.Infrastructure.Migrations
 
                     b.ToTable("SegmentRuns", "segments", t =>
                         {
-                            t.HasCheckConstraint("CK_SegmentRuns_Status", "[Status] IN ('Queued','Running','Succeeded','Failed')");
+                            t.HasCheckConstraint("CK_SegmentRuns_Status", "[Status] IN ('Queued','Running','Finished','Failed')");
 
                             t.HasCheckConstraint("CK_SegmentRuns_Trigger", "[Trigger] IN ('Manual','Schedule')");
                         });
@@ -252,6 +254,16 @@ namespace Crm.Segmentation.Infrastructure.Migrations
                         .HasDatabaseName("IX_SegmentRunMembers_TenantId_ProfileId");
 
                     b.ToTable("SegmentRunMembers", "segments");
+                });
+
+            modelBuilder.Entity("Crm.Segmentation.Domain.Segments.MembershipChange", b =>
+                {
+                    b.HasOne("Crm.Segmentation.Domain.Segments.Segment", null)
+                        .WithMany()
+                        .HasForeignKey("SegmentId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_MembershipChanges_SegmentId");
                 });
 
             modelBuilder.Entity("Crm.Segmentation.Domain.Segments.Segment", b =>

@@ -17,7 +17,7 @@ public sealed class SegmentRun : Entity
 
     public DateTime? FinishedAt { get; private set; }
 
-    /// <summary>Set on Succeeded.</summary>
+    /// <summary>Set on Finished.</summary>
     public int? MemberCount { get; private set; }
 
     /// <summary>Audit copy of the executed SQL (parameters listed as names).</summary>

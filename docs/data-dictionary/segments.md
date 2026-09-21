@@ -35,10 +35,10 @@ Constraints: `CK_Segments_Definition_IsJson CHECK (ISJSON([Definition]) = 1)`; `
 |---|---|---|---|
 | RunId | uniqueidentifier | no | Primary key; maps `Entity.Id` to column `RunId` (H9) |
 | SegmentId | uniqueidentifier | no | FK to Segments(Id), NoAction |
-| Status | varchar(16) | no | `Queued`, `Running`, `Succeeded`, `Failed` |
+| Status | varchar(16) | no | `Queued`, `Running`, `Finished`, `Failed` |
 | StartedAt | datetime2(3) | yes | |
 | FinishedAt | datetime2(3) | yes | The run's finish time; batch-written MembershipChanges rows use this as `OccurredAt` (H7) |
-| MemberCount | int | yes | Set on Succeeded |
+| MemberCount | int | yes | Set on Finished |
 | CompiledSql | nvarchar(max) | yes | Audit copy of the executed SQL (parameters listed as names) |
 | Error | nvarchar(4000) | yes | Set on Failed |
 | Trigger | varchar(16) | no | `Manual` or `Schedule` |
@@ -48,7 +48,7 @@ Constraints: `CK_Segments_Definition_IsJson CHECK (ISJSON([Definition]) = 1)`; `
 
 Indexes: `PK_SegmentRuns (RunId)` clustered; `IX_SegmentRuns_TenantId_SegmentId_CreatedAt_RunId (TenantId, SegmentId, CreatedAt DESC, RunId DESC)` (H11 keyset index); `IX_SegmentRuns_SegmentId` — EF's automatic index backing `FK_SegmentRuns_SegmentId` (SegmentId is only the second key column of the composite index above, so it does not already cover the FK).
 
-Constraints: `CK_SegmentRuns_Status CHECK (Status IN ('Queued','Running','Succeeded','Failed'))`; `CK_SegmentRuns_Trigger CHECK (Trigger IN ('Manual','Schedule'))`; `FK_SegmentRuns_SegmentId (SegmentId) REFERENCES Segments(Id) ON DELETE NO ACTION`.
+Constraints: `CK_SegmentRuns_Status CHECK (Status IN ('Queued','Running','Finished','Failed'))`; `CK_SegmentRuns_Trigger CHECK (Trigger IN ('Manual','Schedule'))`; `FK_SegmentRuns_SegmentId (SegmentId) REFERENCES Segments(Id) ON DELETE NO ACTION`.
 
 ## SegmentRunMembers
 
@@ -73,13 +73,13 @@ Pruning: runs older than the newest 3 per segment are deleted; cascade removes t
 | Column | Type | Null | Description |
 |---|---|---|---|
 | Id | uniqueidentifier | no | Primary key, UUIDv7 (application writes) or `NEWID()` (batch writes) |
-| SegmentId | uniqueidentifier | no | No FK to Segments: batch writes insert many rows per run and a segment is never deleted (`Segment.Archive` keeps the row), so the constraint would only cost write throughput |
+| SegmentId | uniqueidentifier | no | FK to Segments(Id), NoAction |
 | ProfileId | uniqueidentifier | no | |
 | Change | varchar(8) | no | `Entered` or `Exited` |
 | Source | varchar(8) | no | `Batch` or `Realtime` |
 | OccurredAt | datetime2(3) | no | |
 | TenantId | uniqueidentifier | no | |
 
-Indexes: `PK_MembershipChanges (Id)` nonclustered; `CX_MembershipChanges_TenantId_SegmentId_OccurredAt_Id (TenantId, SegmentId, OccurredAt DESC, Id DESC)` unique clustered (H11); `IX_MembershipChanges_TenantId_ProfileId (TenantId, ProfileId)`.
+Indexes: `PK_MembershipChanges (Id)` nonclustered; `CX_MembershipChanges_TenantId_SegmentId_OccurredAt_Id (TenantId, SegmentId, OccurredAt DESC, Id DESC)` unique clustered (H11); `IX_MembershipChanges_TenantId_ProfileId (TenantId, ProfileId)`; `IX_MembershipChanges_SegmentId` — EF's automatic index backing `FK_MembershipChanges_SegmentId` (SegmentId is only the second key column of the clustered index above, so it does not already cover the FK).
 
-Constraints: `CK_MembershipChanges_Change CHECK (Change IN ('Entered','Exited'))`; `CK_MembershipChanges_Source CHECK (Source IN ('Batch','Realtime'))`. Retention: none in slice 1.
+Constraints: `CK_MembershipChanges_Change CHECK (Change IN ('Entered','Exited'))`; `CK_MembershipChanges_Source CHECK (Source IN ('Batch','Realtime'))`; `FK_MembershipChanges_SegmentId (SegmentId) REFERENCES Segments(Id) ON DELETE NO ACTION` (segments are archived, never deleted, so this reference is always safe). Retention: none in slice 1.

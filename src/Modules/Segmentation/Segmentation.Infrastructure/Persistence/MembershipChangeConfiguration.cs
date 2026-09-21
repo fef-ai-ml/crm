@@ -6,8 +6,8 @@ namespace Crm.Segmentation.Infrastructure.Persistence;
 
 /// <summary>
 /// segments.MembershipChanges. CreatedAt and UpdatedAt are not mapped (H9) — OccurredAt is the only timestamp.
-/// No FK to Segments: batch writes insert many rows per run and a segment is never deleted (Segment.Archive
-/// keeps the row), so the constraint would only cost write throughput.
+/// FK_MembershipChanges_SegmentId is NoAction: segments are archived, never deleted (Segment.Archive keeps the
+/// row), so the reference is always safe to enforce.
 /// </summary>
 internal sealed class MembershipChangeConfiguration : IEntityTypeConfiguration<MembershipChange>
 {
@@ -36,5 +36,8 @@ internal sealed class MembershipChangeConfiguration : IEntityTypeConfiguration<M
         builder.Property(c => c.Change).HasConversion<string>().HasMaxLength(8).IsUnicode(false);
         builder.Property(c => c.Source).HasConversion<string>().HasMaxLength(8).IsUnicode(false);
         builder.Property(c => c.OccurredAt).HasPrecision(3);
+
+        builder.HasOne<Segment>().WithMany().HasForeignKey(c => c.SegmentId)
+            .OnDelete(DeleteBehavior.NoAction).HasConstraintName("FK_MembershipChanges_SegmentId");
     }
 }

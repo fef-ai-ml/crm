@@ -116,6 +116,8 @@ public class SegmentsSchemaTests(CrmStackFixture stack)
     [Fact]
     public async Task MembershipChanges_has_the_documented_indexes()
     {
+        // IX_MembershipChanges_SegmentId is EF's automatic index for FK_MembershipChanges_SegmentId: SegmentId is
+        // only the second key column of the clustered index below, not a leading column, so it does not count.
         var indexes = await QueryAsync(
             """
             SELECT i.name + '|' + i.type_desc COLLATE DATABASE_DEFAULT + '|' + CAST(i.is_unique AS char(1))
@@ -124,8 +126,21 @@ public class SegmentsSchemaTests(CrmStackFixture stack)
 
         indexes.Should().Equal(
             "CX_MembershipChanges_TenantId_SegmentId_OccurredAt_Id|CLUSTERED|1",
+            "IX_MembershipChanges_SegmentId|NONCLUSTERED|0",
             "IX_MembershipChanges_TenantId_ProfileId|NONCLUSTERED|0",
             "PK_MembershipChanges|NONCLUSTERED|1");
+    }
+
+    [Fact]
+    public async Task MembershipChanges_foreign_key_to_segments_is_no_action()
+    {
+        var rows = await QueryAsync(
+            """
+            SELECT fk.name + '|' + OBJECT_NAME(fk.referenced_object_id) COLLATE DATABASE_DEFAULT + '|' + fk.delete_referential_action_desc
+            FROM sys.foreign_keys fk WHERE fk.name = N'FK_MembershipChanges_SegmentId'
+            """);
+
+        rows.Should().Equal("FK_MembershipChanges_SegmentId|Segments|NO_ACTION");
     }
 
     [Fact]
@@ -147,8 +162,8 @@ public class SegmentsSchemaTests(CrmStackFixture stack)
     [Fact]
     public async Task The_check_constraints_and_foreign_keys_across_all_four_tables_are_exactly_as_documented()
     {
-        // Six check constraints (two per table on Segments and SegmentRuns, two on MembershipChanges) and the
-        // three FKs the brief calls for; MembershipChanges.SegmentId has no FK (see MembershipChangeConfiguration).
+        // Six check constraints (two per table on Segments and SegmentRuns, two on MembershipChanges) and four FKs:
+        // Segments<->SegmentRuns' cycle, SegmentRunMembers->SegmentRuns (cascade), MembershipChanges->Segments.
         var names = await QueryAsync(
             """
             SELECT name FROM sys.check_constraints WHERE parent_object_id IN
@@ -166,6 +181,7 @@ public class SegmentsSchemaTests(CrmStackFixture stack)
             "CK_SegmentRuns_Trigger",
             "CK_Segments_Definition_IsJson",
             "CK_Segments_Status",
+            "FK_MembershipChanges_SegmentId",
             "FK_SegmentRunMembers_RunId",
             "FK_SegmentRuns_SegmentId",
             "FK_Segments_CurrentRunId");
