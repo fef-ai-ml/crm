@@ -209,6 +209,11 @@ internal sealed class RawEventsConsumerService(
         activity?.SetTag("messaging.destination.name", envelope.Topic);
         activity?.SetTag("messaging.kafka.partition", envelope.Partition);
         activity?.SetTag("messaging.kafka.offset", envelope.Offset);
+        if (envelope.Headers.TryGetValue(KafkaHeaders.TenantId, out var tenantId))
+        {
+            activity?.SetTag("crm.tenant_id", tenantId);
+        }
+
         return activity;
     }
 }
