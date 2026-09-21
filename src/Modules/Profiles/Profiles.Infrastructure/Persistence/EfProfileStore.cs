@@ -133,6 +133,7 @@ internal sealed class EfProfileStore(ProfilesDbContext db, IIdentityCache cache,
     {
         var transaction = _transaction ?? throw new InvalidOperationException("BeginAsync was not called.");
 
+        await ReleaseMergeLosersUniqueValuesAsync(cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
 
         // Spec §4.2 item 3: a merge loser's cache entries go before the commit, so nobody can read them afterwards.
@@ -145,6 +146,31 @@ internal sealed class EfProfileStore(ProfilesDbContext db, IIdentityCache cache,
         foreach (var (key, profileId) in _pendingSets)
         {
             await cache.SetAsync(tenant.TenantId, key, profileId);
+        }
+    }
+
+    /// <summary>
+    /// profiles.Profiles has filtered unique indexes on ExternalId/Email/Phone (one owner each). A merge sets the
+    /// loser's values to NULL and the winner's to the same values in the same SaveChanges call, and EF Core does
+    /// not guarantee the loser's release lands before the winner's claim for these filtered unique indexes
+    /// (observed as a duplicate-key SaveChanges failure in IT-008 on 2026-09-20). So the loser's row is released
+    /// with an explicit UPDATE first, inside the transaction and under the UPDLOCK <see cref="LockProfileAsync"/>
+    /// already took — no new lock ordering. The tracked EF UPDATE that follows in <see cref="CommitAsync"/>
+    /// re-applies the same NULLs (plus MergedIntoId) and is a no-op on these three columns.
+    /// </summary>
+    private async Task ReleaseMergeLosersUniqueValuesAsync(CancellationToken cancellationToken)
+    {
+        var loserIds = db.ChangeTracker.Entries<Profile>()
+            .Where(e => e.State == EntityState.Modified && e.Property(nameof(Profile.MergedIntoId)).IsModified)
+            .Select(e => e.Entity.Id)
+            .ToList();
+
+        var tenantId = tenant.TenantId;
+        foreach (var loserId in loserIds)
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE profiles.Profiles SET ExternalId = NULL, Email = NULL, Phone = NULL WHERE TenantId = {tenantId} AND Id = {loserId}",
+                cancellationToken);
         }
     }
 
