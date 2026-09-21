@@ -200,10 +200,14 @@ internal sealed class SegmentRunner(
 }
 
 /// <summary>Segmentation:Run configuration (H6): the whole run executes as one transaction bounded by this
-/// command timeout.</summary>
+/// command timeout. <see cref="PollInterval"/> is how often <see cref="SegmentRunWorker"/> drains queued runs
+/// (default 5 s); tests bind it much shorter so the drain loop does not dominate suite duration.</summary>
 public sealed class SegmentRunOptions
 {
     public const string SectionName = "Segmentation:Run";
+    public static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(5);
 
     public int CommandTimeoutSeconds { get; set; } = 300;
+
+    public TimeSpan PollInterval { get; set; } = DefaultPollInterval;
 }

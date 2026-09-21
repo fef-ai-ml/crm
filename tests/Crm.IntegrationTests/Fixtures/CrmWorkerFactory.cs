@@ -44,6 +44,9 @@ public sealed class CrmWorkerFactory : WebApplicationFactory<Crm.Worker.Program>
             ["Profiles:Consumer:RetryDelaysMs:0"] = "50",
             ["Profiles:Consumer:RetryDelaysMs:1"] = "100",
             ["Profiles:Consumer:RestartDelayMs"] = "200",
+            // Default is 5 s (SegmentRunOptions.PollInterval); the full suite polling that slowly is most of why
+            // it used to take 11m44s (pre-step, plan H task 8).
+            ["Segmentation:Run:PollInterval"] = "00:00:00.250",
         }));
         builder.ConfigureTestServices(services =>
         {

@@ -15,6 +15,15 @@ public static class SegmentationWorkerRegistration
         ArgumentNullException.ThrowIfNull(configuration);
 
         services.AddOptions<SegmentRunOptions>().Bind(configuration.GetSection(SegmentRunOptions.SectionName));
+        // A misconfigured (zero or negative) poll interval would spin the drain loop or never fire it; fall back
+        // to the default instead of either.
+        services.PostConfigure<SegmentRunOptions>(o =>
+        {
+            if (o.PollInterval <= TimeSpan.Zero)
+            {
+                o.PollInterval = SegmentRunOptions.DefaultPollInterval;
+            }
+        });
         services.AddOptions<SegmentScheduleOptions>().Bind(configuration.GetSection(SegmentScheduleOptions.SectionName));
 
         services.AddSingleton<SegmentationMetrics>();

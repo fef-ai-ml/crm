@@ -7,22 +7,22 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Crm.Segmentation.Infrastructure.Runs;
 
 /// <summary>
-/// Drains queued batch runs sequentially every 5 s (H3: no Quartz.NET). Each run gets its own DI scope with the
-/// tenant context resolved to the run's own tenant, exactly as
-/// Profiles.Infrastructure.Consumers.ScopedMessageHandler does for a consumed message. An exception in one run is
-/// logged and the run marked Failed; the loop always continues to the next queued run.
+/// Drains queued batch runs sequentially every <see cref="SegmentRunOptions.PollInterval"/> (default 5 s; H3: no
+/// Quartz.NET). Each run gets its own DI scope with the tenant context resolved to the run's own tenant, exactly
+/// as Profiles.Infrastructure.Consumers.ScopedMessageHandler does for a consumed message. An exception in one run
+/// is logged and the run marked Failed; the loop always continues to the next queued run.
 /// </summary>
 internal sealed class SegmentRunWorker(
     IServiceScopeFactory scopes,
     SegmentationMetrics metrics,
+    IOptions<SegmentRunOptions> options,
     ILogger<SegmentRunWorker> logger) : BackgroundService
 {
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
-
     /// <summary>H4: a run stuck Running longer than this is abandoned (a Worker instance died mid-run) and is
     /// failed so it stops blocking POST /segments/{id}/run for its segment.</summary>
     private static readonly TimeSpan AbandonedAfter = TimeSpan.FromMinutes(10);
@@ -32,7 +32,7 @@ internal sealed class SegmentRunWorker(
         await Task.Yield(); // never delay host start-up
         await SegmentSchemaGate.WaitAsync(scopes, logger, stoppingToken);
 
-        using var timer = new PeriodicTimer(PollInterval);
+        using var timer = new PeriodicTimer(options.Value.PollInterval);
         do
         {
             try

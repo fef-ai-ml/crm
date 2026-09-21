@@ -135,6 +135,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - When `POST /v1/segments/{id}/run`
 - Then the response is `202 {runId}`, the run reaches `Running` within 5 s and `Finished` with `MemberCount = 412`, `SegmentRunMembers` has 412 rows for that run, `Segments.CurrentRunId` equals the run id, and `Trigger = Manual`
 - Plan H note: also covers H5 — a second `POST` while a run is Queued or Running returns the same `runId` (proven by pausing `SegmentRunWorker` at the `MembersInsertedAsync` hook), an Archived segment's run is `409 segment.archived`, and an unknown segment's run is `404 segment.not_found`
+- Plan H note: `SegmentRunWorker`'s drain loop poll interval is `Segmentation:Run:PollInterval` (default 5 s, a zero or negative value falls back to the default); `CrmWorkerFactory` binds it to 250 ms so this class (and `ScheduleTests`) do not each pay a multi-second wait per run
 - Implemented: tests/Crm.IntegrationTests/Segments/BatchRunTests.cs
 
 ### IT-017 — run diff records entered and exited
