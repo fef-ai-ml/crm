@@ -23,10 +23,15 @@ public class SchemaTests(CrmStackFixture stack)
             """);
 
         rows.Should().Equal(
-            "CX_Events_TenantId_ProfileId_OccurredAt|PS_Events_Monthly|0",
+            "CX_Events_TenantId_ProfileId_OccurredAt_Id|PS_Events_Monthly|1",
             "IX_Events_TenantId_Name_OccurredAt|PS_Events_Monthly|0",
             "UX_Events_Id|PS_Events_Monthly|1");
     }
+
+    [Fact]
+    public async Task Events_escalates_locks_to_the_partition_not_the_table()
+        => (await QueryAsync("SELECT lock_escalation_desc COLLATE DATABASE_DEFAULT FROM sys.tables WHERE object_id = OBJECT_ID(N'profiles.Events')"))
+            .Should().Equal("AUTO");
 
     [Fact]
     public async Task Partition_function_is_monthly_range_right_with_at_least_two_years_of_boundaries()

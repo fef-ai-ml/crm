@@ -73,14 +73,16 @@ Indexes:
 
 | Name | Columns | Notes |
 |---|---|---|
-| CX_Events_TenantId_ProfileId_OccurredAt | TenantId, ProfileId, OccurredAt | clustered, partition-aligned |
+| CX_Events_TenantId_ProfileId_OccurredAt_Id | TenantId, ProfileId, OccurredAt, Id | unique, clustered, partition-aligned; the timeline's total order (read backwards) |
 | UX_Events_Id | Id, OccurredAt | unique on (Id, OccurredAt); this table has no `PRIMARY KEY` constraint, so on a partitioned table this is the key EF uses for the enforceable idempotency check. Kafka redelivery carries identical Id and OccurredAt, so duplicates are rejected. |
 | IX_Events_TenantId_Name_OccurredAt | TenantId, Name, OccurredAt | includes ProfileId; segment event predicates |
+
+`LOCK_ESCALATION = AUTO` — locks escalate to the month partition, not the table.
 
 Constraint: `CK_Events_Properties_IsJson CHECK (ISJSON(Properties) = 1)`; `FK_Events_ProfileId` references `Profiles(Id)`, created without a supporting index of its own. Retention: none in slice 1 (partitions allow cheap future purge).
 
 ## Read paths
 
-Search (`GET /v1/profiles`) matches by prefix `LIKE` on the three contact columns (`ExternalId`, `Email`, `Phone`, relying on the database's default collation for case-insensitivity); pages are read in index order from `IX_Profiles_TenantId_LastSeenAt_Id`, the cursor seeks to its position, `q` is a residual predicate on that scan (a rare match on a very large tenant scans until a page is full — known limitation, ruling G4); the plan is asserted by `ReadPathPlanTests`. The timeline (`GET /v1/profiles/{id}/events`) seeks `CX_Events_TenantId_ProfileId_OccurredAt` for the profile and sorts by `(OccurredAt, Id)` descending; `Id` is not part of that index's key, so the cost of a page grows with the profile's matching events. Covering keyset indexes for both paths are a recorded follow-up, to be added before Segmentation copies the shape. Every profile read filters `MergedIntoId IS NULL` itself.
+Search (`GET /v1/profiles`) matches by prefix `LIKE` on the three contact columns (`ExternalId`, `Email`, `Phone`, relying on the database's default collation for case-insensitivity); pages are read in index order from `IX_Profiles_TenantId_LastSeenAt_Id`, the cursor seeks to its position, `q` is a residual predicate on that scan (a rare match on a very large tenant scans until a page is full — known limitation, ruling G4); the plan is asserted by `ReadPathPlanTests`. The timeline (`GET /v1/profiles/{id}/events`) seeks `CX_Events_TenantId_ProfileId_OccurredAt_Id` for the profile's range; within a single month partition the total-order key needs no sort, measured with a window inside the current month; across partitions (the unrestricted second page) a Sort still appears over the per-partition seeks (`Top > Sort > Clustered Index Seek`) — the optimizer does not treat partition order as `OccurredAt` order end to end. The `name` filter stays a residual predicate on the profile's range (ruling G8). Asserted by `ReadPathPlanTests`. Every profile read filters `MergedIntoId IS NULL` itself.
 
 `JSON_VALUE` returns text for every JSON scalar (numbers included), so any numeric predicate over an `Attributes` value — e.g. `ltv` — must `TRY_CONVERT(decimal(18, 2), JSON_VALUE(Attributes, '$.ltv'))` before comparing; this is binding for the Segmentation rule compiler (IT-014).

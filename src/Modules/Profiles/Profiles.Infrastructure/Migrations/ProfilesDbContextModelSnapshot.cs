@@ -71,10 +71,11 @@ namespace Crm.Profiles.Infrastructure.Migrations
 
                     SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("TenantId", "Name", "OccurredAt"), new[] { "ProfileId" });
 
-                    b.HasIndex("TenantId", "ProfileId", "OccurredAt")
-                        .HasDatabaseName("CX_Events_TenantId_ProfileId_OccurredAt");
+                    b.HasIndex("TenantId", "ProfileId", "OccurredAt", "Id")
+                        .IsUnique()
+                        .HasDatabaseName("CX_Events_TenantId_ProfileId_OccurredAt_Id");
 
-                    SqlServerIndexBuilderExtensions.IsClustered(b.HasIndex("TenantId", "ProfileId", "OccurredAt"));
+                    SqlServerIndexBuilderExtensions.IsClustered(b.HasIndex("TenantId", "ProfileId", "OccurredAt", "Id"));
 
                     b.ToTable("Events", "profiles", t =>
                         {
