@@ -99,7 +99,7 @@ Requests to `/health/*` and `/metrics` are deliberately excluded from tracing, s
 | `make test` | both |
 | `make docs-check` | documentation checker |
 | `make migrate` | apply EF Core migrations (module contexts with migrations: Tenancy, Profiles) against `localhost,1433` |
-| `make seed` | bootstrap the demo tenant, Admin + Viewer users, and an API key against a running Development API; writes `CRM_API_KEY` to `.env.local` (git-ignored); idempotent; a stored key that is no longer an active key of the tenant (database recreated with `make down`, or key revoked) is replaced. It then logs in as that Admin and calls the Development-only `POST /v1/dev/seed-dataset` (404 outside Development) to bulk-load the 5k-profile / 100k-event demo dataset with `SqlBulkCopy`; the endpoint self-verifies the six documented segment counts and rolls back on a mismatch. Idempotent: a tenant that already has it reports `exists` without reloading. It then calls the Development-only `POST /v1/dev/seed-segments` (H22) to upsert the six demo segments (`seed-pro-id`, `seed-purchasers`, `seed-dormant`, `seed-no-plan`, `seed-not-pro`, `seed-high-ltv-sg`) and queue a run for each Active one, then polls `GET /v1/segments` (timeout 120 s) until they finish and compares `memberCount` against the dataset response's own counts; idempotent, since an existing segment is left untouched and an already-run one is not re-queued. Typical duration in this repo's tests: ~10 s for the dataset load, measured against SQL Server on a remote engine over the LAN (`DOCKER_HOST`/`TESTCONTAINERS_HOST_OVERRIDE`); a local engine should be at least as fast; segment seeding adds a few more seconds (LT-005 re-measured in a later task) |
+| `make seed` | bootstrap the demo tenant, Admin + Viewer users, and an API key against a running Development API; writes `CRM_API_KEY` to `.env.local` (git-ignored); idempotent; a stored key that is no longer an active key of the tenant (database recreated with `make down`, or key revoked) is replaced. It then logs in as that Admin and calls the Development-only `POST /v1/dev/seed-dataset` (404 outside Development) to bulk-load the 5k-profile / 100k-event demo dataset with `SqlBulkCopy`; the endpoint self-verifies the six documented segment counts and rolls back on a mismatch. Idempotent: a tenant that already has it reports `exists` without reloading. It then calls the Development-only `POST /v1/dev/seed-segments` (H22) to upsert the six demo segments (`seed-pro-id`, `seed-purchasers`, `seed-dormant`, `seed-no-plan`, `seed-not-pro`, `seed-high-ltv-sg`) and queue a run for each Active one, then polls `GET /v1/segments` (timeout 120 s) until the five Active ones finish and compares their `memberCount` against the dataset response's own counts. `seed-high-ltv-sg` is `Draft` and is never queued, so it is checked separately: it must stay unmaterialised (`memberCount` 0, no `lastRunAt`) and is printed as `draft — not materialised (rule would match N)`, never compared against the rule's match count. Idempotent, since an existing segment is left untouched and an already-run one is not re-queued. Typical duration in this repo's tests: ~10 s for the dataset load, measured against SQL Server on a remote engine over the LAN (`DOCKER_HOST`/`TESTCONTAINERS_HOST_OVERRIDE`); a local engine should be at least as fast; segment seeding adds a few more seconds (LT-005 re-measured in a later task) |
 | `make openapi` | regenerate `docs/api/openapi.json` (commit the result). `dotnet run --project <dir>` resolves a relative `--export-openapi` path against the *project* directory, not your shell's working directory, so this target (and CI) pass an absolute path |
 | `make web-dev` | Vite dev server on 5173 proxying `/v1` and `/health` to `localhost:8080` |
 | `make tunnel` | ssh tunnel to a remote engine: podman socket + infrastructure ports |
@@ -133,6 +133,20 @@ Dead letters land on `events.dlq` with `error`, `stack`, and `attempt` headers; 
 ```bash
 docker exec crm-kafka-1 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic events.dlq --from-beginning --property print.headers=true --max-messages 5
 ```
+
+## Segmentation Worker
+
+`SegmentRunWorker` drains queued batch runs; `SegmentScheduler` is a separate `BackgroundService` that queues a Schedule run for every Active segment on its own interval (H3). Both wait for schema `segments` to exist the same way the Profiles consumer waits for `profiles` (`SegmentSchemaGate`).
+
+Configuration keys (`Segmentation:Run` / `Segmentation:Schedule` sections):
+
+| Key | Default | Purpose |
+|---|---|---|
+| `Segmentation:Run:CommandTimeoutSeconds` | `300` | per-statement SQL command budget for a run's transaction (H6); `≤ 0` (0 means "no timeout" to ADO.NET, a negative throws) falls back to the default with a startup warning (I-4) |
+| `Segmentation:Run:PollInterval` | `00:00:05` | how often `SegmentRunWorker` drains queued runs; `≤ 0` falls back to the default with a startup warning |
+| `Segmentation:Schedule:Interval` | `06:00:00` | how often `SegmentScheduler` sweeps for Active segments with no active run; `≤ 0` would otherwise crash `PeriodicTimer` and bring down the whole Worker host — falls back to the default with a startup warning (I-4) |
+
+A run stuck `Running` past the reap window is failed as `'abandoned'` and can be re-queued; the window is `max(10 min, 8 × Segmentation:Run:CommandTimeoutSeconds)`, not a flat 10 minutes — a run issues about eight statements inside that per-statement budget, so its wall-clock ceiling scales with it (H29).
 
 ## Logging in
 

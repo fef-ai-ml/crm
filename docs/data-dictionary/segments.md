@@ -40,7 +40,7 @@ Constraints: `CK_Segments_Definition_IsJson CHECK (ISJSON([Definition]) = 1)`; `
 | FinishedAt | datetime2(3) | yes | The run's finish time; batch-written MembershipChanges rows use this as `OccurredAt` (H7) |
 | MemberCount | int | yes | Set on Finished |
 | CompiledSql | nvarchar(max) | yes | Audit copy of the executed SQL (parameters listed as names) |
-| Error | nvarchar(4000) | yes | Set on Failed |
+| Error | nvarchar(4000) | yes | Set on Failed. Two sentinel values besides an exception message: `'abandoned'` (the reap declared a stuck `Running` run Failed — H29) and `'segment archived'` (the segment was archived after this run was queued, so the runner refused it once it re-read the segment's status — H30) |
 | Trigger | varchar(16) | no | `Manual` or `Schedule` |
 | TenantId | uniqueidentifier | no | |
 | CreatedAt | datetime2(3) | no | |
@@ -59,6 +59,11 @@ Constraints: `CK_SegmentRuns_Status CHECK (Status IN ('Queued','Running','Finish
 | TenantId | uniqueidentifier | no | |
 | RunId | uniqueidentifier | no | FK to SegmentRuns(RunId), cascade delete |
 | ProfileId | uniqueidentifier | no | No FK to profiles schema (cross-module); validated by the run query |
+
+The table above lists columns in the order this document generally uses (TenantId first); the *physical* column
+order EF Core generates puts the key first instead — `SegmentRunMembers (RunId, ProfileId, TenantId)` — since
+`TenantId` carries no explicit column-ordering configuration and the primary key is `(RunId, ProfileId)` (C6).
+Immaterial to any query here (no `SELECT *`), but worth knowing when reading the table directly.
 
 Indexes: `PK_SegmentRunMembers (RunId, ProfileId)` clustered; `IX_SegmentRunMembers_TenantId_ProfileId (TenantId, ProfileId)` for "which segments contain this profile".
 

@@ -33,7 +33,7 @@ Expected counts (asserted by IT-014, IT-016, IT-042, E2E-002, E2E-004):
 
 The seeder asserts these counts after loading and fails if any differ, so a distribution change must update this table.
 
-The six segments themselves — same names, same rules — are seeded separately by `SeedSegments` (`Segmentation.Application/Seeding`) through the Development-only `POST /v1/dev/seed-segments` (H22): `make seed` calls it right after the dataset loads, and `GoldenExecutionTests` (IT-042) proves each constant hashes equal to its fixture file and executes to the count above against the real schema.
+The six segments themselves — same names, same rules — are seeded separately by `SeedSegments` (`Segmentation.Application/Seeding`) through the Development-only `POST /v1/dev/seed-segments` (H22): `make seed` calls it right after the dataset loads, and `GoldenExecutionTests` (IT-042) proves each constant hashes equal to its fixture file and executes to the count above against the real schema. `seed-high-ltv-sg` is `Draft`, so it is never queued and its stored `memberCount` stays 0 — `make seed` (`tools/seed.py`) checks that separately (unmaterialised, not compared against the 187 above) rather than waiting on it or treating a mismatch against 187 as a failure (C-1).
 
 ## Rule Fixtures
 
