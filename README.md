@@ -8,7 +8,7 @@ Stack: .NET 10 modular monolith (API + Worker), React 19 dashboard, SQL Server 2
 
 ## Status
 
-Slice 1 (events → profiles → segments) has its foundation complete: solution structure, Kernel, Contracts, the API/Worker/Web hosts, multi-tenant auth, CI, and an opt-in observability stack. The Ingestion API is also complete, and the Profiles pipeline's write side (Worker consumer, identity resolution, merge, DLQ) now turns those events into profiles; profiles are now readable through `GET /v1/profiles`, `GET /v1/profiles/{id}` and `GET /v1/profiles/{id}/events`. Segmentation lands next, behind its own plan under `docs/superpowers/plans/`.
+Slice 1 (events → profiles → segments) has its foundation complete: solution structure, Kernel, Contracts, the API/Worker/Web hosts, multi-tenant auth, CI, and an opt-in observability stack. The Ingestion API is also complete, and the Profiles pipeline's write side (Worker consumer, identity resolution, merge, DLQ) now turns those events into profiles; profiles are now readable through `GET /v1/profiles`, `GET /v1/profiles/{id}` and `GET /v1/profiles/{id}/events`. Segmentation's rule engine, batch materialization and API are complete: segments are defined by a validated rule tree, compiled to parameterized SQL, previewed in under five seconds, materialized by queued batch runs on the Worker (manual and six-hourly), and read back as members and membership changes through `/v1/segments`. Real-time segment evaluation follows behind its own plan under `docs/superpowers/plans/`.
 
 | Phase | State |
 |---|---|
@@ -20,7 +20,8 @@ Slice 1 (events → profiles → segments) has its foundation complete: solution
 | Implementation: Ingestion API (track, identify, batch → Kafka) | Complete |
 | Implementation: Profiles pipeline — write side (Worker consumer, identity resolution, merge, DLQ) | Complete |
 | Implementation: Profiles read API | Complete |
-| Implementation: Segmentation | Planned |
+| Implementation: Segmentation (rules, batch, API) | Complete |
+| Implementation: Segmentation (real-time evaluation) | Planned |
 | Implementation: Web dashboard | Planned |
 | Load test and results | Planned |
 
