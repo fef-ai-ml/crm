@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
-using System.Text.Json;
 using Crm.IntegrationTests.Fixtures;
 using Crm.IntegrationTests.Profiles;
 using Crm.Kernel.Tenancy;
@@ -34,8 +33,7 @@ namespace Crm.IntegrationTests.Segments;
 public sealed class GoldenExecutionTests : IAsyncLifetime
 {
     // Segmentation.UnitTests/Fixtures.cs's ValidFileNames, duplicated here because Crm.IntegrationTests does not
-    // reference the Segmentation.UnitTests project — every other integration test file in this directory
-    // duplicates its own private LoadDefinition helper for the same reason.
+    // reference the Segmentation.UnitTests project.
     private static readonly IReadOnlyList<string> ValidFixtureNames =
     [
         "attr-eq", "attr-neq", "attr-in", "attr-nin", "attr-gt", "attr-gte", "attr-lt", "attr-lte",
@@ -94,9 +92,10 @@ public sealed class GoldenExecutionTests : IAsyncLifetime
     [MemberData(nameof(ValidFixtureNameData))]
     public async Task IT042_every_valid_fixture_compiles_and_executes(string name)
     {
-        var count = await CountAsync(name);
-
-        count.Should().BeGreaterThanOrEqualTo(0, $"'{name}' must compile and execute against the seed dataset without error");
+        // C9: `COUNT(*)` can never be negative, so asserting `>= 0` was trivially true and checked nothing. The
+        // fact this proves is "compiled and executed against the seed dataset without throwing" — CountAsync
+        // completing at all, not the value it returns.
+        await CountAsync(name);
     }
 
     [Fact]
@@ -192,7 +191,7 @@ public sealed class GoldenExecutionTests : IAsyncLifetime
 
     private async Task<int> CountAsync(string fixtureName)
     {
-        var definition = LoadDefinition(fixtureName);
+        var definition = RuleFixtures.LoadDefinition($"{fixtureName}.json");
         var parsed = RuleParser.Parse(definition);
         parsed.IsValid.Should().BeTrue($"'{fixtureName}' is a valid fixture");
 
@@ -215,25 +214,6 @@ public sealed class GoldenExecutionTests : IAsyncLifetime
         // COL_LENGTH returns int per T-SQL docs, but the driver maps it to smallint (Int16) in practice here —
         // Convert rather than a direct cast so either representation works.
         return result is null or DBNull ? null : Convert.ToInt32(result, CultureInfo.InvariantCulture);
-    }
-
-    /// <summary>Mirrors SegmentCrudTests.LoadDefinition: walks up from the test binary to the directory containing Crm.sln.</summary>
-    private static JsonElement LoadDefinition(string fixtureFileName)
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Crm.sln")))
-        {
-            dir = dir.Parent;
-        }
-
-        if (dir is null)
-        {
-            throw new DirectoryNotFoundException("Crm.sln not found above " + AppContext.BaseDirectory);
-        }
-
-        var path = Path.Combine(dir.FullName, "tests", "fixtures", "rules", "valid", $"{fixtureFileName}.json");
-        using var document = JsonDocument.Parse(File.ReadAllText(path));
-        return document.RootElement.Clone().GetProperty("definition");
     }
 
     private sealed record SeedSegmentDto(Guid Id, string Name, string Status, Guid? RunId);

@@ -5,6 +5,7 @@ using Crm.Segmentation.Application;
 using Crm.Segmentation.Application.Compilation;
 using Crm.Segmentation.Application.Runs;
 using Crm.Segmentation.Domain.Rules;
+using Crm.Segmentation.Domain.Segments;
 using Crm.Segmentation.Infrastructure.Sql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -46,6 +47,21 @@ internal sealed class SegmentRunner(
             // Segments are archived, never deleted (FK_SegmentRuns_SegmentId is NoAction), so this should not
             // happen; treated as a run failure rather than an unhandled exception if it somehow does.
             await MarkFailedAsync(runId, run.SegmentId, currentRunId: null, "segment not found");
+            LogFailure(runId, run.SegmentId, run.Trigger, ex: null, reason: "segment not found");
+            return false;
+        }
+
+        if (segment.Status == SegmentStatus.Archived)
+        {
+            // H30 (fix wave B5): the segment was archived after this run was queued/claimed. Archiving does not
+            // cancel a run already in flight for it (M-2), so the runner itself must refuse to materialise an
+            // archived segment — no transaction, nothing written to segments.Segments or MembershipChanges.
+            await MarkFailedAsync(runId, segment.Id, segment.CurrentRunId, "segment archived");
+            if (logger.IsEnabled(LogLevel.Information))
+            {
+                logger.LogInformation("Run {RunId} for segment {SegmentId} (tenant {TenantId}) skipped: segment archived", runId, segment.Id, tenant.TenantId);
+            }
+
             return false;
         }
 
@@ -66,6 +82,7 @@ internal sealed class SegmentRunner(
         catch (Exception ex)
         {
             await MarkFailedAsync(runId, segment.Id, previousRunId, ex.Message);
+            LogFailure(runId, segment.Id, run.Trigger, ex);
             return false;
         }
 
@@ -119,12 +136,20 @@ internal sealed class SegmentRunner(
                 """,
                 cancellationToken);
 
-            await db.Database.ExecuteSqlInterpolatedAsync(
+            // H29 (fix wave B2/I-2): guarded on Status = 'Running' so a run the reaper declared abandoned while
+            // this transaction was open can never resurrect as Finished. Zero rows affected means exactly that
+            // happened — throw before the prune, below, so the whole transaction (the member insert, both diffs
+            // and the segments.Segments swap above) rolls back with it; nothing of a reaped run survives.
+            var finished = await db.Database.ExecuteSqlInterpolatedAsync(
                 $"""
                 UPDATE segments.SegmentRuns SET Status = 'Finished', FinishedAt = {now}, MemberCount = {inserted}, CompiledSql = {auditSql}, UpdatedAt = {now}
-                WHERE RunId = {runId}
+                WHERE RunId = {runId} AND Status = 'Running'
                 """,
                 cancellationToken);
+            if (finished == 0)
+            {
+                throw new SegmentRunReapedException($"Run {runId} was reaped (its status left 'Running') before it could finish; discarding its work.");
+            }
 
             // H8: keep the newest 3 Finished/Failed runs per segment; the just-finished run (RunId = runId, whose
             // Status the statement above already set to Finished) always counts as one of the three, and
@@ -137,8 +162,45 @@ internal sealed class SegmentRunner(
         catch (Exception ex)
         {
             await RollbackQuietlyAsync(transaction);
+
+            if (ex is SegmentRunReapedException)
+            {
+                // The reaper already recorded Failed/'abandoned' from outside this transaction; MarkFailedAsync's
+                // own Status = 'Running' guard below is therefore a no-op here and never overwrites it.
+                if (logger.IsEnabled(LogLevel.Warning))
+                {
+                    logger.LogWarning("Run {RunId} for segment {SegmentId} (tenant {TenantId}) was reaped while its transaction was still open; rolled back", runId, segment.Id, tenant.TenantId);
+                }
+            }
+            else
+            {
+                LogFailure(runId, segment.Id, run.Trigger, ex);
+            }
+
             await MarkFailedAsync(runId, segment.Id, previousRunId, ex.Message);
             return false;
+        }
+    }
+
+    /// <summary>B3/I-3: a failed run must leave a trace an operator can find without knowing to call
+    /// <c>GET /v1/segments/{id}/runs</c> — run id, segment id, tenant id and trigger only, never the rule
+    /// definition text or any parameter value (no PII). <paramref name="ex"/> is null for a failure this method
+    /// detected itself rather than caught (e.g. "segment not found"), in which case <paramref name="reason"/>
+    /// carries the message instead.</summary>
+    private void LogFailure(Guid runId, Guid segmentId, SegmentRunTrigger trigger, Exception? ex, string? reason = null)
+    {
+        if (!logger.IsEnabled(LogLevel.Error))
+        {
+            return;
+        }
+
+        if (ex is not null)
+        {
+            logger.LogError(ex, "Run {RunId} for segment {SegmentId} (tenant {TenantId}, trigger {Trigger}) failed", runId, segmentId, tenant.TenantId, trigger);
+        }
+        else
+        {
+            logger.LogError("Run {RunId} for segment {SegmentId} (tenant {TenantId}, trigger {Trigger}) failed: {Reason}", runId, segmentId, tenant.TenantId, trigger, reason);
         }
     }
 
@@ -158,7 +220,10 @@ internal sealed class SegmentRunner(
     /// <see cref="CancellationToken.None"/> so a cancelled run's failure is still recorded. Fix round 1, item 5
     /// (Minor 4): also prunes, since without this a segment that only ever fails would accumulate Failed rows
     /// forever — <paramref name="currentRunId"/> (the segment's CurrentRunId, unaffected by this failure) is
-    /// protected from deletion the same way the just-finished run protects itself on the success path.</summary>
+    /// protected from deletion the same way the just-finished run protects itself on the success path. H29 (fix
+    /// wave B2): guarded on <c>Status = 'Running'</c> the same way the finish update is, so this can never
+    /// overwrite a status the reaper already set (e.g. 'abandoned') — affecting zero rows here is expected and
+    /// not itself logged as an error.</summary>
     private async Task MarkFailedAsync(Guid runId, Guid segmentId, Guid? currentRunId, string message)
     {
         var now = clock.UtcNow;
@@ -166,7 +231,7 @@ internal sealed class SegmentRunner(
         try
         {
             await db.Database.ExecuteSqlInterpolatedAsync(
-                $"UPDATE segments.SegmentRuns SET Status = 'Failed', FinishedAt = {now}, Error = {error}, UpdatedAt = {now} WHERE RunId = {runId}",
+                $"UPDATE segments.SegmentRuns SET Status = 'Failed', FinishedAt = {now}, Error = {error}, UpdatedAt = {now} WHERE RunId = {runId} AND Status = 'Running'",
                 CancellationToken.None);
 
             await PruneTerminalRunsAsync(segmentId, runId, currentRunId, CancellationToken.None);
@@ -205,9 +270,10 @@ internal sealed class SegmentRunner(
 public sealed class SegmentRunOptions
 {
     public const string SectionName = "Segmentation:Run";
+    public const int DefaultCommandTimeoutSeconds = 300;
     public static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(5);
 
-    public int CommandTimeoutSeconds { get; set; } = 300;
+    public int CommandTimeoutSeconds { get; set; } = DefaultCommandTimeoutSeconds;
 
     public TimeSpan PollInterval { get; set; } = DefaultPollInterval;
 }

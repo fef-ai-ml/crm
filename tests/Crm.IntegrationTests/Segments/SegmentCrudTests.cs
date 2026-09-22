@@ -35,7 +35,7 @@ public sealed class SegmentCrudTests(CrmStackFixture stack) : IAsyncLifetime
     public async Task IT013_create_fetch_update_archive_and_duplicate_name_conflict()
     {
         var admin = await AdminTokenAsync();
-        var definition = LoadDefinition("seed-purchasers.json");
+        var definition = RuleFixtures.LoadDefinition("seed-purchasers.json");
 
         using var created = await _client.PostAsync("/v1/segments", admin, new { name = "buyers", description = "recent buyers", definition });
         created.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -132,7 +132,7 @@ public sealed class SegmentCrudTests(CrmStackFixture stack) : IAsyncLifetime
     public async Task IsRealtimeEligible_matches_the_classifier_and_realtimeMemberCount_is_always_null(string fixtureFile, bool expectedEligible)
     {
         var admin = await AdminTokenAsync();
-        var definition = LoadDefinition(fixtureFile);
+        var definition = RuleFixtures.LoadDefinition(fixtureFile);
 
         using var created = await _client.PostAsync("/v1/segments", admin, new { name = fixtureFile, definition });
         var body = await ReadBodyAsync(created);
@@ -145,7 +145,7 @@ public sealed class SegmentCrudTests(CrmStackFixture stack) : IAsyncLifetime
     public async Task List_default_hides_archived_status_filter_selects_one_and_a_bad_status_is_400()
     {
         var admin = await AdminTokenAsync();
-        var definition = LoadDefinition("seed-purchasers.json");
+        var definition = RuleFixtures.LoadDefinition("seed-purchasers.json");
 
         var draftId = await CreateSegmentAsync(admin, "draft-seg", definition, status: null);
         var activeId = await CreateSegmentAsync(admin, "active-seg", definition, status: "Active");
@@ -162,6 +162,56 @@ public sealed class SegmentCrudTests(CrmStackFixture stack) : IAsyncLifetime
         bogus.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         using var bogusBody = JsonDocument.Parse(await bogus.Content.ReadAsStringAsync());
         bogusBody.RootElement.GetProperty("code").GetString().Should().Be("segments.invalid_filter");
+    }
+
+    [Theory]
+    [InlineData("7")]
+    [InlineData("1")]
+    public async Task Create_with_a_numeric_status_string_is_400_invalid_request(string status)
+    {
+        // I-1/M-1: Enum.TryParse alone accepts the string form of any integer — "7" is undefined, "1" is
+        // silently Active — neither is one of the three names this field must accept.
+        var admin = await AdminTokenAsync();
+        var definition = RuleFixtures.LoadDefinition("seed-purchasers.json");
+
+        using var response = await _client.PostAsync("/v1/segments", admin, new { name = "numeric-status-" + status, definition, status });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("code").GetString().Should().Be("segments.invalid_request");
+        body.RootElement.GetProperty("errors").TryGetProperty("status", out _).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("7")]
+    [InlineData("1")]
+    public async Task Update_with_a_numeric_status_string_is_400_invalid_request(string status)
+    {
+        var admin = await AdminTokenAsync();
+        var definition = RuleFixtures.LoadDefinition("seed-purchasers.json");
+        var id = await CreateSegmentAsync(admin, "to-update-" + status, definition, status: null);
+
+        using var response = await _client.PutAsync($"/v1/segments/{id}", admin, new { name = "to-update-" + status, definition, status });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("code").GetString().Should().Be("segments.invalid_request");
+        body.RootElement.GetProperty("errors").TryGetProperty("status", out _).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("7")]
+    [InlineData("1")]
+    public async Task List_with_a_numeric_status_filter_is_400_invalid_filter(string status)
+    {
+        // M-1: "?status=1" must not silently mean Active, and "?status=7" must not silently mean "no match".
+        var admin = await AdminTokenAsync();
+
+        using var response = await _client.GetAsync($"/v1/segments?status={status}", admin);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("code").GetString().Should().Be("segments.invalid_filter");
     }
 
     [Fact]
@@ -205,23 +255,4 @@ public sealed class SegmentCrudTests(CrmStackFixture stack) : IAsyncLifetime
         return document.RootElement.Clone();
     }
 
-    /// <summary>Loads `tests/fixtures/rules/valid/{fixtureFileName}`'s "definition" property, found by walking up
-    /// from the test binary to the directory containing Crm.sln (mirrors Segmentation.UnitTests' Fixtures.cs).</summary>
-    private static JsonElement LoadDefinition(string fixtureFileName)
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Crm.sln")))
-        {
-            dir = dir.Parent;
-        }
-
-        if (dir is null)
-        {
-            throw new DirectoryNotFoundException("Crm.sln not found above " + AppContext.BaseDirectory);
-        }
-
-        var path = Path.Combine(dir.FullName, "tests", "fixtures", "rules", "valid", fixtureFileName);
-        using var document = JsonDocument.Parse(File.ReadAllText(path));
-        return document.RootElement.Clone().GetProperty("definition");
-    }
 }

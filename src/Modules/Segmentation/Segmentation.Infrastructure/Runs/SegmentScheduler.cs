@@ -57,17 +57,27 @@ internal sealed class SegmentScheduler(
 
         foreach (var candidate in candidates)
         {
-            await using var scope = scopes.CreateAsyncScope();
-            scope.ServiceProvider.GetRequiredService<TenantContext>().Resolve(candidate.TenantId, null, TenantPrincipalKind.None);
-
-            var queue = scope.ServiceProvider.GetRequiredService<ISegmentRunQueue>();
-            var result = await queue.EnqueueAsync(candidate.SegmentId, SegmentRunTrigger.Schedule, cancellationToken);
-
-            // Lost a race against a Manual run queued between the candidate read above and here, or the segment
-            // was archived meanwhile; neither is worth failing the whole sweep over.
-            if (result.IsFailure && logger.IsEnabled(LogLevel.Information))
+            // B6 (parked pair, one fix): one candidate's exception must never abort the sweep for the rest —
+            // the review found this loop turning a reap-related InvalidOperationException (I-2) into "the
+            // remaining segments do not get scheduled this tick" for every segment after the failing one.
+            try
             {
-                logger.LogInformation("Scheduled run for segment {SegmentId} was not queued: {Code}", candidate.SegmentId, result.Error!.Code);
+                await using var scope = scopes.CreateAsyncScope();
+                scope.ServiceProvider.GetRequiredService<TenantContext>().Resolve(candidate.TenantId, null, TenantPrincipalKind.None);
+
+                var queue = scope.ServiceProvider.GetRequiredService<ISegmentRunQueue>();
+                var result = await queue.EnqueueAsync(candidate.SegmentId, SegmentRunTrigger.Schedule, cancellationToken);
+
+                // Lost a race against a Manual run queued between the candidate read above and here, or the
+                // segment was archived meanwhile; neither is worth failing the whole sweep over.
+                if (result.IsFailure && logger.IsEnabled(LogLevel.Information))
+                {
+                    logger.LogInformation("Scheduled run for segment {SegmentId} was not queued: {Code}", candidate.SegmentId, result.Error!.Code);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Scheduled run enqueue for segment {SegmentId} threw; continuing the sweep for the remaining candidates", candidate.SegmentId);
             }
         }
     }
@@ -80,6 +90,7 @@ internal sealed class SegmentScheduler(
 public sealed class SegmentScheduleOptions
 {
     public const string SectionName = "Segmentation:Schedule";
+    public static readonly TimeSpan DefaultInterval = TimeSpan.FromHours(6);
 
-    public TimeSpan Interval { get; set; } = TimeSpan.FromHours(6);
+    public TimeSpan Interval { get; set; } = DefaultInterval;
 }

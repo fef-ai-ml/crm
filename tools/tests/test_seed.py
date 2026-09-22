@@ -187,8 +187,10 @@ SEED_SEGMENTS_RESPONSE = [
 
 def _segments_page(counts, finished):
     """A GET /v1/segments body: every EXPECTED_SEGMENT_COUNTS name, with `lastRunAt` set once `finished` for the
-    five Active names — `seed-high-ltv-sg` (Draft) never gets one, matching the real endpoint."""
-    return {"items": [{"name": name, "memberCount": counts.get(name, 0),
+    five Active names — `seed-high-ltv-sg` (Draft) never gets one, matching the real endpoint, and its
+    `memberCount` stays 0 (it is never queued, so it never materialises; C-1)."""
+    return {"items": [{"name": name,
+                        "memberCount": 0 if name == "seed-high-ltv-sg" else counts.get(name, 0),
                         "lastRunAt": "2026-09-22T00:00:00Z" if finished and name != "seed-high-ltv-sg" else None}
                        for name in EXPECTED_SEGMENT_COUNTS], "nextCursor": None}
 
@@ -215,6 +217,30 @@ class CompareSegmentCountsTests(unittest.TestCase):
     def test_extra_actual_name_is_not_a_mismatch(self):
         actual = {**EXPECTED_SEGMENT_COUNTS, "some-other-segment": 1}
         self.assertEqual(seed.compare_segment_counts(EXPECTED_SEGMENT_COUNTS, actual), [])
+
+
+class CheckDraftSegmentsTests(unittest.TestCase):
+    def test_unmaterialised_draft_is_not_a_mismatch(self):
+        segments = {"seed-high-ltv-sg": {"memberCount": 0, "lastRunAt": None}}
+        self.assertEqual(seed.check_draft_segments({"seed-high-ltv-sg"}, segments), [])
+
+    def test_nonzero_member_count_is_a_mismatch(self):
+        """Regression guard for C-1: comparing a Draft segment against the rule's match count (187, as the
+        old fixture did) must fail loudly instead of passing."""
+        segments = {"seed-high-ltv-sg": {"memberCount": 187, "lastRunAt": None}}
+        messages = seed.check_draft_segments({"seed-high-ltv-sg"}, segments)
+        self.assertEqual(len(messages), 1)
+        self.assertIn("memberCount=187", messages[0])
+
+    def test_a_lastrunat_on_a_draft_is_a_mismatch(self):
+        segments = {"seed-high-ltv-sg": {"memberCount": 0, "lastRunAt": "2026-09-22T00:00:00Z"}}
+        messages = seed.check_draft_segments({"seed-high-ltv-sg"}, segments)
+        self.assertEqual(len(messages), 1)
+        self.assertIn("lastRunAt=2026-09-22T00:00:00Z", messages[0])
+
+    def test_missing_name_is_reported(self):
+        self.assertEqual(seed.check_draft_segments({"seed-high-ltv-sg"}, {}),
+                          ["seed-high-ltv-sg: missing from GET /v1/segments"])
 
 
 class SeedSegmentsTests(unittest.TestCase):
@@ -268,6 +294,36 @@ class SeedSegmentsTests(unittest.TestCase):
                 seed.seed_segments("t", EXPECTED_SEGMENT_COUNTS)
         self.assertIn("seed-segments", str(exit_.exception))
         self.assertIn("Development", str(exit_.exception))
+
+    def test_draft_seed_segment_at_zero_passes_and_is_reported_as_not_materialised(self):
+        """C-1 regression guard: seed-high-ltv-sg is Draft and stays at memberCount 0 — the real endpoint's
+        shape — and must not be compared against its rule's match count (187)."""
+        with mock.patch.object(seed, "call", side_effect=[
+            (200, SEED_SEGMENTS_RESPONSE),
+            (200, _segments_page(EXPECTED_SEGMENT_COUNTS, finished=True)),
+        ]), mock.patch("time.sleep"), mock.patch("builtins.print") as print_:
+            seed.seed_segments("admin-token", EXPECTED_SEGMENT_COUNTS)
+
+        printed = "\n".join(call_args.args[0] for call_args in print_.call_args_list)
+        self.assertIn("seed-high-ltv-sg = draft — not materialised (rule would match 187)", printed)
+
+    def test_draft_seed_segment_with_the_old_broken_fixture_count_fails(self):
+        """Proves the OLD behaviour (comparing the Draft segment's memberCount against its rule's match count,
+        187) would have failed every time — this is the exact C-1 defect. A Draft segment that somehow reports
+        a non-zero memberCount must fail loudly rather than pass by having "matched" the expected count."""
+        page = _segments_page(EXPECTED_SEGMENT_COUNTS, finished=True)
+        for item in page["items"]:
+            if item["name"] == "seed-high-ltv-sg":
+                item["memberCount"] = EXPECTED_SEGMENT_COUNTS["seed-high-ltv-sg"]
+        with mock.patch.object(seed, "call", side_effect=[
+            (200, SEED_SEGMENTS_RESPONSE),
+            (200, page),
+        ]), mock.patch("builtins.print"):
+            with self.assertRaises(SystemExit) as exit_:
+                seed.seed_segments("admin-token", EXPECTED_SEGMENT_COUNTS)
+
+        self.assertIn("seed-high-ltv-sg", str(exit_.exception))
+        self.assertIn("memberCount=187", str(exit_.exception))
 
 
 if __name__ == "__main__":

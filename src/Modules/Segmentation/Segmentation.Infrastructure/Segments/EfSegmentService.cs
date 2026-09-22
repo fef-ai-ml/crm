@@ -159,7 +159,7 @@ internal sealed class EfSegmentService(SegmentationDbContext db, ITenantContext 
                 fields["status"] = ["is required"];
             }
         }
-        else if (Enum.TryParse<SegmentStatus>(request.Status, ignoreCase: true, out var parsedStatus))
+        else if (SegmentStatusParser.TryParse(request.Status, out var parsedStatus))
         {
             status = parsedStatus;
         }

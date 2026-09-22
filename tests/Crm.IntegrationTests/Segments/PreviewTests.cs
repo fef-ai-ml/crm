@@ -3,6 +3,7 @@ using System.Net;
 using System.Text.Json;
 using Crm.IntegrationTests.Fixtures;
 using Crm.Kernel.Redis;
+using Crm.Segmentation.Application;
 using Crm.Segmentation.Domain.Rules;
 using Crm.Tenancy.Domain;
 using FluentAssertions;
@@ -46,10 +47,12 @@ public sealed class PreviewTests(CrmStackFixture stack) : IAsyncLifetime
     {
         var tenant = await CreateSeededTenantAsync();
         var admin = TenancySeed.AccessToken(_factory, tenant.AdminUserId, tenant.TenantId, Roles.Admin);
-        var definition = LoadDefinition("seed-pro-id.json");
+        var definition = RuleFixtures.LoadDefinition("seed-pro-id.json");
 
         var rewriteCalls = 0;
-        using (stack.SegmentHooks.OnRewriteQuery((_, sql) => { rewriteCalls++; return sql; }))
+        // M-3: the hooks instance is shared with the in-process Worker (it polls every 250 ms in tests), so a
+        // run it happens to drain during this test must never count toward "exactly one preview COUNT".
+        using (stack.SegmentHooks.OnRewriteQuery((kind, sql) => { if (kind == SegmentQueryKind.Preview) { rewriteCalls++; } return sql; }))
         {
             using var first = await _client.PostAsync("/v1/segments/preview", admin, new { definition });
             first.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -72,7 +75,7 @@ public sealed class PreviewTests(CrmStackFixture stack) : IAsyncLifetime
         var otherAdmin = TenancySeed.AccessToken(_factory, otherTenant.AdminUserId, otherTenant.TenantId, Roles.Admin);
 
         var otherTenantRewriteCalls = 0;
-        using (stack.SegmentHooks.OnRewriteQuery((_, sql) => { otherTenantRewriteCalls++; return sql; }))
+        using (stack.SegmentHooks.OnRewriteQuery((kind, sql) => { if (kind == SegmentQueryKind.Preview) { otherTenantRewriteCalls++; } return sql; }))
         {
             using var otherFirst = await _client.PostAsync("/v1/segments/preview", otherAdmin, new { definition });
             otherFirst.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -86,10 +89,12 @@ public sealed class PreviewTests(CrmStackFixture stack) : IAsyncLifetime
     {
         var tenant = await CreateSeededTenantAsync();
         var admin = TenancySeed.AccessToken(_factory, tenant.AdminUserId, tenant.TenantId, Roles.Admin);
-        var definition = LoadDefinition("seed-pro-id.json");
+        var definition = RuleFixtures.LoadDefinition("seed-pro-id.json");
 
         var stopwatch = Stopwatch.StartNew();
-        using (stack.SegmentHooks.OnRewriteQuery((_, sql) => "WAITFOR DELAY '00:00:06'; " + sql))
+        // M-3: a Run-kind query drained by the shared in-process Worker must never get this six-second delay
+        // prepended — it would stall a live member insert, not just this preview.
+        using (stack.SegmentHooks.OnRewriteQuery((kind, sql) => kind == SegmentQueryKind.Preview ? "WAITFOR DELAY '00:00:06'; " + sql : sql))
         {
             using var response = await _client.PostAsync("/v1/segments/preview", admin, new { definition });
             stopwatch.Stop();
@@ -111,7 +116,7 @@ public sealed class PreviewTests(CrmStackFixture stack) : IAsyncLifetime
     {
         var tenant = await CreateSeededTenantAsync();
         var admin = TenancySeed.AccessToken(_factory, tenant.AdminUserId, tenant.TenantId, Roles.Admin);
-        var definition = LoadDefinition("seed-pro-id.json");
+        var definition = RuleFixtures.LoadDefinition("seed-pro-id.json");
 
         var tree = RuleParser.Parse(definition).Tree!;
         var hashHex = DefinitionHash.ToHex(DefinitionHash.Compute(tree));
@@ -121,7 +126,7 @@ public sealed class PreviewTests(CrmStackFixture stack) : IAsyncLifetime
         await redis.GetDatabase().StringSetAsync(cacheKey, "{not valid json", TimeSpan.FromSeconds(60));
 
         using var response = await _client.PostAsync("/v1/segments/preview", admin, new { definition });
-        response.StatusCode.Should().Be(HttpStatusCode.OK, "a corrupted cache entry must be a miss, never a failed preview (fix1)");
+        response.StatusCode.Should().Be(HttpStatusCode.OK, "a corrupted cache entry must be a miss, never a failed preview");
         var body = await ReadBodyAsync(response);
         body.GetProperty("count").GetInt32().Should().Be(412);
         body.GetProperty("timedOut").GetBoolean().Should().BeFalse();
@@ -130,6 +135,24 @@ public sealed class PreviewTests(CrmStackFixture stack) : IAsyncLifetime
         overwritten.HasValue.Should().BeTrue();
         using var overwrittenJson = JsonDocument.Parse((string)overwritten!);
         overwrittenJson.RootElement.GetProperty("count").GetInt32().Should().Be(412, "the corrupted entry must be replaced with a valid one, not left in place");
+    }
+
+    /// <summary>C11/M-9: `leaves-20.json` (20 top-level `and` children) is executed by IT-042 through
+    /// `CompiledQueryExecutor` directly, but never through `/preview`'s own 5 s budget before this. A wide-but-
+    /// shallow tree over the seed dataset must return a real count, not time out.</summary>
+    [Fact]
+    public async Task Preview_of_the_widest_fixture_returns_a_count_not_a_timeout()
+    {
+        var tenant = await CreateSeededTenantAsync();
+        var admin = TenancySeed.AccessToken(_factory, tenant.AdminUserId, tenant.TenantId, Roles.Admin);
+        var definition = RuleFixtures.LoadDefinition("leaves-20.json");
+
+        using var response = await _client.PostAsync("/v1/segments/preview", admin, new { definition });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await ReadBodyAsync(response);
+        body.GetProperty("timedOut").GetBoolean().Should().BeFalse();
+        body.GetProperty("count").ValueKind.Should().Be(JsonValueKind.Number);
     }
 
     private async Task<SeededTenant> CreateSeededTenantAsync()
@@ -146,22 +169,4 @@ public sealed class PreviewTests(CrmStackFixture stack) : IAsyncLifetime
         return document.RootElement.Clone();
     }
 
-    /// <summary>Mirrors SegmentCrudTests.LoadDefinition: walks up from the test binary to the directory containing Crm.sln.</summary>
-    private static JsonElement LoadDefinition(string fixtureFileName)
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Crm.sln")))
-        {
-            dir = dir.Parent;
-        }
-
-        if (dir is null)
-        {
-            throw new DirectoryNotFoundException("Crm.sln not found above " + AppContext.BaseDirectory);
-        }
-
-        var path = Path.Combine(dir.FullName, "tests", "fixtures", "rules", "valid", fixtureFileName);
-        using var document = JsonDocument.Parse(File.ReadAllText(path));
-        return document.RootElement.Clone().GetProperty("definition");
-    }
 }

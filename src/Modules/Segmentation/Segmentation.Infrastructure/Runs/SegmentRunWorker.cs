@@ -23,10 +23,6 @@ internal sealed class SegmentRunWorker(
     IOptions<SegmentRunOptions> options,
     ILogger<SegmentRunWorker> logger) : BackgroundService
 {
-    /// <summary>H4: a run stuck Running longer than this is abandoned (a Worker instance died mid-run) and is
-    /// failed so it stops blocking POST /segments/{id}/run for its segment.</summary>
-    private static readonly TimeSpan AbandonedAfter = TimeSpan.FromMinutes(10);
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await Task.Yield(); // never delay host start-up
@@ -57,16 +53,19 @@ internal sealed class SegmentRunWorker(
         }
     }
 
-    /// <summary>H4: fails any run stuck `Running` past <see cref="AbandonedAfter"/>. Public, mirroring
-    /// <c>SegmentScheduler.EnqueueScheduledRunsAsync</c>'s exposure (fix round 1, item 4), so a test can invoke
-    /// the reap directly instead of waiting on the 5 s poll and an 11-minute clock.</summary>
+    /// <summary>H4/H29: fails any run stuck `Running` past the reap window
+    /// (<see cref="SegmentationOptionsDefaults.ReapCutoff"/>, derived from the configured command timeout budget
+    /// — see B2/I-2's finding that a flat 10-minute window can be shorter than a large run's legitimate
+    /// wall-clock ceiling). Public, mirroring <c>SegmentScheduler.EnqueueScheduledRunsAsync</c>'s exposure (fix
+    /// round 1, item 4), so a test can invoke the reap directly instead of waiting on the poll and the clock.</summary>
     public async Task ReapAbandonedRunsAsync(CancellationToken cancellationToken)
     {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SegmentationDbContext>();
         var clock = scope.ServiceProvider.GetRequiredService<IClock>();
         var now = clock.UtcNow;
-        var cutoff = now - AbandonedAfter;
+        var abandonedAfter = SegmentationOptionsDefaults.ReapCutoff(options.Value.CommandTimeoutSeconds);
+        var cutoff = now - abandonedAfter;
         await db.Database.ExecuteSqlInterpolatedAsync(
             $"UPDATE segments.SegmentRuns SET Status = 'Failed', Error = 'abandoned', FinishedAt = {now}, UpdatedAt = {now} WHERE Status = 'Running' AND StartedAt < {cutoff}",
             cancellationToken);

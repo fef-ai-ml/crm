@@ -154,7 +154,7 @@ public sealed class SegmentReadTests(CrmStackFixture stack) : IAsyncLifetime
 
     private async Task<Guid> CreateSegmentAsync(string bearer, string name, string fixtureFileName)
     {
-        var definition = LoadDefinition(fixtureFileName);
+        var definition = RuleFixtures.LoadDefinition(fixtureFileName);
         using var response = await _client.PostAsync("/v1/segments", bearer, new { name, definition });
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -178,22 +178,4 @@ public sealed class SegmentReadTests(CrmStackFixture stack) : IAsyncLifetime
             },
             $"run {runId} finishes");
 
-    /// <summary>Mirrors SegmentCrudTests.LoadDefinition: walks up from the test binary to the directory containing Crm.sln.</summary>
-    private static JsonElement LoadDefinition(string fixtureFileName)
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Crm.sln")))
-        {
-            dir = dir.Parent;
-        }
-
-        if (dir is null)
-        {
-            throw new DirectoryNotFoundException("Crm.sln not found above " + AppContext.BaseDirectory);
-        }
-
-        var path = Path.Combine(dir.FullName, "tests", "fixtures", "rules", "valid", fixtureFileName);
-        using var document = JsonDocument.Parse(File.ReadAllText(path));
-        return document.RootElement.Clone().GetProperty("definition");
-    }
 }

@@ -46,7 +46,7 @@ public sealed class ScheduleTests(CrmStackFixture stack) : IAsyncLifetime
         _tenantIds.Add(tenant.TenantId);
         await SeedDataset.LoadAsync(_factory, tenant.TenantId);
         var admin = TenancySeed.AccessToken(_factory, tenant.AdminUserId, tenant.TenantId, Roles.Admin);
-        var definition = LoadDefinition("seed-pro-id.json");
+        var definition = RuleFixtures.LoadDefinition("seed-pro-id.json");
 
         var draftId = await CreateSegmentAsync(admin, "sched-draft", definition, status: null);
         var activeId = await CreateSegmentAsync(admin, "sched-active", definition, status: "Active");
@@ -76,22 +76,4 @@ public sealed class ScheduleTests(CrmStackFixture stack) : IAsyncLifetime
         return document.RootElement.Clone().GetProperty("id").GetGuid();
     }
 
-    /// <summary>Mirrors SegmentCrudTests.LoadDefinition: walks up from the test binary to the directory containing Crm.sln.</summary>
-    private static JsonElement LoadDefinition(string fixtureFileName)
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Crm.sln")))
-        {
-            dir = dir.Parent;
-        }
-
-        if (dir is null)
-        {
-            throw new DirectoryNotFoundException("Crm.sln not found above " + AppContext.BaseDirectory);
-        }
-
-        var path = Path.Combine(dir.FullName, "tests", "fixtures", "rules", "valid", fixtureFileName);
-        using var document = JsonDocument.Parse(File.ReadAllText(path));
-        return document.RootElement.Clone().GetProperty("definition");
-    }
 }

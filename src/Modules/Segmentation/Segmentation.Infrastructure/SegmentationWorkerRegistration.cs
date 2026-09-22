@@ -2,6 +2,7 @@ using Crm.Segmentation.Application.Runs;
 using Crm.Segmentation.Infrastructure.Runs;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Crm.Segmentation.Infrastructure;
 
@@ -14,17 +15,43 @@ public static class SegmentationWorkerRegistration
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
-        services.AddOptions<SegmentRunOptions>().Bind(configuration.GetSection(SegmentRunOptions.SectionName));
-        // A misconfigured (zero or negative) poll interval would spin the drain loop or never fire it; fall back
-        // to the default instead of either.
-        services.PostConfigure<SegmentRunOptions>(o =>
-        {
-            if (o.PollInterval <= TimeSpan.Zero)
+        // I-4: a misconfigured (zero, negative or unparsable) value here must fall back to the default with a
+        // warning, never throw — `SegmentScheduleOptions.Interval` reaching `PeriodicTimer` unguarded, or
+        // `CommandTimeoutSeconds` reaching ADO.NET as 0 ("no timeout") or negative (throws per statement), would
+        // otherwise crash the whole Worker host (StopHost), taking the Profiles consumers down with it.
+        // `SegmentationOptionsDefaults` holds the pure fallback logic; this only logs and applies it.
+        services.AddOptions<SegmentRunOptions>()
+            .Bind(configuration.GetSection(SegmentRunOptions.SectionName))
+            .PostConfigure<ILoggerFactory>((o, loggerFactory) =>
             {
-                o.PollInterval = SegmentRunOptions.DefaultPollInterval;
-            }
-        });
-        services.AddOptions<SegmentScheduleOptions>().Bind(configuration.GetSection(SegmentScheduleOptions.SectionName));
+                var logger = loggerFactory.CreateLogger("Crm.Segmentation.Run");
+                var effectivePollInterval = SegmentationOptionsDefaults.EffectivePollInterval(o.PollInterval);
+                if (effectivePollInterval != o.PollInterval)
+                {
+                    logger.LogWarning("Segmentation:Run:PollInterval was {Configured}; falling back to {Default}", o.PollInterval, effectivePollInterval);
+                    o.PollInterval = effectivePollInterval;
+                }
+
+                var effectiveCommandTimeoutSeconds = SegmentationOptionsDefaults.EffectiveCommandTimeoutSeconds(o.CommandTimeoutSeconds);
+                if (effectiveCommandTimeoutSeconds != o.CommandTimeoutSeconds)
+                {
+                    logger.LogWarning("Segmentation:Run:CommandTimeoutSeconds was {Configured}; falling back to {Default}", o.CommandTimeoutSeconds, effectiveCommandTimeoutSeconds);
+                    o.CommandTimeoutSeconds = effectiveCommandTimeoutSeconds;
+                }
+            });
+
+        services.AddOptions<SegmentScheduleOptions>()
+            .Bind(configuration.GetSection(SegmentScheduleOptions.SectionName))
+            .PostConfigure<ILoggerFactory>((o, loggerFactory) =>
+            {
+                var logger = loggerFactory.CreateLogger("Crm.Segmentation.Schedule");
+                var effectiveInterval = SegmentationOptionsDefaults.EffectiveScheduleInterval(o.Interval);
+                if (effectiveInterval != o.Interval)
+                {
+                    logger.LogWarning("Segmentation:Schedule:Interval was {Configured}; falling back to {Default}", o.Interval, effectiveInterval);
+                    o.Interval = effectiveInterval;
+                }
+            });
 
         services.AddSingleton<SegmentationMetrics>();
         services.AddScoped<ISegmentRunner, SegmentRunner>();

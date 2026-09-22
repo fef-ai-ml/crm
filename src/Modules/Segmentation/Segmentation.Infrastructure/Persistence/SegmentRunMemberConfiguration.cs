@@ -19,8 +19,6 @@ internal sealed class SegmentRunMemberConfiguration : IEntityTypeConfiguration<S
         builder.Ignore(m => m.UpdatedAt);
         builder.HasKey(m => new { m.RunId, m.ProfileId }).HasName("PK_SegmentRunMembers");
 
-        builder.Property(m => m.TenantId).ValueGeneratedNever();
-
         // "which segments contain this profile": TenantId, ProfileId.
         builder.HasIndex(m => new { m.TenantId, m.ProfileId }).HasDatabaseName("IX_SegmentRunMembers_TenantId_ProfileId");
 

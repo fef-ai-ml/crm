@@ -70,7 +70,7 @@ internal sealed class EfSegmentQueries(SegmentationDbContext db) : ISegmentQueri
             // H14: Draft and Active only; Archived is hidden unless asked for explicitly.
             statuses = [SegmentStatus.Draft, SegmentStatus.Active];
         }
-        else if (Enum.TryParse<SegmentStatus>(status, ignoreCase: true, out var parsedStatus))
+        else if (SegmentStatusParser.TryParse(status, out var parsedStatus))
         {
             statuses = [parsedStatus];
         }

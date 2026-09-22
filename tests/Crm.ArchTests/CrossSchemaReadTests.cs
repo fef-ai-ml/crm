@@ -10,18 +10,38 @@ namespace Crm.ArchTests;
 [Trait("Category", "Architecture")]
 public class CrossSchemaReadTests
 {
+    private const int MinimumGoldenFiles = 26;
+
     private static readonly Regex TableReference = new(@"profiles\.(\w+)", RegexOptions.Compiled);
+
+    /// <summary>M-8: also catches `SELECT … INTO profiles.NewTable` (T-SQL's other way to create/populate a
+    /// table, distinct from `INSERT INTO`) and `EXEC`/`EXECUTE profiles.SomeProc`, not just the four DML
+    /// keywords the original scan checked.</summary>
     private static readonly Regex WriteStatement = new(
-        @"(INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE(\s+INTO)?)\s+profiles\.",
+        @"(INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE(\s+INTO)?|SELECT\b[\s\S]*?\bINTO|EXEC(UTE)?)\s+profiles\.",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly string[] SanctionedTables = ["Profiles", "Events"];
 
     [Fact]
     public void AT007_segmentation_sql_touches_only_the_sanctioned_profile_tables()
     {
-        var errors = new List<string>();
+        var root = RepoRoot();
+        var segmentationDir = Path.Combine(root, "src", "Modules", "Segmentation");
+        var goldenDir = Path.Combine(root, "tests", "fixtures", "golden");
 
-        foreach (var (path, text) in ScannedFiles())
+        // M-8: the golden-directory half of this scan must not pass by absence. A rename or a move that made
+        // `Directory.Exists(goldenDir)` false used to skip that whole half silently instead of failing.
+        Directory.Exists(goldenDir).Should().BeTrue($"the golden SQL directory {goldenDir} must exist for AT-007 to scan it");
+        var goldenFiles = Directory.EnumerateFiles(goldenDir, "*.sql", SearchOption.AllDirectories).ToList();
+        goldenFiles.Should().HaveCountGreaterThanOrEqualTo(MinimumGoldenFiles, "the golden fixture set must not have silently shrunk");
+
+        var segmentationFiles = ScannedSourceFiles(segmentationDir, root).ToList();
+        segmentationFiles.Should().NotBeEmpty("the src half of this scan must actually find files, not pass by an empty enumeration");
+
+        var scanned = segmentationFiles.Concat(goldenFiles.Select(path => (Path.GetRelativePath(root, path), File.ReadAllText(path))));
+
+        var errors = new List<string>();
+        foreach (var (path, text) in scanned)
         {
             foreach (Match match in TableReference.Matches(text))
             {
@@ -41,12 +61,8 @@ public class CrossSchemaReadTests
         errors.Should().BeEmpty();
     }
 
-    private static IEnumerable<(string Path, string Text)> ScannedFiles()
+    private static IEnumerable<(string Path, string Text)> ScannedSourceFiles(string segmentationDir, string root)
     {
-        var root = RepoRoot();
-        var segmentationDir = Path.Combine(root, "src", "Modules", "Segmentation");
-        var goldenDir = Path.Combine(root, "tests", "fixtures", "golden");
-
         foreach (var path in Directory.EnumerateFiles(segmentationDir, "*.cs", SearchOption.AllDirectories))
         {
             if (path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
@@ -56,14 +72,6 @@ public class CrossSchemaReadTests
             }
 
             yield return (Path.GetRelativePath(root, path), File.ReadAllText(path));
-        }
-
-        if (Directory.Exists(goldenDir))
-        {
-            foreach (var path in Directory.EnumerateFiles(goldenDir, "*.sql", SearchOption.AllDirectories))
-            {
-                yield return (Path.GetRelativePath(root, path), File.ReadAllText(path));
-            }
         }
     }
 

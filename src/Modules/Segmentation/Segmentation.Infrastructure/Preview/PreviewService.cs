@@ -82,7 +82,7 @@ internal sealed class PreviewService(
         }
         catch (Exception ex) when (IsRedisFailure(ex) || ex is JsonException)
         {
-            // A transport failure and a corrupted/partial cached value (fix1) are both a soft miss (ruling E12):
+            // A transport failure and a corrupted/partial cached value are both a soft miss (ruling E12):
             // recompute and overwrite the entry, never fail the preview over a cache-read problem.
             logger.LogWarning(ex, "Preview cache read failed; recomputing");
             return null;

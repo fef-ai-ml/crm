@@ -62,6 +62,33 @@ public static class SegmentsDb
         return id;
     }
 
+    /// <summary>B2 (I-2/H29): sets a run's row exactly as `SegmentRunWorker.ReapAbandonedRunsAsync` would,
+    /// through a fresh connection outside the runner's own transaction — lets a test simulate "the reap fired
+    /// while this run's transaction was still open" without waiting on the real reap window.</summary>
+    public static async Task MarkRunAbandonedAsync(string connectionString, Guid runId)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "UPDATE segments.SegmentRuns SET Status = 'Failed', Error = 'abandoned', FinishedAt = SYSUTCDATETIME(), UpdatedAt = SYSUTCDATETIME() WHERE RunId = @run";
+        command.Parameters.Add(new SqlParameter("@run", runId));
+        await command.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>B2: the total MembershipChanges rows for a segment, regardless of timestamp — used to prove a
+    /// rolled-back run left none, where <c>CountMembershipChangesAsync</c>'s exact-timestamp match would not
+    /// apply (a rolled-back run never reaches its own `FinishedAt`).</summary>
+    public static async Task<int> CountMembershipChangesForSegmentAsync(string connectionString, Guid segmentId)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM segments.MembershipChanges WHERE SegmentId = @segment";
+        command.Parameters.Add(new SqlParameter("@segment", segmentId));
+        return (int)(await command.ExecuteScalarAsync())!;
+    }
+
     /// <summary>Fix round 1, item 4: reads back what the reap (or any other writer) left on a run's row.</summary>
     public static async Task<(string Status, string? Error, DateTime? FinishedAt)> GetRunStatusAsync(string connectionString, Guid runId)
     {

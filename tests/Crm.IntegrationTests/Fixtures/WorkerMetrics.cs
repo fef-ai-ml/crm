@@ -31,4 +31,17 @@ public static class WorkerMetrics
             .Where(l => l.StartsWith("crm_segment_run_seconds_count{", StringComparison.Ordinal))
             .Sum(l => double.Parse(l[(l.LastIndexOf('}') + 1)..].Trim().Split(' ')[0], CultureInfo.InvariantCulture));
     }
+
+    /// <summary>B3 (I-3): same series, restricted to samples carrying `outcome="failed"` — proves a failed run
+    /// leaves a distinctly-tagged observation (both `trigger` and `outcome`), not just an increment somewhere in
+    /// the untagged total.</summary>
+    public static async Task<double> SegmentRunSecondsFailedCountAsync(HttpClient worker)
+    {
+        ArgumentNullException.ThrowIfNull(worker);
+        var body = await worker.GetStringAsync(new Uri("/metrics", UriKind.Relative));
+        return body.Split('\n')
+            .Where(l => l.StartsWith("crm_segment_run_seconds_count{", StringComparison.Ordinal)
+                && l.Contains("outcome=\"failed\"", StringComparison.Ordinal))
+            .Sum(l => double.Parse(l[(l.LastIndexOf('}') + 1)..].Trim().Split(' ')[0], CultureInfo.InvariantCulture));
+    }
 }

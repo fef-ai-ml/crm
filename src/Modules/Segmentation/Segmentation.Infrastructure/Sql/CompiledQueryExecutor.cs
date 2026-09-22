@@ -22,7 +22,7 @@ internal sealed class CompiledQueryExecutor(SegmentationDbContext db, ISegmentat
     /// Wraps <paramref name="query"/> as `SELECT COUNT(*) FROM (...) q`, passes that whole statement through
     /// <see cref="ISegmentationHooks.RewriteQuery"/>, then executes it against the current
     /// <see cref="SegmentationDbContext"/> connection with a <paramref name="timeout"/> command budget that
-    /// covers both opening the connection (fix1: a cache-miss preview usually finds it closed) and running the
+    /// covers both opening the connection (a cache-miss preview usually finds it closed) and running the
     /// command, as one bounded operation. Throws <see cref="SqlException"/> (Number -2) or an
     /// <see cref="OperationCanceledException"/> tied to the budget's own token when that budget elapses; a
     /// cancellation of <paramref name="cancellationToken"/> itself propagates unchanged, so a client disconnect
@@ -37,6 +37,13 @@ internal sealed class CompiledQueryExecutor(SegmentationDbContext db, ISegmentat
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(timeout);
 
+        // M-7: `openedHere` is computed from the connection's state, so `finally` below only ever closes what
+        // this method itself opened. Both of today's callers (preview, IT-042) call this outside any EF
+        // transaction and on their own scope, so the connection is never shared with a concurrent caller; if a
+        // future caller ever wraps this in an EF transaction on the same context, `openedHere` would be false
+        // here and this method would correctly leave the connection alone — but two callers racing on the very
+        // same context's connection is not a case this state check is atomic against. Not a problem today (only
+        // these two callers exist, and neither shares a context across concurrent calls).
         var connection = db.Database.GetDbConnection();
         var openedHere = connection.State != ConnectionState.Open;
         if (openedHere)

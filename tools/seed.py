@@ -132,7 +132,9 @@ def load_dataset(token):
 
 def compare_segment_counts(expected: dict, actual: dict) -> list:
     """Pure comparison (unit-tested): one message per name in `expected` that is missing from `actual` or whose
-    count differs from it. A name present in `actual` but not `expected` is not this function's concern."""
+    count differs from it. A name present in `actual` but not `expected` is not this function's concern.
+    Callers pass only the names that were actually run — a Draft seed segment never has a `memberCount` to
+    compare and is checked separately by `check_draft_segments`."""
     messages = []
     for name, count in expected.items():
         if name not in actual:
@@ -142,12 +144,31 @@ def compare_segment_counts(expected: dict, actual: dict) -> list:
     return messages
 
 
+def check_draft_segments(draft_names, segments: dict) -> list:
+    """Pure comparison (unit-tested): a Draft seed segment is never queued (`SeedSegmentsEndpoint` only runs
+    `Active` ones), so it must stay unmaterialised — `memberCount == 0` and no `lastRunAt`. One message per
+    name that is missing from `segments` or fails that check (C-1: a Draft segment compared against the rule's
+    match count, as the dataset endpoint reports it, would always fail)."""
+    messages = []
+    for name in sorted(draft_names):
+        item = segments.get(name)
+        if item is None:
+            messages.append(f"{name}: missing from GET /v1/segments")
+        elif item.get("memberCount") != 0 or item.get("lastRunAt") is not None:
+            messages.append(f"{name}: expected an unmaterialised Draft (memberCount 0, no lastRunAt), "
+                             f"found memberCount={item.get('memberCount')}, lastRunAt={item.get('lastRunAt')}")
+    return messages
+
+
 def seed_segments(token, expected_counts):
     """H22: upserts the six demo segments (`SeedSegments`, C# source of truth) through the Development-only
     POST /v1/dev/seed-segments and queues a run for each Active one, then polls GET /v1/segments until every
     Active seed segment has a `lastRunAt` (timeout 120 s, 1 s interval) and compares `memberCount` against
     `expected_counts` — the same six counts `load_dataset`'s own response just printed, never duplicated here.
-    Idempotent on the server: an existing segment is left untouched and an already-run one is not re-queued."""
+    A Draft seed segment (`seed-high-ltv-sg`) is never queued and so never has a `memberCount` to compare
+    against the rule's match count (C-1); it is checked separately by `check_draft_segments` and printed as
+    "not materialised". Idempotent on the server: an existing segment is left untouched and an already-run
+    one is not re-queued."""
     status, body = call("POST", "/v1/dev/seed-segments", {}, token, timeout=60)
     if status == 404:
         sys.exit("seed: POST /v1/dev/seed-segments is not available — the API must run in Development and include plan H")
@@ -155,6 +176,7 @@ def seed_segments(token, expected_counts):
         fail("seed segments", status, body)
 
     active_names = {item["name"] for item in body if item["status"] == "Active"}
+    draft_names = {item["name"] for item in body if item["status"] != "Active"}
 
     deadline = time.time() + 120
     segments = {}
@@ -171,10 +193,14 @@ def seed_segments(token, expected_counts):
         time.sleep(1)
 
     actual_counts = {name: item["memberCount"] for name, item in segments.items()}
-    for name in sorted(expected_counts):
-        print(f"seed:   {name} = {actual_counts.get(name, '?')} (expected {expected_counts[name]})")
+    active_expected = {name: count for name, count in expected_counts.items() if name in active_names}
+    for name in sorted(active_expected):
+        print(f"seed:   {name} = {actual_counts.get(name, '?')} (expected {active_expected[name]})")
+    for name in sorted(draft_names):
+        print(f"seed:   {name} = draft — not materialised (rule would match {expected_counts.get(name, '?')})")
 
-    mismatches = compare_segment_counts(expected_counts, actual_counts)
+    mismatches = compare_segment_counts(active_expected, actual_counts)
+    mismatches += check_draft_segments(draft_names, segments)
     if mismatches:
         sys.exit("seed: segment counts do not match the seed dataset: " + "; ".join(mismatches))
 

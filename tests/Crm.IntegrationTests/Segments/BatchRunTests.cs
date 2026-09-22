@@ -152,6 +152,44 @@ public sealed class BatchRunTests(CrmStackFixture stack) : IAsyncLifetime
         await WaitForFinishedAsync(segmentId, runId, admin);
     }
 
+    /// <summary>C11/M-9: `SegmentRunner` compiles the definition at execution time (it re-reads `Segment.Definition`
+    /// fresh when the worker claims the run — `SegmentRunner.cs`'s own read happens before the transaction, not
+    /// at enqueue time), so a `PUT` that lands while a run is already in flight (past that read) must NOT be
+    /// picked up by it — the in-flight run's `CompiledSql` reflects the definition it started with.</summary>
+    [Fact]
+    public async Task IT_M9_a_run_already_in_flight_uses_the_definition_it_started_with_not_a_concurrent_PUT()
+    {
+        var (_, admin) = await SeededTenantAsync();
+        var segmentId = await CreateSegmentAsync(admin, "run-definition-pin", "seed-purchasers.json");
+
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Guid runId;
+        using (stack.SegmentHooks.OnMembersInserted((_, _) =>
+        {
+            entered.TrySetResult();
+            return release.Task;
+        }))
+        {
+            runId = await PostRunAsync(segmentId, admin);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            // The run has already read and compiled seed-purchasers.json's definition (past the read, mid
+            // transaction) — this PUT must have no effect on it.
+            var newDefinition = RuleFixtures.LoadDefinition("seed-no-plan.json");
+            using var updated = await _client.PutAsync($"/v1/segments/{segmentId}", admin, new { name = "run-definition-pin", definition = newDefinition, status = "Draft" });
+            updated.StatusCode.Should().Be(HttpStatusCode.OK);
+
+            release.TrySetResult();
+        }
+
+        await WaitForFinishedAsync(segmentId, runId, admin);
+
+        var compiledSql = await SegmentsDb.GetCompiledSqlAsync(stack.SqlConnectionString, runId);
+        compiledSql.Should().Contain("profiles.Events", "the run used seed-purchasers.json, the definition it started with");
+        compiledSql.Should().NotContain("Attr_plan IS NULL", "seed-no-plan.json's definition, PUT while the run was in flight, must never reach it");
+    }
+
     [Fact]
     public async Task IT016_archived_segment_run_is_409()
     {
@@ -314,6 +352,9 @@ public sealed class BatchRunTests(CrmStackFixture stack) : IAsyncLifetime
         var firstRunId = await PostRunAsync(segmentId, admin);
         await WaitForFinishedAsync(segmentId, firstRunId, admin);
 
+        using var worker = stack.Worker.CreateClient();
+        var failedBefore = await WorkerMetrics.SegmentRunSecondsFailedCountAsync(worker);
+
         using (stack.SegmentHooks.OnRewriteQuery((kind, sql) =>
             kind == SegmentQueryKind.Run ? "SELECT CAST('x' AS uniqueidentifier) AS Id" : sql))
         {
@@ -329,18 +370,124 @@ public sealed class BatchRunTests(CrmStackFixture stack) : IAsyncLifetime
         var state = await SegmentsDb.GetSegmentStateAsync(stack.SqlConnectionString, tenant.TenantId, segmentId);
         state.CurrentRunId.Should().Be(firstRunId);
         state.MemberCount.Should().Be(412);
+
+        // B3 (I-3): the failed run must leave a distinctly-tagged metric sample, not just a bump to the
+        // untagged total. RecordRunDuration is called after RunAsync returns — a moment after the run's row
+        // already shows Failed via the API — so this polls rather than asserting once immediately.
+        await Eventually.TrueAsync(
+            async () => (await WorkerMetrics.SegmentRunSecondsFailedCountAsync(worker)) > failedBefore,
+            "the failed run's metric sample lands");
     }
 
-    /// <summary>Fix round 1, item 4 (H4, a known gap in the original Task 7): a run stuck `Running` for more
-    /// than 10 minutes is abandoned. Calls the worker's reap directly (exposed the same way
-    /// `SegmentScheduler.EnqueueScheduledRunsAsync` is) instead of waiting on an 11-minute clock.</summary>
+    /// <summary>B2 (I-2, ruling H29): if the run's row leaves `Running` (the reaper declares it
+    /// Failed/'abandoned') while its own transaction is still open, the finish update's `AND Status = 'Running'`
+    /// guard must find zero rows, so the whole transaction rolls back — nothing of the run survives — and the
+    /// reaper's status is never overwritten back to Finished, nor does MarkFailedAsync's own guarded update
+    /// clobber 'abandoned'. Mutation-check: fix-wave-mutation.log.</summary>
+    [Fact]
+    public async Task IT_H29_a_reaped_run_never_resurrects_and_rolls_back_completely()
+    {
+        var (tenant, admin) = await SeededTenantAsync();
+        var segmentId = await CreateSegmentAsync(admin, "run-reaped", "seed-pro-id.json");
+
+        using var worker = stack.Worker.CreateClient();
+        var runsBefore = await WorkerMetrics.SegmentRunSecondsCountAsync(worker);
+
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Guid runId;
+        using (stack.SegmentHooks.OnMembersInserted((_, _) =>
+        {
+            entered.TrySetResult();
+            return release.Task;
+        }))
+        {
+            runId = await PostRunAsync(segmentId, admin);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            // Simulate the reaper firing while this run's transaction is still open (H29): a separate statement
+            // against the same row, from outside the transaction, so it commits immediately regardless of what
+            // the runner is doing.
+            await SegmentsDb.MarkRunAbandonedAsync(stack.SqlConnectionString, runId);
+            release.TrySetResult();
+
+            // Waits for RunOneAsync's own metric record, which only happens after RunAsync has fully returned —
+            // committed or rolled back — rather than polling the run's row directly: a "Status == Failed" poll
+            // would also be (falsely) satisfied by the moment right after MarkRunAbandonedAsync above, before the
+            // runner's own (correct or, under a mutation, incorrect) finish attempt has even run.
+            await Eventually.TrueAsync(
+                async () => (await WorkerMetrics.SegmentRunSecondsCountAsync(worker)) > runsBefore,
+                "the runner's own attempt to finish (or fail) the reaped run completes");
+        }
+
+        var status = await SegmentsDb.GetRunStatusAsync(stack.SqlConnectionString, runId);
+        status.Status.Should().Be("Failed");
+        status.Error.Should().Be("abandoned", "MarkFailedAsync's guarded update must never overwrite the reaper's status");
+
+        (await SegmentsDb.CountRunMembersAsync(stack.SqlConnectionString, runId)).Should().Be(0, "the transaction rolled back; no member rows for the reaped run survive");
+        (await SegmentsDb.CountMembershipChangesForSegmentAsync(stack.SqlConnectionString, segmentId)).Should().Be(0, "the Entered/Exited inserts rolled back with the rest of the transaction");
+
+        var state = await SegmentsDb.GetSegmentStateAsync(stack.SqlConnectionString, tenant.TenantId, segmentId);
+        state.CurrentRunId.Should().BeNull("no run has ever finished for this brand-new segment, and the reaped one must not become it");
+        state.MemberCount.Should().Be(0);
+    }
+
+    /// <summary>B5 (M-2, ruling H30): a segment archived after its run was queued does not materialise — the
+    /// runner itself refuses once it re-reads the segment, rather than relying on the archive endpoint to have
+    /// stopped an in-flight run (it does not). Holds the worker's single-threaded drain loop on a DIFFERENT
+    /// segment's run (its `MembersInsertedAsync` pauses there) so the target segment's run — posted next — sits
+    /// Queued and unclaimed for that whole tick; archiving it then and releasing lets a later tick claim it
+    /// fresh, straight into the archived check.</summary>
+    [Fact]
+    public async Task IT_H30_a_run_whose_segment_is_archived_when_picked_up_does_not_materialize()
+    {
+        var (tenant, admin) = await SeededTenantAsync();
+        var holdSegmentId = await CreateSegmentAsync(admin, "run-hold-worker", "seed-purchasers.json");
+        var targetSegmentId = await CreateSegmentAsync(admin, "run-archived-midflight", "seed-pro-id.json");
+
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Guid targetRunId;
+        using (stack.SegmentHooks.OnMembersInserted((_, _) =>
+        {
+            entered.TrySetResult();
+            return release.Task;
+        }))
+        {
+            await PostRunAsync(holdSegmentId, admin);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            // Queued while the worker's current tick is still busy with holdSegmentId's run — this tick's
+            // ReadQueuedAsync already ran before this row existed, so it cannot be claimed until a later tick.
+            targetRunId = await PostRunAsync(targetSegmentId, admin);
+            (await _client.DeleteAsync($"/v1/segments/{targetSegmentId}", admin)).Dispose();
+
+            release.TrySetResult();
+        }
+
+        var failed = await Eventually.GetAsync(
+            async () => (await FindRunAsync(targetSegmentId, targetRunId, admin)) is { Status: "Failed" } run ? run : null,
+            "a later tick claims the queued run and the runner refuses the now-archived segment");
+        failed.Error.Should().Be("segment archived");
+
+        var state = await SegmentsDb.GetSegmentStateAsync(stack.SqlConnectionString, tenant.TenantId, targetSegmentId);
+        state.CurrentRunId.Should().BeNull("the refused run never swaps in");
+        state.MemberCount.Should().Be(0);
+        (await SegmentsDb.CountMembershipChangesForSegmentAsync(stack.SqlConnectionString, targetSegmentId)).Should().Be(0);
+    }
+
+    /// <summary>Fix round 1, item 4 (H4, a known gap in the original Task 7); reap window per B2/I-2/H29: with
+    /// the default `Segmentation:Run:CommandTimeoutSeconds` (300 s), the cutoff is `max(10 min, 8 × 300 s)` =
+    /// 40 minutes, not a flat 10 — a run stuck `Running` past that is abandoned. Calls the worker's reap
+    /// directly (exposed the same way `SegmentScheduler.EnqueueScheduledRunsAsync` is) instead of waiting on a
+    /// 41-minute clock.</summary>
     [Fact]
     public async Task IT_H4_abandoned_run_is_failed_a_recent_one_is_left_alone_and_a_new_run_can_follow()
     {
         var (tenant, admin) = await SeededTenantAsync();
         var segmentId = await CreateSegmentAsync(admin, "run-abandoned", "seed-pro-id.json");
 
-        var abandonedRunId = await SegmentsDb.InsertRunningSegmentRunAsync(stack.SqlConnectionString, tenant.TenantId, segmentId, DateTime.UtcNow.AddMinutes(-11));
+        var abandonedRunId = await SegmentsDb.InsertRunningSegmentRunAsync(stack.SqlConnectionString, tenant.TenantId, segmentId, DateTime.UtcNow.AddMinutes(-41));
 
         var worker = stack.Worker.Services.GetServices<IHostedService>().OfType<SegmentRunWorker>().Single();
         await worker.ReapAbandonedRunsAsync(CancellationToken.None);
@@ -367,7 +514,7 @@ public sealed class BatchRunTests(CrmStackFixture stack) : IAsyncLifetime
         var worker = stack.Worker.Services.GetServices<IHostedService>().OfType<SegmentRunWorker>().Single();
         await worker.ReapAbandonedRunsAsync(CancellationToken.None);
 
-        (await SegmentsDb.GetRunStatusAsync(stack.SqlConnectionString, recentRunId)).Status.Should().Be("Running", "2 minutes is well under the 10-minute abandon threshold");
+        (await SegmentsDb.GetRunStatusAsync(stack.SqlConnectionString, recentRunId)).Status.Should().Be("Running", "2 minutes is well under the 40-minute abandon threshold (B2/H29: max(10 min, 8 x 300 s))");
     }
 
     /// <summary>Fix round 1, item 5 (Minor 4): prune must also run after a Failed run, or a segment that keeps
@@ -417,7 +564,7 @@ public sealed class BatchRunTests(CrmStackFixture stack) : IAsyncLifetime
 
     private async Task<Guid> CreateSegmentAsync(string bearer, string name, string fixtureFileName)
     {
-        var definition = LoadDefinition(fixtureFileName);
+        var definition = RuleFixtures.LoadDefinition(fixtureFileName);
         using var response = await _client.PostAsync("/v1/segments", bearer, new { name, definition });
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -516,22 +663,4 @@ public sealed class BatchRunTests(CrmStackFixture stack) : IAsyncLifetime
         return ids;
     }
 
-    /// <summary>Mirrors SegmentCrudTests.LoadDefinition: walks up from the test binary to the directory containing Crm.sln.</summary>
-    private static JsonElement LoadDefinition(string fixtureFileName)
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Crm.sln")))
-        {
-            dir = dir.Parent;
-        }
-
-        if (dir is null)
-        {
-            throw new DirectoryNotFoundException("Crm.sln not found above " + AppContext.BaseDirectory);
-        }
-
-        var path = Path.Combine(dir.FullName, "tests", "fixtures", "rules", "valid", fixtureFileName);
-        using var document = JsonDocument.Parse(File.ReadAllText(path));
-        return document.RootElement.Clone().GetProperty("definition");
-    }
 }
