@@ -10,18 +10,28 @@ public class OpenApiDocumentTests
     private static readonly string[] Expected =
     [
         "DELETE /v1/api-keys/{id}",
+        "DELETE /v1/segments/{id}",
         "GET /v1/api-keys",
         "GET /v1/profiles",
         "GET /v1/profiles/{id}",
         "GET /v1/profiles/{id}/events",
+        "GET /v1/segments",
+        "GET /v1/segments/{id}",
+        "GET /v1/segments/{id}/changes",
+        "GET /v1/segments/{id}/members",
+        "GET /v1/segments/{id}/runs",
         "POST /v1/api-keys",
         "POST /v1/auth/login",
         "POST /v1/auth/logout",
         "POST /v1/auth/refresh",
         "POST /v1/batch",
         "POST /v1/identify",
+        "POST /v1/segments",
+        "POST /v1/segments/preview",
+        "POST /v1/segments/{id}/run",
         "POST /v1/tenants",
         "POST /v1/track",
+        "PUT /v1/segments/{id}",
     ];
 
     [Fact]
@@ -62,6 +72,16 @@ public class OpenApiDocumentTests
         new("POST", "/v1/track", ["202", "400", "401", "403", "413", "429", "503"], Security: "apiKey"),
         new("POST", "/v1/identify", ["202", "400", "401", "403", "413", "429", "503"], Security: "apiKey"),
         new("POST", "/v1/batch", ["202", "400", "401", "403", "413", "429", "503"], Security: "apiKey"),
+        new("GET", "/v1/segments", ["200", "400", "401", "403"], Security: "bearer"),
+        new("POST", "/v1/segments", ["201", "400", "401", "403", "409"], Security: "bearer"),
+        new("POST", "/v1/segments/preview", ["200", "400", "401", "403"], Security: "bearer"),
+        new("GET", "/v1/segments/{id}", ["200", "401", "403", "404"], Security: "bearer"),
+        new("PUT", "/v1/segments/{id}", ["200", "400", "401", "403", "404", "409"], Security: "bearer"),
+        new("DELETE", "/v1/segments/{id}", ["204", "401", "403", "404"], Security: "bearer"),
+        new("POST", "/v1/segments/{id}/run", ["202", "401", "403", "404", "409"], Security: "bearer"),
+        new("GET", "/v1/segments/{id}/runs", ["200", "400", "401", "403", "404"], Security: "bearer"),
+        new("GET", "/v1/segments/{id}/members", ["200", "400", "401", "403", "404"], Security: "bearer"),
+        new("GET", "/v1/segments/{id}/changes", ["200", "400", "401", "403", "404"], Security: "bearer"),
     ];
 
     [Fact]

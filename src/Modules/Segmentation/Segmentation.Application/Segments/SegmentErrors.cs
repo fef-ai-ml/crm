@@ -18,10 +18,10 @@ public static class SegmentErrors
 
     public static readonly Error NameTaken = Error.Conflict(NameTakenCode, "A segment with this name already exists.");
 
-    /// <summary>Reserved for a write that targets an already-archived segment (e.g. queuing a run, task 7); unused by this task's create/update/archive paths, which allow any status transition (H15).</summary>
+    /// <summary>Reserved for a write that targets an already-archived segment (queuing a run, H5); the create/update/archive paths allow any status transition (H15).</summary>
     public static readonly Error Archived = Error.Conflict(ArchivedCode, "The segment is archived.");
 
-    /// <summary>B6 (parked pair): both of `SegmentRunQueue.EnqueueAsync`'s attempts lost the unique-index race
+    /// <summary>Both of `SegmentRunQueue.EnqueueAsync`'s attempts lost the unique-index race
     /// against a run for this segment that itself finished (or was reaped) before the re-read could see it as
     /// the winner. Extraordinarily rare — a retry of the request is the correct client response.</summary>
     public static readonly Error EnqueueConflict = Error.Conflict(EnqueueConflictCode, "Could not queue a run for this segment right now; retry.");
