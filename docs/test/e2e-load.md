@@ -82,7 +82,7 @@ End-to-end cases (`E2E`) run Playwright against the full `docker compose` stack 
 - Given LT-001 running and eligible segment `seed-purchasers` (`purchase gte 1 in 30d`)
 - When the probe user tracks a `purchase` once per second and the probe polls `GET /v1/segments/{id}` for `realtimeMemberCount` to increment
 - Then p95 of the increment latency is < 2 s
-- Plan I note: the script probes its own real-time-eligible segment `lt-003-probe` (`lt003_probe gte 1 in 1h`, created on first run) instead of `seed-purchasers`, because LT-001's traffic also contains purchases by new users and would move that count; one probe at a time, a fresh user per probe, so every increment is the probe's own. Measurement on the home-lab machine is plan I task 5
+- Plan I note: the script probes its own real-time-eligible segment `lt-003-probe` (`lt003_probe gte 1 in 1h`, created on first run) instead of `seed-purchasers`, because LT-001's traffic also contains purchases by new users and would move that count; one probe at a time, a fresh user per probe, so every increment is the probe's own. First measurement (plan I task 5, cloud dev container, 4 vCPU): idle p95 60 ms (pass); under an ad-hoc 1,000 events/s `/v1/batch` load p95 8.2 s (fail), bounded by the profiles consumer's backlog on `events.raw` while the segmentation consumer's lag stayed at 3–5 records — the official run alongside LT-001 belongs to the load-test plan
 - Implemented: tests/Crm.LoadTests/realtime-latency.js
 
 ### LT-004 — rate limit sheds load without errors

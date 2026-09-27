@@ -21,7 +21,7 @@ Slice 1 (events → profiles → segments) has its foundation complete: solution
 | Implementation: Profiles pipeline — write side (Worker consumer, identity resolution, merge, DLQ) | Complete |
 | Implementation: Profiles read API | Complete |
 | Implementation: Segmentation (rules, batch, API) | Complete |
-| Implementation: Segmentation (real-time evaluation) | Complete (LT-003 measurement pending) |
+| Implementation: Segmentation (real-time evaluation) | Complete (LT-003 passes idle; under load it is bounded by the profiles pipeline — see below) |
 | Implementation: Web dashboard | Planned |
 | Load test and results | Planned |
 
@@ -97,7 +97,7 @@ make compose-check docs-check
 |---|---|---|---|---|---|---|---|---|
 | LT-005 | 74 s | 180 s | 13 s | 120 s | 202 | pass | 2026-09-21 | home-lab: Rocky 10.2, 4 vCPU, 15 GB, Podman 5.8 (remote over ssh); image layers cached |
 
-LT-005 is measured with `tests/Crm.LoadTests/coldstart.sh`: stack stopped, volumes removed, image layers cached. `make seed` includes loading and self-verifying the demo dataset (5,000 profiles, 100,000 events — about 10 s of the 13 s); the probe is the quickstart's first event (`POST /v1/track` → 202). With the api and worker images rebuilt after a code change (restore and publish inside the image build, base layers cached) the same run measured `make up` at 171 s; a machine without any cached layers pays more. Throughput results (LT-001…LT-003) are added by the load-test plan.
+LT-005 is measured with `tests/Crm.LoadTests/coldstart.sh`: stack stopped, volumes removed, image layers cached. `make seed` includes loading and self-verifying the demo dataset (5,000 profiles, 100,000 events — about 10 s of the 13 s); the probe is the quickstart's first event (`POST /v1/track` → 202). With the api and worker images rebuilt after a code change (restore and publish inside the image build, base layers cached) the same run measured `make up` at 171 s; a machine without any cached layers pays more. Throughput results (LT-001…LT-003) are added by the load-test plan. A first LT-003 run (plan I, 2026-09-27, cloud dev container, 4 vCPU, apps on the host rather than in images) measured real-time segment admission at p95 60 ms on an idle stack, but p95 8.2 s under an ad-hoc 1,000 events/s load: the profiles consumer fell behind on `events.raw` (≈320 events/s drain rate on that box) while the segmentation consumer stayed current — the load-test plan's first target.
 
 Minimum local resources: 8 GB RAM allocated to the container engine.
 

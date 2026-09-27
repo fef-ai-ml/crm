@@ -18,7 +18,7 @@
 - Redis is rebuildable state (ADR-0006): no Redis failure ever fails an API request, a batch run, or blocks the consumer forever.
 - `docs/api/openapi.json` is regenerated with `make openapi` if the HTTP surface changes (it should not: `realtimeMemberCount` has been in the contract since H2). `python3 tools/docs_check.py` stays at 0 errors.
 
-## Rulings (I1–I14)
+## Rulings (I1–I15)
 
 | # | Ruling | Why | Cost if wrong |
 |---|---|---|---|
@@ -36,6 +36,7 @@
 | I12 | `realtimeMemberCount` = `SCARD` of the set when the segment is eligible and Active, else `null`; a Redis failure is also `null` (logged at Warning) — never a failed read. | H2's field; IT-028. | — |
 | I13 | Saving a segment as not Active or not eligible, or archiving it, deletes its set (best-effort): nothing maintains it any more, so a stale count must not survive. Saving an Active eligible segment with a changed definition leaves the set alone — members that no longer qualify leave on their next event or the next batch run; deleting it instead would record a false `Entered` for every existing member on their next event. Counters are never deleted explicitly; they expire with their window. | Correct change feed beats instant count accuracy. | A rule edit shows a stale `realtimeMemberCount` until the next event/run. |
 | I14 | Test seam: the consumer handler is `RealtimeMessageHandler.HandleAsync(ProcessedEnvelope, ct)`, a scoped service tests can resolve from the Worker's container to drive one message directly (IT-024 sets a counter's TTL by hand between two messages instead of controlling Redis time). | Deterministic TTL test without `DEBUG` or sleeping 7 days. | — |
+| I15 | The change feed is per source, not a merged membership timeline: the batch diff compares run with run and ignores real-time rows, so a profile the real-time path admitted between two runs gets `Entered/Realtime` and then `Entered/Batch` at the next run (found in task 5: 20 of 20 live purchasers). Documented, not changed: a consumer that needs one entry per membership (the future Journeys trigger) must read one source or dedupe by profile. | Spec §3.2's `Source` column already distinguishes the two; making the batch diff real-time-aware is a design change for the Journeys plan. | A Journeys trigger reading both sources fires twice. |
 
 ## File Structure
 
@@ -91,10 +92,15 @@ tests/Crm.LoadTests/realtime-latency.js
 
 - [ ] **Step 1:** Write the docs; docs-check 0 errors. Commit: `docs(segmentation): real-time evaluation rulings I1–I14, test statuses, LT-003 script`.
 
-### Task 5 (controller): live verification on home-lab
+### Task 5 (controller): live verification
 
-- [ ] `make down && make up && make seed`; `seed-purchasers` shows `realtimeMemberCount` = `memberCount` after its first run; a quickstart `purchase` for a new user increments it within 2 s; `crm_realtime_eval_seconds` appears in Prometheus and on the Grafana panel.
-- [ ] LT-003 with `tests/Crm.LoadTests/realtime-latency.js` alongside LT-001; record p95 in the README.
+Run on 2026-09-27 in the cloud dev container instead of home-lab (4 vCPU, 15 GB, Docker 29.3). `make up` builds the api/worker images with `dotnet restore` inside the build, which cannot trust this container's egress-proxy CA, so the infrastructure ran in compose (`sqlserver`, `redis`, `kafka`, `kafka-init`) and the API (Development, auto-migrating) and Worker ran on the host from a Release build with the compose services' environment. The re-run on home-lab with the real images is still open.
+
+- [x] `make seed` 13.6 s: six segments at their expected counts. `GET /v1/segments/{id}`: `seed-purchasers`, `seed-not-pro`, `seed-no-plan` (Active, eligible) have `realtimeMemberCount` = `memberCount` (2,731 / 4,000 / 500); `seed-pro-id`, `seed-dormant` (ineligible) and `seed-high-ltv-sg` (Draft) show `null`.
+- [x] 20 `purchase` events for brand-new users: each raised `seed-purchasers`' `realtimeMemberCount` by one within 711 ms (p50 27 ms, p95 533 ms); 20 `Entered/Realtime` changes; a second batch run then agreed (`memberCount` = `realtimeMemberCount` = 2,751) — and recorded its own 20 `Entered/Batch` rows for the same profiles (ruling I15). `crm_realtime_eval_seconds` exported by the Worker; no Error-level log line in either host.
+- [x] LT-003, idle stack: 60 probes, p95 60 ms, max 111 ms — pass.
+- [ ] LT-003 under load: **fails** — with an ad-hoc 1,000 events/s background load (10 `/v1/batch` requests of 100 per second, 10,000 users; `ingest.js`/LT-001 does not exist yet), p95 8.2 s and 27 of 88 probes not admitted within 10 s. Not the real-time path: consumer-group lag sampled every 20 s stayed at 3–5 records for `segmentation` (≈1.7 ms per message over ≈115k messages, zero `crm_realtime_skipped_total`) while `profiles` grew by ≈820 records/s (16k → 65k); after the load the `profiles` backlog drained at ≈320 events/s, and LT-003 recovered to p95 58 ms. The bottleneck is plan E's `events.raw` pipeline on this machine — input for the load-test plan (LT-001), where the real threshold is measured; not tuned here.
+- [ ] Grafana panel not checked (no observability profile in this run); re-measure LT-003 alongside LT-001 on home-lab and record it in the README with the load-test plan.
 
 ## Self-review notes
 
