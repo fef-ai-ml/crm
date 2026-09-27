@@ -21,7 +21,7 @@ Every requirement in the [BRD](../brd/BRD.md) maps to at least one test case; ev
 | FR-13 | comparators and windows | UT-019, UT-020, UT-021, UT-022, UT-023, UT-024, UT-025, UT-026, UT-027, UT-028, UT-029, UT-030, UT-031, UT-032, UT-033, UT-034, UT-036, UT-038, CT-002 |
 | FR-14 | parameterized SQL only | UT-020, UT-035, UT-037, UT-039, IT-042 |
 | FR-15 | batch run, diff, swap, prune, schedule | IT-016, IT-017, IT-018, IT-019, IT-020, IT-021, E2E-004 |
-| FR-16 | real-time eligibility and evaluation | UT-040, UT-041, UT-042, UT-043, UT-044, UT-045, UT-046, UT-047, UT-048, UT-049, IT-022, IT-023, IT-024, IT-025, IT-026, IT-027 |
+| FR-16 | real-time eligibility and evaluation | UT-040, UT-041, UT-042, UT-043, UT-044, UT-045, UT-046, UT-047, UT-048, UT-049, IT-022, IT-023, IT-024, IT-025, IT-026, IT-027, IT-043 |
 | FR-17 | preview count, timeout, cache | UT-058, IT-014, IT-015 |
 | FR-18 | segment CRUD, runs, members, changes | IT-013, IT-028, IT-029 |
 | FR-19 | login, roles | UT-053, IT-036, IT-037, E2E-001, E2E-008 |
@@ -52,9 +52,9 @@ Every requirement in the [BRD](../brd/BRD.md) maps to at least one test case; ev
 | Level | Cases |
 |---|---|
 | Unit (UT) | 58 |
-| Integration (IT) | 42 |
+| Integration (IT) | 43 |
 | Architecture (AT) | 7 |
 | Contract (CT) | 5 |
 | End-to-end (E2E) | 8 |
 | Load (LT) | 5 |
-| Total | 125 |
+| Total | 126 |

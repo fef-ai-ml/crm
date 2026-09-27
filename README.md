@@ -8,7 +8,7 @@ Stack: .NET 10 modular monolith (API + Worker), React 19 dashboard, SQL Server 2
 
 ## Status
 
-Slice 1 (events → profiles → segments) has its foundation complete: solution structure, Kernel, Contracts, the API/Worker/Web hosts, multi-tenant auth, CI, and an opt-in observability stack. The Ingestion API is also complete, and the Profiles pipeline's write side (Worker consumer, identity resolution, merge, DLQ) now turns those events into profiles; profiles are now readable through `GET /v1/profiles`, `GET /v1/profiles/{id}` and `GET /v1/profiles/{id}/events`. Segmentation's rule engine, batch materialization and API are complete: segments are defined by a validated rule tree, compiled to parameterized SQL, previewed in under five seconds, materialized by queued batch runs on the Worker (manual and six-hourly), and read back as members and membership changes through `/v1/segments`. Real-time segment evaluation follows behind its own plan under `docs/superpowers/plans/`.
+Slice 1 (events → profiles → segments) has its foundation complete: solution structure, Kernel, Contracts, the API/Worker/Web hosts, multi-tenant auth, CI, and an opt-in observability stack. The Ingestion API is also complete, and the Profiles pipeline's write side (Worker consumer, identity resolution, merge, DLQ) now turns those events into profiles; profiles are now readable through `GET /v1/profiles`, `GET /v1/profiles/{id}` and `GET /v1/profiles/{id}/events`. Segmentation's rule engine, batch materialization and API are complete: segments are defined by a validated rule tree, compiled to parameterized SQL, previewed in under five seconds, materialized by queued batch runs on the Worker (manual and six-hourly), and read back as members and membership changes through `/v1/segments`. Real-time evaluation keeps a Redis membership set for every Active, real-time-eligible segment: the Worker's `events.processed` consumer updates event counters and re-evaluates the profile on every event or identify, records each transition as a `Realtime` membership change, and exposes the set's size as `realtimeMemberCount`; every batch run rebuilds the set.
 
 | Phase | State |
 |---|---|
@@ -21,7 +21,7 @@ Slice 1 (events → profiles → segments) has its foundation complete: solution
 | Implementation: Profiles pipeline — write side (Worker consumer, identity resolution, merge, DLQ) | Complete |
 | Implementation: Profiles read API | Complete |
 | Implementation: Segmentation (rules, batch, API) | Complete |
-| Implementation: Segmentation (real-time evaluation) | Planned |
+| Implementation: Segmentation (real-time evaluation) | Complete (LT-003 measurement pending) |
 | Implementation: Web dashboard | Planned |
 | Load test and results | Planned |
 
@@ -36,7 +36,7 @@ Slice 1 (events → profiles → segments) has its foundation complete: solution
 | [Architecture decisions](docs/adr/README.md) | Why the monolith, Kafka, SQL Server JSON, shared-DB tenancy, hybrid segmentation, Redis roles, auth, run-and-swap, cross-schema reads |
 | [Data dictionary](docs/data-dictionary/README.md) | Tables, columns, indexes, Redis keys, Kafka topics |
 | [API reference](docs/api/README.md) | Endpoints, auth, errors, pagination, examples |
-| [Test specification](docs/test/README.md) | 125 test cases at six levels, traceability to every FR/NFR, fixtures |
+| [Test specification](docs/test/README.md) | 126 test cases at six levels, traceability to every FR/NFR, fixtures |
 | [Developer setup](docs/dev-setup.md) | Prerequisites, first run, Podman specifics, everyday commands |
 
 Validate the documentation set:
