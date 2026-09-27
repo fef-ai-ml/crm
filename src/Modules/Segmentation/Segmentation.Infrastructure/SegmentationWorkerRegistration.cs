@@ -1,4 +1,5 @@
 using Crm.Segmentation.Application.Runs;
+using Crm.Segmentation.Infrastructure.Realtime;
 using Crm.Segmentation.Infrastructure.Runs;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -9,7 +10,7 @@ namespace Crm.Segmentation.Infrastructure;
 public static class SegmentationWorkerRegistration
 {
     /// <summary>The Worker's half of the module: the batch run drain loop and the six-hour schedule (task-7
-    /// brief). The API never calls this — it only needs <see cref="ISegmentRunQueue"/>, registered by
+    /// brief), and the real-time `events.processed` consumer with its segment cache (plan I). The API never calls this — it only needs <see cref="ISegmentRunQueue"/>, registered by
     /// <see cref="SegmentationModule.AddSegmentationModule"/> for POST /segments/{id}/run.</summary>
     public static IServiceCollection AddSegmentationWorker(this IServiceCollection services, IConfiguration configuration)
     {
@@ -53,7 +54,20 @@ public static class SegmentationWorkerRegistration
                 }
             });
 
+        services.AddOptions<RealtimeOptions>()
+            .Bind(configuration.GetSection(RealtimeOptions.SectionName))
+            .Configure(o => o.BootstrapServers = configuration["Kafka:BootstrapServers"] ?? string.Empty)
+            .Validate(o => !string.IsNullOrWhiteSpace(o.BootstrapServers), "Kafka:BootstrapServers is required.")
+            .Validate(o => o.Instances is >= 1 and <= 64, "Segmentation:Realtime:Instances must be between 1 and 64.")
+            .Validate(o => o.RetryDelaysMs.All(ms => ms >= 0) && o.RestartDelayMs >= 0, "Segmentation:Realtime delays must not be negative.")
+            .Validate(o => o.CacheTtl > TimeSpan.Zero, "Segmentation:Realtime:CacheTtl must be positive.")
+            .ValidateOnStart();
+
         services.AddSingleton<SegmentationMetrics>();
+        services.AddSingleton<RealtimeSegmentCache>();
+        services.AddScoped<RealtimeMessageHandler>();
+        services.AddHostedService<SegmentChangeSubscriber>();
+        services.AddHostedService<ProcessedEventsConsumerService>();
         services.AddScoped<ISegmentRunner, SegmentRunner>();
         services.AddHostedService<SegmentRunWorker>();
         services.AddHostedService<SegmentScheduler>();

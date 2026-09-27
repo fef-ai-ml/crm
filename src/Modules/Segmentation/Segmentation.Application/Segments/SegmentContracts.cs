@@ -15,7 +15,8 @@ public sealed record SegmentListItem(Guid Id, string Name, string Status, int Me
 public sealed record SegmentListResponse(IReadOnlyList<SegmentListItem> Items, string? NextCursor);
 
 /// <summary><see cref="Definition"/> is always the canonical form (<c>CanonicalRuleWriter.Write</c>).
-/// <see cref="RealtimeMemberCount"/> is always null in this plan (H2); it arrives with the real-time plan.</summary>
+/// <see cref="RealtimeMemberCount"/> is the size of the real-time set for an Active, real-time-eligible segment and
+/// null otherwise, or when Redis cannot answer (plan I, ruling I12); write responses always carry null.</summary>
 public sealed record SegmentResponse(
     Guid Id, string Name, string? Description, JsonElement Definition, string Status, bool IsRealtimeEligible,
     int MemberCount, int? RealtimeMemberCount, DateTime? LastRunAt, Guid? CurrentRunId, DateTime CreatedAt, DateTime UpdatedAt);

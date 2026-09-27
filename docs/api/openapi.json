@@ -2562,7 +2562,7 @@
             "format": "date-time"
           }
         },
-        "description": "JsonElement SegmentResponse.Definition is always the canonical form (`CanonicalRuleWriter.Write`).\n        int? SegmentResponse.RealtimeMemberCount is always null in this plan (H2); it arrives with the real-time plan."
+        "description": "JsonElement SegmentResponse.Definition is always the canonical form (`CanonicalRuleWriter.Write`).\n        int? SegmentResponse.RealtimeMemberCount is the size of the real-time set for an Active, real-time-eligible segment and\n        null otherwise, or when Redis cannot answer (plan I, ruling I12); write responses always carry null."
       },
       "SegmentRunListItem": {
         "required": [

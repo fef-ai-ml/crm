@@ -5,15 +5,17 @@ using Crm.Kernel;
 using Crm.Kernel.Paging;
 using Crm.Segmentation.Application.Segments;
 using Crm.Segmentation.Domain.Segments;
+using Crm.Segmentation.Infrastructure.Realtime;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Crm.Segmentation.Infrastructure.Queries;
 
 /// <summary>Read side over SegmentationDbContext. The tenant predicate is the context's global filter. The list
 /// is keyset-paged by (CreatedAt, Id) descending (H10) and projects only the columns
 /// <c>IX_Segments_TenantId_CreatedAt_Id</c> covers (H11), so the read never touches the base table.</summary>
-internal sealed class EfSegmentQueries(SegmentationDbContext db) : ISegmentQueries
+internal sealed class EfSegmentQueries(SegmentationDbContext db, RealtimeMembershipStore realtime, ILogger<EfSegmentQueries> logger) : ISegmentQueries
 {
     private const string ListScope = "segments";
     private const string RunsListScope = "segment-runs";
@@ -123,11 +125,29 @@ internal sealed class EfSegmentQueries(SegmentationDbContext db) : ISegmentQueri
             return SegmentErrors.NotFound;
         }
 
+        var realtimeMemberCount = row.Status == SegmentStatus.Active && row.IsRealtimeEligible
+            ? await RealtimeMemberCountAsync(row.Id)
+            : null;
+
         return new SegmentResponse(
             row.Id, row.Name, row.Description, ToElement(row.Definition), row.Status.ToString(), row.IsRealtimeEligible,
-            row.MemberCount,
-            null, // realtimeMemberCount is always null in this plan (H2).
+            row.MemberCount, realtimeMemberCount,
             UtcOrNull(row.LastRunAt), row.CurrentRunId, Utc(row.CreatedAt), Utc(row.UpdatedAt));
+    }
+
+    /// <summary>Plan I, ruling I12: SCARD of the set the real-time path maintains; null, never a failed read, when
+    /// Redis cannot answer (ADR-0006).</summary>
+    private async Task<int?> RealtimeMemberCountAsync(Guid segmentId)
+    {
+        try
+        {
+            return (int)await realtime.CountMembersAsync(db.CurrentTenantId, segmentId);
+        }
+        catch (Exception ex) when (ex is StackExchange.Redis.RedisException or TimeoutException)
+        {
+            logger.LogWarning(ex, "Reading the real-time member count of segment {SegmentId} failed; answering null", segmentId);
+            return null;
+        }
     }
 
     /// <summary>H10: keyset-paged by (CreatedAt, RunId) descending, tagged `segments-runs`, cursor scope
