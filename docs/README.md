@@ -12,7 +12,7 @@ Documentation for the MoEngage-style CRM platform. Slice 1 covers event ingestio
 | [Architecture Decision Records](adr/README.md) | Nine decisions in MADR format |
 | [Data Dictionary](data-dictionary/README.md) | Tables, columns, indexes, Redis keys, Kafka topics |
 | [API Reference](api/README.md) | Endpoints, authentication, errors, pagination, curl examples |
-| [Test Specification](test/README.md) | 125 test cases across six levels, traceability matrix to every FR/NFR, fixtures and seed dataset |
+| [Test Specification](test/README.md) | 126 test cases across six levels, traceability matrix to every FR/NFR, fixtures and seed dataset |
 | [Developer Setup](dev-setup.md) | Prerequisites, first run, Podman specifics, everyday commands |
 
 ## Deviations from spec §9

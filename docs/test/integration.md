@@ -183,42 +183,46 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given eligible segment `purchase gte 2 in 30d` saved and Active, profile P with one purchase
 - When a second `purchase` for P is tracked
 - Then `SISMEMBER t:{T}:seg:{S}:members P` is 1 within 2 s and `MembershipChanges` has one `Entered` row with `Source = Realtime`
-- Planned: tests/Crm.IntegrationTests/Segments/RealtimeTests.cs
+- Implemented: tests/Crm.IntegrationTests/Segments/RealtimeTests.cs
 
 ### IT-023 — attribute change removes the profile from the set
 - Traces: FR-16
 - Given eligible segment `plan eq "pro"` and member P
 - When `identify` sets `plan = free` for P
 - Then P is removed from the set and an `Exited` change with `Source = Realtime` is recorded
-- Planned: tests/Crm.IntegrationTests/Segments/RealtimeTests.cs
+- Plan I note: asserts the full change feed for P — `Entered` then `Exited`, both `Realtime` — since the first identify is what admits P
+- Implemented: tests/Crm.IntegrationTests/Segments/RealtimeTests.cs
 
 ### IT-024 — counter TTL is set once, not re-armed
 - Traces: FR-16
 - Given segment `purchase gte 3 in 7d` and Redis time controllable via `DEBUG` or a fake clock wrapper
 - When P tracks purchases at t = 0 and t = 6 d 23 h
 - Then `TTL` of the counter after the second event is about 1 h, not 7 d, and the counter value is 2
-- Planned: tests/Crm.IntegrationTests/Segments/RealtimeTests.cs
+- Plan I note (I14): Redis time is not controlled; the test drives `RealtimeMessageHandler` directly and ages the counter between the two events with `EXPIRE key 3600`. A companion fact proves I3's other half: an event whose `occurredAt` is already outside the window is not counted at all
+- Implemented: tests/Crm.IntegrationTests/Segments/RealtimeTests.cs
 
 ### IT-025 — multi-event segments keep separate counters
 - Traces: FR-16
 - Given eligible segment `purchase gte 2 in 30d AND app_open gte 1 in 7d`
 - When P tracks two `purchase` and zero `app_open`
 - Then P is not a member; after one `app_open` P becomes a member; keys `…:ev:purchase:30d:P = 2` and `…:ev:app_open:7d:P = 1` exist separately
-- Planned: tests/Crm.IntegrationTests/Segments/RealtimeTests.cs
+- Implemented: tests/Crm.IntegrationTests/Segments/RealtimeTests.cs
 
 ### IT-026 — batch run rebuilds the real-time set
 - Traces: FR-16
 - Given the members set manually polluted with a non-matching profile id
 - When a batch run for the eligible segment finishes
 - Then the set equals the run's members exactly (`SCARD` = `MemberCount`, polluted id absent)
-- Planned: tests/Crm.IntegrationTests/Segments/RealtimeTests.cs
+- Plan I note (I11): the rebuild is one `MULTI` (DEL + chunked SADD) after the run commits, only for an Active eligible segment; companion facts prove I13 (archiving or saving as Draft deletes the set) and I12 (Redis paused → the detail read still answers 200 with `realtimeMemberCount: null`)
+- Implemented: tests/Crm.IntegrationTests/Segments/RealtimeTests.cs
 
 ### IT-027 — saving a segment invalidates the worker cache
 - Traces: FR-16
 - Given the worker has cached the tenant's eligible segments
 - When `PUT /v1/segments/{id}` changes the rule to `plan eq "gold"` and an event for a `gold` profile arrives
 - Then a `segments:changed` message with the tenant id was published and the profile is evaluated against the new rule within 2 s
-- Planned: tests/Crm.IntegrationTests/Segments/RealtimeTests.cs
+- Plan I note (I6): the cache is warmed with the old rule first (a `pro` profile becomes a member), and the `gold` profile is a different one, so only the new rule can admit it; the Worker's cache TTL (60 s) is far outside the budget
+- Implemented: tests/Crm.IntegrationTests/Segments/RealtimeTests.cs
 
 ### IT-028 — segment detail exposes both member counts
 - Traces: FR-18, FR-22
@@ -226,7 +230,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - When `GET /v1/segments/{id}`
 - Then `memberCount` equals the run count, `realtimeMemberCount` equals `SCARD` (run count + 1), and for an ineligible segment `realtimeMemberCount` is `null`
 - Plan H note: fixed a plan defect — this case is real-time (`realtimeMemberCount`), so it belongs with IT-022…027, not `SegmentReadTests.cs` (task 8's file for the plain batch reads)
-- Planned: tests/Crm.IntegrationTests/Segments/RealtimeTests.cs
+- Implemented: tests/Crm.IntegrationTests/Segments/RealtimeTests.cs
 
 ### IT-029 — membership changes are queryable since a timestamp
 - Traces: FR-18
@@ -243,6 +247,14 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Then every statement executes without error and the six `seed-*` fixtures return the counts listed in [fixtures.md](fixtures.md)
 - Plan H note: also asserts H18's promoted-column check (`COL_LENGTH` on `profiles.Attr_plan`/`Attr_country`/`Attr_city`) and that `PromotedAttributeColumns`' key set equals Profiles' own `PromotedAttributes` key set, plus `POST /v1/dev/seed-segments` (H22): six segments upserted by name, five queued/finished runs, a second call idempotent, Viewer 403, 404 outside Development
 - Implemented: tests/Crm.IntegrationTests/Segments/GoldenExecutionTests.cs
+
+### IT-043 — the real-time evaluator agrees with the compiled SQL
+- Traces: FR-16
+- Given a tenant of crafted profiles, one per edge-case attribute value (case, leading/trailing spaces, numeric strings `TRY_CONVERT` accepts and refuses, booleans, JSON null/object/array, LIKE metacharacters, the 256-character promoted column, the 4,000-character `JSON_VALUE` limit) plus one with no attributes
+- When every attribute-only, real-time-eligible valid fixture and a set of extra comparator rules is compiled and executed by SQL Server, and evaluated by `RealtimeEvaluator` over each profile's stored `Attributes`
+- Then the two member sets are identical for every rule (ADR-0005: batch must not flip members the real-time path admitted)
+- Plan I note (I1): mutation-checked — dropping the trailing-space rule, or converting an empty string to NULL instead of 0, each fails it
+- Implemented: tests/Crm.IntegrationTests/Segments/RealtimeParityTests.cs
 
 ## Tenancy, auth, isolation
 

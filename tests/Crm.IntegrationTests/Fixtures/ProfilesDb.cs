@@ -113,6 +113,20 @@ public static class ProfilesDb
         await command.ExecuteNonQueryAsync();
     }
 
+    /// <summary>Plan I (IT-043): replaces a profile's whole `Attributes` document, so the promoted computed columns
+    /// recompute from it exactly as they would after an identify.</summary>
+    public static async Task SetAttributesAsync(string connectionString, Guid tenantId, Guid profileId, string attributesJson)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE profiles.Profiles SET Attributes = @attributes WHERE TenantId = @tenant AND Id = @id";
+        command.Parameters.Add(new SqlParameter("@attributes", SqlDbType.NVarChar, -1) { Value = attributesJson });
+        command.Parameters.Add(new SqlParameter("@tenant", tenantId));
+        command.Parameters.Add(new SqlParameter("@id", profileId));
+        await command.ExecuteNonQueryAsync();
+    }
+
     private static async Task<ProfileRow?> SingleProfileAsync(string connectionString, string sql, params SqlParameter[] parameters)
     {
         await using var connection = new SqlConnection(connectionString);

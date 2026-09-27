@@ -5,6 +5,7 @@ using Crm.Segmentation.Application.Runs;
 using Crm.Segmentation.Application.Segments;
 using Crm.Segmentation.Infrastructure.Preview;
 using Crm.Segmentation.Infrastructure.Queries;
+using Crm.Segmentation.Infrastructure.Realtime;
 using Crm.Segmentation.Infrastructure.Runs;
 using Crm.Segmentation.Infrastructure.Segments;
 using Crm.Segmentation.Infrastructure.Sql;
@@ -34,6 +35,10 @@ public static class SegmentationModule
         services.AddScoped<RuleCompiler>();
         services.AddScoped<CompiledQueryExecutor>();
         services.AddScoped<PreviewService>();
+
+        // Plan I: the membership set store (runner rebuild, detail count, I13 delete) and segments:changed.
+        services.AddSingleton<RealtimeMembershipStore>();
+        services.AddSingleton<SegmentChangeNotifier>();
 
         return services;
     }

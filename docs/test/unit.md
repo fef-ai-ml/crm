@@ -341,28 +341,31 @@ Each case loads `tests/fixtures/rules/valid/<name>.json`, compiles it for tenant
 - Given snapshot `{plan: "pro", country: "ID"}` and trees `plan eq "pro"`, `country nin ["ID"]`, `tier not_exists`, `ltv gt 10`
 - When evaluated
 - Then results are true, false, true, false (missing `ltv` compares UNKNOWN → false)
-- Planned: tests/Segmentation.UnitTests/RealtimeEvaluatorTests.cs
+- Plan I note (I1): the evaluator lives in `Segmentation.Application` beside the compiler (it needs `PromotedAttributeColumns`) and reproduces the compiled SQL's answer, not a C#-native reading — the same file pins case-insensitive, trailing-space-insensitive text, `TRY_CONVERT(float, …)` conversion, JSON_VALUE's null/object/array/over-4,000-character rules, the 256-character promoted column and every missing-key rule of architecture.md §6; IT-043 proves the two paths agree against SQL Server itself
+- Implemented: tests/Segmentation.UnitTests/RealtimeEvaluatorTests.cs
 
 ### UT-047 — evaluator compares counters to event leaves
 - Traces: FR-16
 - Given tree `purchase gte 3 in 30d` and counter values 2 and 3 supplied by a fake counter store
 - When evaluated
 - Then results are false then true
-- Planned: tests/Segmentation.UnitTests/RealtimeEvaluatorTests.cs
+- Implemented: tests/Segmentation.UnitTests/RealtimeEvaluatorTests.cs
 
 ### UT-048 — transition detection
 - Traces: FR-16
 - Given previous membership true/false and new evaluation true/false in all four combinations
 - When `Transition.From(previous, current)` runs
 - Then results are None, Exited, Entered, None respectively
-- Planned: tests/Segmentation.UnitTests/RealtimeEvaluatorTests.cs
+- Plan I note: `Transition` is an enum, so the function is `Transitions.From`; the consumer detects the transition atomically from `SADD`/`SREM`'s return value and maps it through this function (I5)
+- Implemented: tests/Segmentation.UnitTests/RealtimeEvaluatorTests.cs
 
 ### UT-049 — counter key includes event name and window
 - Traces: FR-16
 - Given tenant `T`, segment `S`, profile `P`, leaves `purchase gte 1 in 30d` and `purchase gte 1 in 7d`
 - When counter keys are built
 - Then they are `t:T:seg:S:ev:purchase:30d:P` and `t:T:seg:S:ev:purchase:7d:P` and the TTLs are 30 d and 7 d
-- Planned: tests/Segmentation.UnitTests/RedisKeyBuilderTests.cs
+- Plan I note: `RealtimeCounterKey.For` (ids as 32 hex characters, per the data dictionary); the same file pins that leaves sharing a name and window collapse to one counter (I3)
+- Implemented: tests/Segmentation.UnitTests/RedisKeyBuilderTests.cs
 
 ### UT-058 — canonical definition hash
 - Traces: FR-17

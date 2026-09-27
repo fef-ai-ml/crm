@@ -17,5 +17,6 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
     <PackageReference Include="StackExchange.Redis" />
+    <PackageReference Include="Confluent.Kafka" />
   </ItemGroup>
 </Project>

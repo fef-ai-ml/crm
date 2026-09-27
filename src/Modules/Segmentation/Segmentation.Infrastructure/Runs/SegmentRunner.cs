@@ -6,6 +6,7 @@ using Crm.Segmentation.Application.Compilation;
 using Crm.Segmentation.Application.Runs;
 using Crm.Segmentation.Domain.Rules;
 using Crm.Segmentation.Domain.Segments;
+using Crm.Segmentation.Infrastructure.Realtime;
 using Crm.Segmentation.Infrastructure.Sql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -28,6 +29,7 @@ internal sealed class SegmentRunner(
     ITenantContext tenant,
     IClock clock,
     IOptions<SegmentRunOptions> options,
+    RealtimeMembershipStore realtime,
     ILogger<SegmentRunner> logger) : ISegmentRunner
 {
     private const int MaxErrorLength = 4000;
@@ -157,7 +159,6 @@ internal sealed class SegmentRunner(
             await PruneTerminalRunsAsync(segment.Id, runId, currentRunId: runId, cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
-            return true;
         }
         catch (Exception ex)
         {
@@ -179,6 +180,33 @@ internal sealed class SegmentRunner(
 
             await MarkFailedAsync(runId, segment.Id, previousRunId, ex.Message);
             return false;
+        }
+
+        if (SegmentChangeNotifier.IsMaintained(segment))
+        {
+            await RebuildRealtimeSetAsync(segment.Id, runId, cancellationToken);
+        }
+
+        return true;
+    }
+
+    /// <summary>Plan I, ruling I11 (spec §5.3 step 5): after the run has committed, the real-time set of an Active
+    /// eligible segment is replaced by the run's members, so batch corrects whatever drift the counters caused.
+    /// Outside the run transaction on purpose — a Redis stall must never lengthen it — and soft: the run is already
+    /// Finished, so any failure here is logged and left for the next run.</summary>
+    private async Task RebuildRealtimeSetAsync(Guid segmentId, Guid runId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var members = await db.SegmentRunMembers.AsNoTracking()
+                .Where(m => m.RunId == runId)
+                .Select(m => m.ProfileId)
+                .ToListAsync(cancellationToken);
+            await realtime.ReplaceMembersAsync(tenant.TenantId, segmentId, members);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Run {RunId} finished but rebuilding the real-time set of segment {SegmentId} failed; the next run retries", runId, segmentId);
         }
     }
 

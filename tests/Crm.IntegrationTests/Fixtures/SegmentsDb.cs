@@ -229,4 +229,24 @@ public static class SegmentsDb
         await command.ExecuteNonQueryAsync();
         return id;
     }
+
+    /// <summary>Plan I: every MembershipChanges row of a segment, oldest first, as (ProfileId, Change, Source).</summary>
+    public static async Task<IReadOnlyList<(Guid ProfileId, string Change, string Source)>> ListChangesAsync(string connectionString, Guid tenantId, Guid segmentId)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT ProfileId, Change, Source FROM segments.MembershipChanges WHERE TenantId = @tenant AND SegmentId = @segment ORDER BY OccurredAt, Id";
+        command.Parameters.Add(new SqlParameter("@tenant", tenantId));
+        command.Parameters.Add(new SqlParameter("@segment", segmentId));
+        var rows = new List<(Guid, string, string)>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            rows.Add((reader.GetGuid(0), reader.GetString(1), reader.GetString(2)));
+        }
+
+        return rows;
+    }
 }

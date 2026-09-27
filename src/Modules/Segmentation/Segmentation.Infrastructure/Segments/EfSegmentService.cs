@@ -5,6 +5,7 @@ using Crm.Segmentation.Application.Segments;
 using Crm.Segmentation.Domain.Rules;
 using Crm.Segmentation.Domain.Segments;
 using Crm.Segmentation.Infrastructure.Persistence;
+using Crm.Segmentation.Infrastructure.Realtime;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,8 +14,9 @@ namespace Crm.Segmentation.Infrastructure.Segments;
 /// <summary>Write side over SegmentationDbContext: parse → canonical → hash → classify → persist (H15, H20).
 /// Field checks (name/description/status) run before the rule definition is parsed, so a request that fails
 /// both reports <c>segments.invalid_request</c>, never <c>segments.invalid_definition</c> (cheap checks first,
-/// docs/api/README.md).</summary>
-internal sealed class EfSegmentService(SegmentationDbContext db, ITenantContext tenant) : ISegmentService
+/// docs/api/README.md). Every successful save or archive then goes through <see cref="SegmentChangeNotifier"/>
+/// (plan I, rulings I7/I13).</summary>
+internal sealed class EfSegmentService(SegmentationDbContext db, ITenantContext tenant, SegmentChangeNotifier notifier) : ISegmentService
 {
     private const int MaxNameLength = 128;
     private const int MaxDescriptionLength = 1024;
@@ -61,6 +63,7 @@ internal sealed class EfSegmentService(SegmentationDbContext db, ITenantContext 
             return SegmentErrors.NameTaken;
         }
 
+        await notifier.SegmentSavedAsync(segment);
         return ToResponse(segment);
     }
 
@@ -110,6 +113,7 @@ internal sealed class EfSegmentService(SegmentationDbContext db, ITenantContext 
             return SegmentErrors.NameTaken;
         }
 
+        await notifier.SegmentSavedAsync(segment);
         return ToResponse(segment);
     }
 
@@ -125,6 +129,7 @@ internal sealed class EfSegmentService(SegmentationDbContext db, ITenantContext 
         {
             segment.Archive();
             await db.SaveChangesAsync(cancellationToken);
+            await notifier.SegmentSavedAsync(segment);
         }
 
         return Result.Ok();
@@ -181,7 +186,7 @@ internal sealed class EfSegmentService(SegmentationDbContext db, ITenantContext 
         segment.Status.ToString(),
         segment.IsRealtimeEligible,
         segment.MemberCount,
-        null, // realtimeMemberCount is always null in this plan (H2); it arrives with the real-time plan.
+        null, // realtimeMemberCount: write responses never read Redis; GET /segments/{id} does (plan I, I12).
         segment.LastRunAt is { } lastRunAt ? DateTime.SpecifyKind(lastRunAt, DateTimeKind.Utc) : null,
         segment.CurrentRunId,
         DateTime.SpecifyKind(segment.CreatedAt, DateTimeKind.Utc),
