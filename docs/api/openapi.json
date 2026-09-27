@@ -1553,7 +1553,7 @@
         "tags": [
           "Segments"
         ],
-        "summary": "Membership changes for a segment, newest first; since= filters to OccurredAt >= since (IT-029).",
+        "summary": "Membership changes for a segment, newest first; since= filters to OccurredAt >= since (IT-029), source= to Batch or Realtime (I15).",
         "operationId": "ListSegmentChanges",
         "parameters": [
           {
@@ -1567,6 +1567,13 @@
           },
           {
             "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
             "in": "query",
             "schema": {
               "type": "string"

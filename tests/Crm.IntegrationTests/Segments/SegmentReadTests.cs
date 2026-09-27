@@ -107,6 +107,49 @@ public sealed class SegmentReadTests(CrmStackFixture stack) : IAsyncLifetime
         body.RootElement.GetProperty("code").GetString().Should().Be("segments.invalid_filter");
     }
 
+    /// <summary>Plan I, ruling I15: the two sources are never merged, so a consumer reads one of them. `?source=`
+    /// filters exactly (case-insensitively), composes with `since` and the cursor, and anything else is 400.</summary>
+    [Fact]
+    public async Task I15_changes_filtered_by_source_return_only_that_source()
+    {
+        var tenant = await TenancySeed.CreateTenantAsync(_factory);
+        _tenantIds.Add(tenant.TenantId);
+        var admin = TenancySeed.AccessToken(_factory, tenant.AdminUserId, tenant.TenantId, Roles.Admin);
+        var segmentId = await SegmentsDb.InsertSegmentAsync(stack.SqlConnectionString, tenant.TenantId, "changes-by-source", DateTime.UtcNow);
+
+        // The shape plan I's live run found: each profile admitted in real time, then again by the next batch run.
+        var at = DateTime.UtcNow.AddMinutes(-5);
+        var realtime = new List<Guid>();
+        var batch = new List<Guid>();
+        for (var i = 0; i < 3; i++)
+        {
+            var profileId = Guid.NewGuid();
+            realtime.Add(await SegmentsDb.InsertMembershipChangeAsync(stack.SqlConnectionString, tenant.TenantId, segmentId, profileId, at.AddSeconds(i), "Entered", "Realtime"));
+            batch.Add(await SegmentsDb.InsertMembershipChangeAsync(stack.SqlConnectionString, tenant.TenantId, segmentId, profileId, at.AddMinutes(1), "Entered", "Batch"));
+        }
+
+        var page1 = await _client.ReadAsync<SegmentChangeListResponse>($"/v1/segments/{segmentId}/changes?source=Realtime&limit=2", admin);
+        var page2 = await _client.ReadAsync<SegmentChangeListResponse>($"/v1/segments/{segmentId}/changes?source=Realtime&limit=2&cursor={Uri.EscapeDataString(page1.NextCursor!)}", admin);
+        page2.NextCursor.Should().BeNull();
+        page1.Items.Concat(page2.Items).Select(i => i.Id).Should().Equal(realtime.AsEnumerable().Reverse(), "only the Realtime rows, newest first, each once");
+
+        var batchOnly = await _client.ReadAsync<SegmentChangeListResponse>($"/v1/segments/{segmentId}/changes?source=batch", admin);
+        batchOnly.Items.Select(i => i.Id).Should().BeEquivalentTo(batch);
+        batchOnly.Items.Should().OnlyContain(i => i.Source == "Batch");
+
+        var since = Uri.EscapeDataString(at.AddSeconds(1).ToString("O"));
+        var sinceRealtime = await _client.ReadAsync<SegmentChangeListResponse>($"/v1/segments/{segmentId}/changes?source=Realtime&since={since}", admin);
+        sinceRealtime.Items.Select(i => i.Id).Should().Equal(realtime[2], realtime[1]);
+
+        var both = await _client.ReadAsync<SegmentChangeListResponse>($"/v1/segments/{segmentId}/changes", admin);
+        both.Items.Should().HaveCount(6, "without source both are listed, as before");
+
+        using var invalid = await _client.GetAsync($"/v1/segments/{segmentId}/changes?source=Streaming", admin);
+        invalid.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        using var body = JsonDocument.Parse(await invalid.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("code").GetString().Should().Be("segments.invalid_filter");
+    }
+
     /// <summary>IT-029, plus a tie fact (task-8 brief): two of the three T2 changes share the same OccurredAt,
     /// straddling the limit=2 page boundary. The conjunctive (OccurredAt, Id) cursor must still return each of
     /// the three exactly once, in a single pass across the two pages, and nothing from T1.</summary>

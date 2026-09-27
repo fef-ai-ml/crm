@@ -249,7 +249,7 @@ internal sealed class EfSegmentQueries(SegmentationDbContext db, RealtimeMembers
 
     /// <summary>IT-029: membership changes newest first (<c>OccurredAt</c>, <c>Id</c> descending), optionally
     /// filtered to <c>OccurredAt >= since</c>. Not found mirrors <see cref="GetAsync"/>.</summary>
-    public async Task<Result<SegmentChangeListResponse>> ListChangesAsync(Guid segmentId, string? since, int? limit, string? cursor, CancellationToken cancellationToken)
+    public async Task<Result<SegmentChangeListResponse>> ListChangesAsync(Guid segmentId, string? since, string? source, int? limit, string? cursor, CancellationToken cancellationToken)
     {
         var size = PageLimit.Resolve(limit);
         if (size.IsFailure)
@@ -268,6 +268,17 @@ internal sealed class EfSegmentQueries(SegmentationDbContext db, RealtimeMembers
             sinceUtc = parsed.UtcDateTime;
         }
 
+        MembershipChangeSource? requestedSource = null;
+        if (source is not null)
+        {
+            if (!MembershipChangeSourceParser.TryParse(source, out var parsedSource))
+            {
+                return SegmentErrors.InvalidFilter("source", "must be Batch or Realtime");
+            }
+
+            requestedSource = parsedSource;
+        }
+
         if (!await db.Segments.AsNoTracking().AnyAsync(s => s.Id == segmentId, cancellationToken))
         {
             return SegmentErrors.NotFound;
@@ -278,6 +289,12 @@ internal sealed class EfSegmentQueries(SegmentationDbContext db, RealtimeMembers
         if (sinceUtc is { } sinceAt)
         {
             query = query.Where(c => c.OccurredAt >= sinceAt);
+        }
+
+        // I15: a residual predicate on the clustered seek — Source is in the clustered row, so no lookup and no Sort.
+        if (requestedSource is { } sourceFilter)
+        {
+            query = query.Where(c => c.Source == sourceFilter);
         }
 
         if (cursor is not null)
