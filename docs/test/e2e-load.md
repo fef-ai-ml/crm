@@ -16,14 +16,14 @@ End-to-end cases (`E2E`) run Playwright against the full `docker compose` stack 
 - Given `/segments/new`
 - When the user adds an `and` group with `plan eq pro`, nests an `or` group with `country in [ID, SG]` and `app_open eq 0 in 7d`, and waits 500 ms
 - Then the live count shows `412` (fixture `seed-pro-id`) and the badge reads "batch" (the `eq 0` leaf makes it ineligible); saving redirects to `/segments/{id}`
-- Planned: src/Hosts/Crm.Web/e2e/segment-builder.spec.ts
+- Implemented: src/Hosts/Crm.Web/e2e/segment-builder.spec.ts
 
 ### E2E-003 — validation errors surface on the field
 - Traces: FR-21
 - Given the builder with an event leaf whose window is `400d`
 - When the user clicks Save
-- Then the window input shows "window must be at most 365 days" from the server's `errors["definition.children[0].window"]`, and no segment is created
-- Planned: src/Hosts/Crm.Web/e2e/segment-builder.spec.ts
+- Then the window input shows "window must match ^\d+(d|h)$ and be at most 365 days" (the server's actual message, from `errors["definition.children[0].window"]` — the catalogue's shorter wording above predated plan H's exact copy) and no segment is created
+- Implemented: src/Hosts/Crm.Web/e2e/segment-builder.spec.ts
 
 ### E2E-004 — run now shows members and runs
 - Traces: FR-15, FR-21
@@ -37,7 +37,7 @@ End-to-end cases (`E2E`) run Playwright against the full `docker compose` stack 
 - Given seed segments `seed-pro-id` (batch, Active) and `seed-purchasers` (real-time, Active) plus one Draft
 - When the user opens `/segments`
 - Then each row shows member count, last run time, status, and a "real-time" or "batch" badge matching `isRealtimeEligible`
-- Planned: src/Hosts/Crm.Web/e2e/segment-list.spec.ts
+- Implemented: src/Hosts/Crm.Web/e2e/segment-list.spec.ts
 
 ### E2E-006 — profile explorer search and timeline
 - Traces: FR-20

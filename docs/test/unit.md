@@ -454,3 +454,10 @@ Each case loads `tests/fixtures/rules/valid/<name>.json`, compiles it for tenant
 - When `builderReducer` applies `setGroupOp`, `addChild`, `removeNode`, `moveNode`, `updateLeaf` and `wrapInGroup` at a path
 - Then it returns a new tree with only the nodes on that path rebuilt — every untouched sibling subtree keeps its object identity — `moveNode` at an edge and `removeNode` of an empty path are no-ops returning the same tree reference, and `removeNode` of a `not`'s only child leaves `{ op: 'not', children: [] }`
 - Implemented: src/Hosts/Crm.Web/src/segments/builder/reducer.test.ts
+
+### UT-063 — live preview debounces and gates on validity
+- Traces: FR-17
+- Given `useLivePreview` wrapped in a `QueryClientProvider`, fake timers, and `fetch` stubbed for `POST /v1/segments/preview` (J6)
+- When the tree is invalid, when it is valid and settles after 500 ms of no further edits (an edit at 300 ms restarts the wait), and when the server responds `{ count: null, timedOut: true }`
+- Then an invalid tree never requests; a valid tree requests exactly once, 500 ms after its last edit, keyed on `['preview', canonicalJson(tree)]`; two structurally identical trees (same canonical JSON, different object) share one cached request within the 60 s `staleTime`; and a `timedOut` response renders that status
+- Implemented: src/Hosts/Crm.Web/src/segments/useLivePreview.test.tsx

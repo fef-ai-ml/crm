@@ -1,8 +1,20 @@
 import { createMemoryHistory, RouterProvider } from '@tanstack/react-router';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { decodeSession, sessionStore } from '@/lib/auth';
 import { createAppRouter } from '@/router';
+
+// SegmentsListPage (rendered at /segments) uses TanStack Query (Task 4); every render of the router tree
+// in this file needs a QueryClientProvider ancestor, same as main.tsx provides in the real app.
+function renderRouter(router: ReturnType<typeof createAppRouter>) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+}
 
 function base64UrlEncode(input: string): string {
   return btoa(input).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -35,7 +47,7 @@ describe('authed route guard', () => {
 
     const router = createAppRouter(createMemoryHistory({ initialEntries: ['/segments'] }));
     await router.load();
-    render(<RouterProvider router={router} />);
+    renderRouter(router);
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
     expect(router.state.location.search).toEqual({ redirect: '/segments' });
@@ -52,7 +64,7 @@ describe('authed route guard', () => {
 
     const router = createAppRouter(createMemoryHistory({ initialEntries: ['/segments'] }));
     await router.load();
-    render(<RouterProvider router={router} />);
+    renderRouter(router);
 
     expect(await screen.findByRole('heading', { name: 'Segments' })).not.toBeNull();
   });

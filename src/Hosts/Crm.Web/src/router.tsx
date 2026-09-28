@@ -5,6 +5,8 @@ import { LoginPage } from './routes/login';
 import { AuthedLayout } from './routes/authed';
 import { StatusPage } from './routes/status';
 import { SegmentsListPage } from './routes/segments/list';
+import { SegmentNewPage } from './routes/segments/new';
+import { SegmentDetailPage } from './routes/segments/detail';
 
 /**
  * Builds a fresh route tree + router. Exported (rather than only a module-level
@@ -51,6 +53,18 @@ export function createAppRouter(history?: RouterHistory) {
     component: SegmentsListPage,
   });
 
+  const segmentsNewRoute = createRoute({
+    getParentRoute: () => authedRoute,
+    path: '/segments/new',
+    component: SegmentNewPage,
+  });
+
+  const segmentDetailRoute = createRoute({
+    getParentRoute: () => authedRoute,
+    path: '/segments/$id',
+    component: SegmentDetailPage,
+  });
+
   const statusRoute = createRoute({
     getParentRoute: () => authedRoute,
     path: '/status',
@@ -59,7 +73,7 @@ export function createAppRouter(history?: RouterHistory) {
 
   const routeTree = rootRoute.addChildren([
     loginRoute,
-    authedRoute.addChildren([indexRoute, segmentsRoute, statusRoute]),
+    authedRoute.addChildren([indexRoute, segmentsRoute, segmentsNewRoute, segmentDetailRoute, statusRoute]),
   ]);
 
   return createRouter({ routeTree, ...(history ? { history } : {}) });
