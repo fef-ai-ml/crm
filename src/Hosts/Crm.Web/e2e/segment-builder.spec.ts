@@ -26,7 +26,7 @@ test('E2E-002 — build a nested segment with live count', async () => {
   const root = page.getByTestId('rule-node-root');
   await root.getByLabel('Key').fill('plan');
   await root.getByLabel('Comparator').selectOption('eq');
-  await root.getByLabel('Value').fill('pro');
+  await root.getByLabel('Value', { exact: true }).fill('pro');
 
   await root.getByRole('button', { name: 'Add group' }).click();
 
@@ -38,7 +38,7 @@ test('E2E-002 — build a nested segment with live count', async () => {
   const countryLeaf = page.getByTestId('rule-node-1-0');
   await countryLeaf.getByLabel('Key').fill('country');
   await countryLeaf.getByLabel('Comparator').selectOption('in');
-  await countryLeaf.getByLabel('Value').fill('ID, SG');
+  await countryLeaf.getByLabel('Value', { exact: true }).fill('ID, SG');
 
   await nestedGroup.getByRole('button', { name: 'Add event' }).click();
 
@@ -54,7 +54,7 @@ test('E2E-002 — build a nested segment with live count', async () => {
   await expect(page.getByTestId('segment-badge')).toHaveText('batch');
 
   const name = `e2e-${Date.now()}`;
-  await page.getByLabel('Name').fill(name);
+  await page.getByLabel('Name', { exact: true }).fill(name);
 
   await page.getByRole('button', { name: 'Save' }).click();
   await page.waitForURL(/\/segments\/[0-9a-fA-F-]{36}$/);
@@ -65,7 +65,7 @@ test('E2E-003 — validation errors surface on the field', async () => {
 
   const root = page.getByTestId('rule-node-root');
   await root.getByLabel('Key').fill('plan');
-  await root.getByLabel('Value').fill('pro');
+  await root.getByLabel('Value', { exact: true }).fill('pro');
 
   await root.getByRole('button', { name: 'Add event' }).click();
 
@@ -75,7 +75,7 @@ test('E2E-003 — validation errors surface on the field', async () => {
   await eventLeaf.getByLabel('Window unit').selectOption('d');
 
   const badName = `e2e-003-${Date.now()}`;
-  await page.getByLabel('Name').fill(badName);
+  await page.getByLabel('Name', { exact: true }).fill(badName);
 
   // The client validator would ALSO reject a 400-day window, so this proves the message on screen came from
   // the server's `errors` map (J7), not the client walker: the request is asserted to have actually gone out

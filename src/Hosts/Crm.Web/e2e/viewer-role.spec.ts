@@ -33,9 +33,9 @@ test('E2E-008 — Viewer sees a read-only UI', async () => {
   await expect(page.getByRole('button', { name: 'Archive' })).toHaveCount(0);
 
   // Definition is the default tab; its inputs render read-only for a Viewer (J9).
-  await expect(page.getByLabel('Name')).toBeDisabled();
+  await expect(page.getByLabel('Name', { exact: true })).toBeDisabled();
   await expect(page.getByLabel('Description')).toBeDisabled();
-  await expect(page.getByLabel('Status')).toBeDisabled();
+  await expect(page.getByLabel('Status', { exact: true })).toBeDisabled();
 
   await page.goto('/api-keys');
   await expect(page).toHaveURL(/\/segments$/);
