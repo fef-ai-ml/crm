@@ -24,7 +24,7 @@ Every requirement in the [BRD](../brd/BRD.md) maps to at least one test case; ev
 | FR-16 | real-time eligibility and evaluation | UT-040, UT-041, UT-042, UT-043, UT-044, UT-045, UT-046, UT-047, UT-048, UT-049, IT-022, IT-023, IT-024, IT-025, IT-026, IT-027, IT-043 |
 | FR-17 | preview count, timeout, cache | UT-058, IT-014, IT-015 |
 | FR-18 | segment CRUD, runs, members, changes | IT-013, IT-028, IT-029 |
-| FR-19 | login, roles | UT-053, IT-036, IT-037, E2E-001, E2E-008 |
+| FR-19 | login, roles | UT-053, UT-059, IT-036, IT-037, E2E-001, E2E-008 |
 | FR-20 | profile explorer UI | E2E-006 |
 | FR-21 | segment builder UI | UT-056, E2E-002, E2E-003, E2E-004 |
 | FR-22 | segment list columns and badge | IT-028, E2E-005 |

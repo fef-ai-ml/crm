@@ -170,3 +170,33 @@ source .env.local && curl -X POST http://localhost:8080/v1/track \
 ## Running hosts from the IDE
 
 `dotnet run --project src/Hosts/Crm.Api` and `dotnet run --project src/Hosts/Crm.Worker` use `appsettings.Development.json`, which points at the compose ports (`localhost,1433`, `localhost:6380`, `localhost:19092`). Stop the compose `api`/`worker` containers first to free ports 8080/8081, or run with `--urls http://localhost:8090`.
+
+## Web dashboard
+
+`src/Hosts/Crm.Web/src/lib/api.generated.ts` is generated from the committed `docs/api/openapi.json` by `openapi-typescript` and committed itself. After changing the API's OpenAPI document, regenerate it from `src/Hosts/Crm.Web`:
+
+```bash
+npm run api:types
+```
+
+CI's web job runs the same command and fails the build (`git diff --exit-code`) if the committed file has drifted from the OpenAPI document (plan J, ruling J3).
+
+### Running the E2E suite
+
+Playwright specs (`src/Hosts/Crm.Web/e2e/`) run against a live stack, not a mock — bring one up first (Prerequisite):
+
+```bash
+make up && make seed          # or, with a remote engine: make tunnel-apps first
+cd src/Hosts/Crm.Web
+npm run dev                   # Vite dev server on 5173, proxying /v1 and /health to :8080
+```
+
+Then, in another shell:
+
+```bash
+cd src/Hosts/Crm.Web
+npx playwright install --with-deps chromium   # first run only
+E2E_BASE_URL=http://localhost:5173 npx playwright test
+```
+
+`E2E_BASE_URL` overrides the default `http://localhost:3000` (the built `web` container's port) so the suite runs against the Vite dev server instead. The suite runs with a single worker (`playwright.config.ts`): `/v1/auth/login` and `/v1/auth/refresh` share a 20-request-per-minute rate limit (ruling J19), so parallel workers would trip it.

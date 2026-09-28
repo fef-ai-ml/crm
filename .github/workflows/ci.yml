@@ -105,4 +105,6 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
+      - run: npm run api:types && git diff --exit-code -- src/lib/api.generated.ts
       - run: npm test -- --run
+      - run: npm run build

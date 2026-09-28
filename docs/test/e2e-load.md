@@ -9,7 +9,7 @@ End-to-end cases (`E2E`) run Playwright against the full `docker compose` stack 
 - Given the seeded Admin credentials
 - When the user submits the login form
 - Then the browser lands on `/segments`, the access token is held in memory only (not in `localStorage`), and a `crm_refresh` cookie is set; a wrong password shows the problem+json `detail`
-- Planned: src/Hosts/Crm.Web/e2e/login.spec.ts
+- Implemented: src/Hosts/Crm.Web/e2e/login.spec.ts
 
 ### E2E-002 — build a nested segment with live count
 - Traces: FR-21

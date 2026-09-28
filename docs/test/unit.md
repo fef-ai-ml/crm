@@ -424,3 +424,12 @@ Each case loads `tests/fixtures/rules/valid/<name>.json`, compiles it for tenant
 - When every key builder in `Crm.Kernel.Redis` is invoked
 - Then each key starts with `t:T:` except `apikey:{prefix}` and the channel `segments:changed`
 - Implemented: tests/Crm.Kernel.UnitTests/RedisKeysTests.cs
+
+## Web dashboard
+
+### UT-059 — session store and refresh-once-on-401
+- Traces: FR-19
+- Given a decoded access token held in the in-memory session store
+- When an API call returns 401
+- Then `apiFetch` calls `POST /v1/auth/refresh` exactly once (concurrent 401s and concurrent `refreshSession()` callers share one in-flight promise — the API revokes every token of the user if a rotated refresh token is presented twice), replays the original request with the new token, and clears the store when the refresh itself fails
+- Implemented: src/Hosts/Crm.Web/src/lib/auth.test.ts

@@ -60,7 +60,7 @@ Architecture cases (`AT`) run with NetArchTest against the compiled solution on 
 - Given `docs/api/openapi.json` committed and the API project built
 - When `dotnet run --project src/Hosts/Crm.Api -- --export-openapi build/openapi.json` runs in CI
 - Then `diff docs/api/openapi.json build/openapi.json` is empty; the exported document lists exactly the endpoints in [api/README.md](../api/README.md)
-- Planned: .github/workflows/ci.yml step `openapi-drift`
+- Implemented: .github/workflows/ci.yml
 
 ### CT-002 — rule fixtures agree between C# and Zod
 - Traces: FR-12, FR-13

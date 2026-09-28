@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 type Readiness = { status: string; checks: Record<string, string> };
 
-export function HomePage() {
+export function StatusPage() {
   const { data, error, isPending } = useQuery({
     queryKey: ['health', 'ready'],
     queryFn: () => apiFetch<Readiness>('/health/ready'),
