@@ -1,6 +1,6 @@
 import { createMemoryHistory, RouterProvider } from '@tanstack/react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { decodeSession, sessionStore } from '@/lib/auth';
 import { createAppRouter } from '@/router';
@@ -145,7 +145,7 @@ describe('ProfilesPage (E2E-006 unit coverage)', () => {
     const router = await renderAtProfiles();
 
     const row = await screen.findByTestId('profile-row');
-    fireEvent.click(row);
+    fireEvent.click(within(row).getByRole('button'));
 
     await screen.findByRole('dialog', { name: 'Profile' });
     expect((router.state.location.search as { id?: string }).id).toBe('p1');
@@ -169,5 +169,117 @@ describe('ProfilesPage (E2E-006 unit coverage)', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toBe('Profile not found');
+  });
+
+  it('a row is opened with a real button in the first cell (keyboard-operable, table row semantics kept)', async () => {
+    setAdminSession();
+    const listResponse = { items: [makeListItem()], nextCursor: null };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(listResponse)));
+
+    const router = await renderAtProfiles();
+
+    const row = await screen.findByTestId('profile-row');
+    expect(row.getAttribute('role')).toBeNull();
+    const button = within(row).getByRole('button', { name: 'u-001' });
+
+    fireEvent.click(button);
+
+    await waitFor(() => expect((router.state.location.search as { id?: string }).id).toBe('p1'));
+  });
+
+  it('the "Profiles" nav link resets an active search instead of being silently overwritten (I-2)', async () => {
+    vi.useFakeTimers();
+    setAdminSession();
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ items: [], nextCursor: null }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const router = await renderAtProfiles(['/profiles?q=alice']);
+
+    expect((screen.getByLabelText('Search profiles') as HTMLInputElement).value).toBe('alice');
+
+    const navLink = screen.getByRole('link', { name: 'Profiles' });
+    await act(async () => {
+      fireEvent.click(navLink);
+    });
+
+    // input resyncs immediately from the URL-driven reset
+    expect((screen.getByLabelText('Search profiles') as HTMLInputElement).value).toBe('');
+
+    // and the debounce effect must not fight the reset by navigating `q` back
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+
+    expect((router.state.location.search as { q?: string }).q).toBeUndefined();
+    expect((screen.getByLabelText('Search profiles') as HTMLInputElement).value).toBe('');
+  });
+
+  it('typing still updates `q` after an external reset (reverse of I-2)', async () => {
+    vi.useFakeTimers();
+    setAdminSession();
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ items: [], nextCursor: null }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const router = await renderAtProfiles(['/profiles?q=alice']);
+
+    const navLink = screen.getByRole('link', { name: 'Profiles' });
+    await act(async () => {
+      fireEvent.click(navLink);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    expect((router.state.location.search as { q?: string }).q).toBeUndefined();
+
+    const input = screen.getByLabelText('Search profiles');
+    fireEvent.change(input, { target: { value: 'bob' } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+
+    expect((router.state.location.search as { q?: string }).q).toBe('bob');
+  });
+
+  it('closing the drawer leaves `q` in the URL untouched (M-4)', async () => {
+    setAdminSession();
+    const profile = makeProfile();
+    const fetchMock = vi.fn((url: string) => {
+      const path = String(url);
+      if (path === '/v1/profiles/p1') return Promise.resolve(jsonResponse(profile));
+      if (path.startsWith('/v1/profiles/p1/events')) return Promise.resolve(jsonResponse({ items: [], nextCursor: null }));
+      if (path.startsWith('/v1/profiles')) return Promise.resolve(jsonResponse({ items: [makeListItem()], nextCursor: null }));
+      return Promise.resolve(jsonResponse({ items: [], nextCursor: null }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const router = await renderAtProfiles(['/profiles?q=alice']);
+
+    const row = await screen.findByTestId('profile-row');
+    fireEvent.click(within(row).getByRole('button'));
+
+    await screen.findByRole('dialog', { name: 'Profile' });
+    expect((router.state.location.search as { q?: string; id?: string }).q).toBe('alice');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    await waitFor(() => expect((router.state.location.search as { id?: string }).id).toBeUndefined());
+    expect((router.state.location.search as { q?: string }).q).toBe('alice');
+  });
+
+  it('clearing the search input removes `q` from the URL after the debounce (M-4)', async () => {
+    vi.useFakeTimers();
+    setAdminSession();
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ items: [], nextCursor: null }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const router = await renderAtProfiles(['/profiles?q=alice']);
+
+    const input = screen.getByLabelText('Search profiles');
+    fireEvent.change(input, { target: { value: '' } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect((router.state.location.search as { q?: string }).q).toBeUndefined();
   });
 });

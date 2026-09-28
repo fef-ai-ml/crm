@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { ApiError } from '@/lib/api';
 import { api } from '@/lib/client';
@@ -24,7 +24,9 @@ export type TimelineProps = { profileId: string };
 export function Timeline({ profileId }: TimelineProps) {
   const [nameText, setNameText] = useState('');
   const name = useDebouncedValue(nameText, 300);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  // M-3: a callback ref (via `useState`) rather than a plain `useRef` so the observer effect below can depend
+  // on the sentinel *element* itself and re-run when it mounts, instead of depending on the paging flags.
+  const [sentinelNode, setSentinelNode] = useState<HTMLDivElement | null>(null);
 
   const query = useInfiniteQuery({
     queryKey: ['profile', profileId, 'events', name],
@@ -36,19 +38,27 @@ export function Timeline({ profileId }: TimelineProps) {
 
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
 
+  // M-3: the in-flight guard's inputs change far more often than the sentinel element does (every page fetch
+  // start/finish). Read them through a ref, updated every render, so the `IntersectionObserver` below is
+  // created once per sentinel element — not torn down and recreated on every flag flip.
+  const stateRef = useRef({ hasNextPage, isFetchingNextPage, fetchNextPage });
+  useLayoutEffect(() => {
+    stateRef.current = { hasNextPage, isFetchingNextPage, fetchNextPage };
+  });
+
   useEffect(() => {
     if (typeof IntersectionObserver === 'undefined') return;
-    const node = sentinelRef.current;
-    if (!node) return;
+    if (!sentinelNode) return;
 
     const observer = new IntersectionObserver((entries) => {
+      const { hasNextPage, isFetchingNextPage, fetchNextPage } = stateRef.current;
       if (entries.some((entry) => entry.isIntersecting) && hasNextPage && !isFetchingNextPage) {
         void fetchNextPage();
       }
     });
-    observer.observe(node);
+    observer.observe(sentinelNode);
     return () => observer.disconnect();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [sentinelNode, profileId]);
 
   const items = query.data?.pages.flatMap((page) => page.items) ?? [];
 
@@ -93,7 +103,7 @@ export function Timeline({ profileId }: TimelineProps) {
         </Table>
       )}
 
-      <div data-testid="timeline-sentinel" ref={sentinelRef} />
+      <div data-testid="timeline-sentinel" ref={setSentinelNode} />
 
       {hasNextPage && (
         <Button variant="outline" onClick={() => void fetchNextPage()} disabled={isFetchingNextPage}>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { ApiError } from '@/lib/api';
@@ -24,13 +24,28 @@ export function ProfilesPage() {
 
   const [text, setText] = useState(q);
   const debouncedText = useDebouncedValue(text, 300);
+  // I-2: the last value THIS page navigated `q` to, so the reverse-sync effect below can tell "the URL changed
+  // because we navigated it" apart from "the URL changed for some other reason" (e.g. the "Profiles" nav link
+  // resetting search to `{}`) — only the latter should resync the input.
+  const lastNavigatedRef = useRef(q);
 
-  // J14: `q` is debounced 300 ms and mirrored into the URL search param; the guard skips the navigate when
-  // nothing actually changed (e.g. on mount, or once the URL already reflects the debounced value).
+  // External changes to `q` (not produced by this page's own debounce-driven navigate below) resync the input.
+  // Runs before the forward effect notices anything: it records the externally-set value in the ref too, so
+  // once `debouncedText` catches up to it (after 300 ms) the forward effect below sees them equal and skips.
+  useEffect(() => {
+    if (q === lastNavigatedRef.current) return;
+    lastNavigatedRef.current = q;
+    setText(q);
+  }, [q]);
+
+  // J14: `q` is debounced 300 ms and mirrored into the URL search param. Deliberately depends on `debouncedText`
+  // alone (not `q`) — otherwise an external `q` change (handled above) would immediately re-run this effect
+  // before the reset propagates through `text`/`debouncedText`, and navigate `q` right back (I-2).
   useEffect(() => {
     if (debouncedText === q) return;
+    lastNavigatedRef.current = debouncedText;
     void navigate({ search: (prev) => ({ ...prev, q: debouncedText || undefined }), replace: true });
-  }, [debouncedText, q, navigate]);
+  }, [debouncedText]);
 
   const query = useInfiniteQuery({
     queryKey: ['profiles', q],
@@ -78,18 +93,16 @@ export function ProfilesPage() {
         </THead>
         <TBody>
           {items.map((item) => (
-            <TR
-              key={item.id}
-              data-testid="profile-row"
-              role="button"
-              tabIndex={0}
-              className="cursor-pointer"
-              onClick={() => openProfile(item.id)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') openProfile(item.id);
-              }}
-            >
-              <TD>{item.externalId ?? '—'}</TD>
+            <TR key={item.id} data-testid="profile-row">
+              <TD>
+                <button
+                  type="button"
+                  className="font-medium text-left underline-offset-2 hover:underline"
+                  onClick={() => openProfile(item.id)}
+                >
+                  {item.externalId ?? item.id}
+                </button>
+              </TD>
               <TD>{item.email ?? '—'}</TD>
               <TD>{formatDateTime(item.lastSeenAt)}</TD>
               <TD>{item.eventCount}</TD>

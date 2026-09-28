@@ -155,16 +155,21 @@ describe('Timeline', () => {
     await screen.findAllByTestId('timeline-row');
     const callsBefore = fetchMock.mock.calls.length;
     const observersBefore = MockIntersectionObserver.instances.length;
+    expect(observersBefore).toBe(1); // M-3: one observer for the sentinel element, not recreated per flag flip
 
     await fireIntersect(MockIntersectionObserver.instances.at(-1)!);
     expect(fetchMock.mock.calls.length).toBe(callsBefore + 1); // the in-flight request for cursor-1
 
-    // `isFetchingNextPage` flips (and the effect re-runs with a fresh observer whose closure sees it) via
-    // react-query's own microtask/flush queue, one tick beyond what `act(async ...)` alone drains — wait for
-    // the new observer instance before treating the guard as settled.
-    await waitFor(() => expect(MockIntersectionObserver.instances.length).toBeGreaterThan(observersBefore));
+    // `isFetchingNextPage` flips via react-query's own microtask/flush queue, one tick beyond what
+    // `act(async ...)` alone drains. The observer itself is never recreated (M-3), so wait on a rendered
+    // side effect of the flag instead: the "Load more" button (which shares the same guard) becoming disabled.
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Load more' }) as HTMLButtonElement).disabled).toBe(true),
+    );
+    expect(MockIntersectionObserver.instances.length).toBe(observersBefore); // still exactly one observer
 
-    // a second intersection while that fetch is still in flight must not fire a duplicate request
+    // a second intersection on that SAME observer while the fetch is still in flight must not fire a duplicate
+    // request — this is the guard the mutation test exercises.
     await fireIntersect(MockIntersectionObserver.instances.at(-1)!);
     expect(fetchMock.mock.calls.length).toBe(callsBefore + 1);
 

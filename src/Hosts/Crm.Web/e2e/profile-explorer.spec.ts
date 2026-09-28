@@ -51,7 +51,7 @@ test('E2E-006 — profile explorer search and timeline', async () => {
   await expect(firstRow).toBeVisible();
   await expect(firstRow.getByText(/alice\./)).toBeVisible();
 
-  await firstRow.click();
+  await firstRow.getByRole('button').click();
 
   const drawer = page.getByRole('dialog', { name: 'Profile' });
   await expect(drawer).toBeVisible();
@@ -67,7 +67,7 @@ test('E2E-006 — profile explorer search and timeline', async () => {
     return;
   }
 
-  await bigProfileRow.click();
+  await bigProfileRow.getByRole('button').click();
   const bigDrawer = page.getByRole('dialog', { name: 'Profile' });
   await expect(bigDrawer).toBeVisible();
 
