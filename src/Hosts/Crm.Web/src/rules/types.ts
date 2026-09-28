@@ -28,6 +28,13 @@ export type EventNode = { type: 'event'; name: string; cmp: EventCmp; count: num
 
 export type RuleTree = GroupNode | AttributeNode | EventNode;
 
+/** Type guard for `GroupNode`. Uses `Object.hasOwn`, not `in`, for the same reason `validate.ts` does: `in` is
+ * also true for an inherited, non-own `op` from a polluted `Object.prototype`, which would make every plain
+ * object look like a group. */
+export function isGroupNode(node: RuleTree): node is GroupNode {
+  return Object.hasOwn(node, 'op');
+}
+
 export type RuleError = { path: string; message: string };
 
 /** Mirrors `RuleLimits.cs`, in one place, exactly as the C# side. */

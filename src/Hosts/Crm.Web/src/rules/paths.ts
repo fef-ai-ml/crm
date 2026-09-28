@@ -1,3 +1,4 @@
+import { isGroupNode } from './types';
 import type { RuleTree } from './types';
 
 /** Indexes from the tree root down to a node, e.g. `[0, 2]` is `children[0].children[2]`. */
@@ -31,7 +32,7 @@ export function formatPath(indexes: NodePath, field?: string): string {
 export function nodeAt(tree: RuleTree, path: NodePath): RuleTree | undefined {
   let current: RuleTree | undefined = tree;
   for (const index of path) {
-    if (current === undefined || !('op' in current)) return undefined;
+    if (current === undefined || !isGroupNode(current)) return undefined;
     current = current.children[index];
   }
   return current;

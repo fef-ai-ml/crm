@@ -1,3 +1,4 @@
+import { isGroupNode } from './types';
 import type { RuleTree } from './types';
 
 /** Mirrors `RealtimeEligibility.Classify`/`FirstReason` (ADR-0005 §5.4): a rule tree can be evaluated in real
@@ -6,7 +7,7 @@ import type { RuleTree } from './types';
  * `count >= 1` for `gte` (an `eq` leaf is never real-time eligible, whatever its count; an `lte` leaf never is
  * either). Pre-order walk; the first reason found wins, but only the boolean matters here (J8). */
 function isIneligible(node: RuleTree): boolean {
-  if ('op' in node) {
+  if (isGroupNode(node)) {
     if (node.op === 'not') return true;
     return node.children.some(isIneligible);
   }
