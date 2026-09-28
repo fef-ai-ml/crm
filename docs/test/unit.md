@@ -447,3 +447,10 @@ Each case loads `tests/fixtures/rules/valid/<name>.json`, compiles it for tenant
 - When `isRealtimeEligible` classifies each tree
 - Then it agrees with `RealtimeEligibility.Classify` on every fixture — 19 eligible, 7 ineligible — since any `not` group, any `lte` event leaf, or any zero-count `eq`/`gte` event leaf makes the whole tree ineligible
 - Implemented: src/Hosts/Crm.Web/src/rules/eligibility.test.ts
+
+### UT-062 — builder reducer is pure and path-addressed
+- Traces: FR-21
+- Given the builder state is the API's own rule tree (J5), addressed by `NodePath` (child indexes from the root), and the shared `group-nested.json` fixture
+- When `builderReducer` applies `setGroupOp`, `addChild`, `removeNode`, `moveNode`, `updateLeaf` and `wrapInGroup` at a path
+- Then it returns a new tree with only the nodes on that path rebuilt — every untouched sibling subtree keeps its object identity — `moveNode` at an edge and `removeNode` of an empty path are no-ops returning the same tree reference, and `removeNode` of a `not`'s only child leaves `{ op: 'not', children: [] }`
+- Implemented: src/Hosts/Crm.Web/src/segments/builder/reducer.test.ts

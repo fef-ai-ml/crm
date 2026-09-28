@@ -26,7 +26,7 @@ Every requirement in the [BRD](../brd/BRD.md) maps to at least one test case; ev
 | FR-18 | segment CRUD, runs, members, changes | IT-013, IT-028, IT-029 |
 | FR-19 | login, roles | UT-053, UT-059, IT-036, IT-037, E2E-001, E2E-008 |
 | FR-20 | profile explorer UI | E2E-006 |
-| FR-21 | segment builder UI | UT-056, E2E-002, E2E-003, E2E-004 |
+| FR-21 | segment builder UI | UT-056, UT-062, E2E-002, E2E-003, E2E-004 |
 | FR-22 | segment list columns and badge | IT-028, E2E-005 |
 | FR-23 | API key lifecycle | UT-050, UT-051, UT-052, IT-033, IT-034, E2E-007 |
 | FR-24 | tenant scoping, fail closed | UT-054, UT-055, UT-057, IT-030, IT-031, IT-032, AT-006 |
