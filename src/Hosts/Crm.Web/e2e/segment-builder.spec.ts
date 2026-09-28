@@ -79,9 +79,11 @@ test('E2E-003 — validation errors surface on the field', async () => {
 
   // The client validator would ALSO reject a 400-day window, so this proves the message on screen came from
   // the server's `errors` map (J7), not the client walker: the request is asserted to have actually gone out
-  // and come back 400 (SegmentForm's Save ruling, E2E-003 — see task-4-report.md).
+  // and come back 400 (SegmentForm's Save ruling, E2E-003 — see task-4-report.md). The predicate is anchored
+  // to the exact create path so it can't match `POST /v1/segments/preview`, which the live-count debounce
+  // also fires as a POST (I-2).
   const [response] = await Promise.all([
-    page.waitForResponse((res) => res.url().includes('/v1/segments') && res.request().method() === 'POST'),
+    page.waitForResponse((res) => new URL(res.url()).pathname === '/v1/segments' && res.request().method() === 'POST'),
     page.getByRole('button', { name: 'Save' }).click(),
   ]);
 

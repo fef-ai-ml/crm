@@ -146,4 +146,20 @@ describe('useLivePreview (UT-063)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result.current.count).toBe(5);
   });
+
+  it('treats a cachedAt in the future (clock skew) as fresh, not cached (M-2)', async () => {
+    const future = new Date(Date.now() + 5000).toISOString();
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ count: 3, timedOut: false, cachedAt: future }));
+    vi.stubGlobal('fetch', fetchMock);
+    const client = newClient();
+
+    const { result } = renderHook(() => useLivePreview(TREE_A), { wrapper: makeWrapper(client) });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+
+    expect(result.current.status).toBe('ready');
+    expect(result.current.cached).toBe(false);
+  });
 });

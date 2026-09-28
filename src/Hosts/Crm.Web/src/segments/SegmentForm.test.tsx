@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SegmentForm } from './SegmentForm';
 import { decodeSession, sessionStore } from '@/lib/auth';
@@ -175,5 +175,90 @@ describe('SegmentForm', () => {
     renderForm({ onSaved: vi.fn() });
 
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+  });
+
+  it('disables Name, Description, Status, the builder and Save while the request is in flight, then re-enables (I-1a)', async () => {
+    setSession('Admin');
+    let resolveFetch: (value: Response) => void = () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const onSaved = vi.fn();
+
+    renderForm({ onSaved });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'vip' } });
+
+    const saveButton = screen.getByRole('button', { name: 'Save' });
+    fireEvent.click(saveButton);
+
+    expect((screen.getByLabelText('Name') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Description') as HTMLTextAreaElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Status') as HTMLSelectElement).disabled).toBe(true);
+    expect((saveButton as HTMLButtonElement).disabled).toBe(true);
+    // RuleBuilder readOnly hides its mutation buttons entirely.
+    expect(screen.queryByRole('button', { name: 'Add condition' })).toBeNull();
+
+    resolveFetch(jsonResponse(makeSegment({ name: 'vip' }), 201));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+
+    expect((screen.getByLabelText('Name') as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it('a server 400 error for a row that no longer exists in the current tree renders in the top alert (I-1b)', async () => {
+    setSession('Admin');
+    // A single-child tree: the server reports an error for children[9], which doesn't exist.
+    const initial = makeSegment({
+      definition: { op: 'and', children: [{ type: 'attribute', key: 'plan', cmp: 'eq', value: 'pro' }] },
+    });
+    const fetchMock = vi.fn((url: string) => {
+      if (url === '/v1/segments/seg-1') {
+        return Promise.resolve(
+          jsonResponse(
+            {
+              code: 'segments.invalid_definition',
+              errors: { 'definition.children[9].key': ['key is required'] },
+            },
+            400,
+          ),
+        );
+      }
+      return Promise.resolve(jsonResponse({ count: 10, timedOut: false, cachedAt: null }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderForm({ initial, onSaved: vi.fn() });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    const message = await screen.findByText('definition.children[9].key: key is required');
+    expect(message.closest('[role="alert"]')).toBeTruthy();
+  });
+
+  it('a 409 keeps the existing client-side rule error and adds the name error (M-1)', async () => {
+    setSession('Admin');
+    const badWindowTree: RuleTree = { type: 'event', name: 'purchase', cmp: 'gte', count: 1, window: '400d' };
+    const initial = makeSegment({ definition: badWindowTree });
+    const fetchMock = vi.fn((url: string) => {
+      if (url === '/v1/segments/seg-1') {
+        return Promise.resolve(
+          jsonResponse({ code: 'segment.name_taken', detail: 'A segment named "vip" already exists.' }, 409),
+        );
+      }
+      return Promise.resolve(jsonResponse({ count: null, timedOut: false, cachedAt: null }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderForm({ initial, onSaved: vi.fn() });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    // Wait for the 409 response to settle, THEN assert both errors are present together — the client-side
+    // rule error must survive the 409 handler's merge, not just be visible in the synchronous instant before
+    // the response resolves (which would pass even if the 409 handler replaced the whole map).
+    const nameError = await screen.findByText('A segment named "vip" already exists.');
+    expect(nameError).toBeTruthy();
+    expect(screen.getByText('window must match ^\\d+(d|h)$ and be at most 365 days')).toBeTruthy();
   });
 });

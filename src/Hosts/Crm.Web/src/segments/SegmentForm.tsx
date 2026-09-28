@@ -4,6 +4,7 @@ import { api } from '@/lib/client';
 import type { SegmentResponse, SegmentWriteRequest } from '@/lib/client';
 import { useSession } from '@/lib/auth';
 import { isRealtimeEligible } from '@/rules/eligibility';
+import { nodeAt, parseErrorPath } from '@/rules/paths';
 import { validateRule } from '@/rules/validate';
 import type { RuleError, RuleTree } from '@/rules/types';
 import { Badge } from '@/components/ui/badge';
@@ -37,8 +38,35 @@ function ruleErrorsToFieldErrors(errors: RuleError[]): FieldErrors {
   return map;
 }
 
-function problemErrorsToFieldErrors(errors: Record<string, string[]>): FieldErrors {
-  return new Map(Object.entries(errors));
+export type UnmappedFieldError = { key: string; message: string };
+
+const TOP_LEVEL_FIELDS = new Set(['name', 'description', 'status']);
+
+/** Splits `problem.errors` (I-1b) into `fieldErrors` — every key a rendered row or form field can display —
+ * and `unmapped`: a `definition…` path whose `parseErrorPath` doesn't resolve, or whose node no longer exists
+ * in the CURRENT tree (e.g. the row was removed or reindexed while the request was in flight), plus any other
+ * unrecognized key. Nothing from the server response is dropped silently; `unmapped` renders in the top
+ * `role="alert"` region as `<key>: <message>` lines. */
+function splitFieldErrors(
+  errors: Record<string, string[]>,
+  tree: RuleTree,
+): { fieldErrors: FieldErrors; unmapped: UnmappedFieldError[] } {
+  const fieldErrors = new Map<string, string[]>();
+  const unmapped: UnmappedFieldError[] = [];
+
+  for (const [key, messages] of Object.entries(errors)) {
+    const parsed = parseErrorPath(key);
+    const displayable = TOP_LEVEL_FIELDS.has(key) || (parsed !== null && nodeAt(tree, parsed.indexes) !== undefined);
+    if (displayable) {
+      fieldErrors.set(key, messages);
+    } else {
+      for (const message of messages) {
+        unmapped.push({ key, message });
+      }
+    }
+  }
+
+  return { fieldErrors, unmapped };
 }
 
 /** Segment create/edit form: name, description, status, the rule builder, a live-count card and the
@@ -56,6 +84,7 @@ export function SegmentForm({ initial, onSaved }: SegmentFormProps) {
   const [tree, setTree] = useState<RuleTree>(initial?.definition ?? newDefinition());
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>(new Map());
   const [topError, setTopError] = useState<string | null>(null);
+  const [unmappedErrors, setUnmappedErrors] = useState<UnmappedFieldError[]>([]);
   const [saving, setSaving] = useState(false);
 
   const preview = useLivePreview(tree);
@@ -69,14 +98,22 @@ export function SegmentForm({ initial, onSaved }: SegmentFormProps) {
   // "validateRule first; errors block the request". E2E-003 needs the SERVER's message on a window the client
   // validator ALSO rejects (400 d exceeds the 365-day limit both sides enforce), which is impossible if the
   // client blocks the request outright. Resolution used here: client-side `validateRule` errors are shown
-  // immediately for fast feedback, but the request is always sent; a successful or erroring response's fields
-  // (server `errors`, or a 409) replace the client-side map. This is a deliberate deviation from the brief's
-  // literal "no request" wording, called out in the report.
+  // immediately for fast feedback, but the request is always sent; a successful response clears the map, a 400
+  // replaces it with the server's field errors (I-1b: anything that no longer maps to a rendered row goes to
+  // the top alert instead of vanishing), and a 409 merges its `name` entry into the client-side map rather than
+  // discarding it (M-1) so a rule error already on screen isn't silently dropped. This is a deliberate
+  // deviation from the brief's literal "no request" wording, called out in the report.
+  //
+  // While `saving` is true, Name/Description/Status and the rule builder are all disabled (I-1a) — the tree
+  // used to check `splitFieldErrors`' `nodeAt` reachability below is exactly the one the request was sent
+  // with, since nothing can mutate it mid-flight.
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    setFieldErrors(ruleErrorsToFieldErrors(validateRule(tree)));
+    const clientErrors = ruleErrorsToFieldErrors(validateRule(tree));
+    setFieldErrors(clientErrors);
     setTopError(null);
+    setUnmappedErrors([]);
     setSaving(true);
 
     const body: SegmentWriteRequest = {
@@ -89,12 +126,15 @@ export function SegmentForm({ initial, onSaved }: SegmentFormProps) {
     try {
       const saved = initial ? await api.segments.update(initial.id, body) : await api.segments.create(body);
       setFieldErrors(new Map());
+      setUnmappedErrors([]);
       onSaved(saved);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        setFieldErrors(new Map([['name', [err.problem?.detail ?? 'Name is already taken.']]]));
+        setFieldErrors(new Map([...clientErrors, ['name', [err.problem?.detail ?? 'Name is already taken.']]]));
       } else if (err instanceof ApiError && err.status === 400 && err.problem?.errors) {
-        setFieldErrors(problemErrorsToFieldErrors(err.problem.errors));
+        const { fieldErrors: mapped, unmapped } = splitFieldErrors(err.problem.errors, tree);
+        setFieldErrors(mapped);
+        setUnmappedErrors(unmapped);
       } else if (err instanceof ApiError) {
         setTopError(err.problem?.detail ?? 'Save failed.');
       } else {
@@ -109,12 +149,19 @@ export function SegmentForm({ initial, onSaved }: SegmentFormProps) {
   const descriptionErrors = fieldErrors.get('description') ?? [];
   const statusErrors = fieldErrors.get('status') ?? [];
 
+  // I-1a: the rule builder and every other field lock for the duration of the in-flight request, not just
+  // Viewer sessions, so nothing the user changes mid-request can shift the paths a server error refers to.
+  const fieldsDisabled = isViewer || saving;
+
   return (
     <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
-      {topError ? (
-        <p role="alert" className="text-sm text-red-600">
-          {topError}
-        </p>
+      {topError || unmappedErrors.length > 0 ? (
+        <div role="alert" className="space-y-1 text-sm text-red-600">
+          {topError ? <p>{topError}</p> : null}
+          {unmappedErrors.map(({ key, message }) => (
+            <p key={`${key}:${message}`}>{`${key}: ${message}`}</p>
+          ))}
+        </div>
       ) : null}
 
       <div className="space-y-1 text-sm">
@@ -124,7 +171,7 @@ export function SegmentForm({ initial, onSaved }: SegmentFormProps) {
           aria-label="Name"
           value={name}
           onChange={(event) => setName(event.target.value)}
-          disabled={isViewer}
+          disabled={fieldsDisabled}
         />
         {nameErrors.map((message) => (
           <p role="alert" key={message} className="text-xs text-red-600">
@@ -140,7 +187,7 @@ export function SegmentForm({ initial, onSaved }: SegmentFormProps) {
           aria-label="Description"
           value={description}
           onChange={(event) => setDescription(event.target.value)}
-          disabled={isViewer}
+          disabled={fieldsDisabled}
         />
         {descriptionErrors.map((message) => (
           <p role="alert" key={message} className="text-xs text-red-600">
@@ -157,7 +204,7 @@ export function SegmentForm({ initial, onSaved }: SegmentFormProps) {
           options={STATUS_OPTIONS}
           value={status}
           onChange={(event) => setStatus(event.target.value)}
-          disabled={isViewer}
+          disabled={fieldsDisabled}
           className="w-40"
         />
         {statusErrors.map((message) => (
@@ -167,7 +214,7 @@ export function SegmentForm({ initial, onSaved }: SegmentFormProps) {
         ))}
       </div>
 
-      <RuleBuilder tree={tree} onChange={setTree} errors={fieldErrors} readOnly={isViewer} />
+      <RuleBuilder tree={tree} onChange={setTree} errors={fieldErrors} readOnly={fieldsDisabled} />
 
       <div className="flex flex-wrap items-center gap-3">
         <span data-testid="live-count" className="text-sm">
@@ -180,7 +227,7 @@ export function SegmentForm({ initial, onSaved }: SegmentFormProps) {
 
       {isAdmin && (
         <Button type="submit" disabled={saving}>
-          Save
+          {saving ? 'Saving…' : 'Save'}
         </Button>
       )}
     </form>
