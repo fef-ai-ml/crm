@@ -7,6 +7,7 @@ import { StatusPage } from './routes/status';
 import { SegmentsListPage } from './routes/segments/list';
 import { SegmentNewPage } from './routes/segments/new';
 import { SegmentDetailPage } from './routes/segments/detail';
+import type { SegmentDetailSearch } from './routes/segments/detail';
 
 /**
  * Builds a fresh route tree + router. Exported (rather than only a module-level
@@ -63,6 +64,11 @@ export function createAppRouter(history?: RouterHistory) {
     getParentRoute: () => authedRoute,
     path: '/segments/$id',
     component: SegmentDetailPage,
+    // Task 5: the active tab is a search param (not local state) so a reload keeps it (controller resolution).
+    validateSearch: (search: Record<string, unknown>): SegmentDetailSearch => {
+      const tab = search.tab;
+      return tab === 'definition' || tab === 'members' || tab === 'runs' ? { tab } : {};
+    },
   });
 
   const statusRoute = createRoute({

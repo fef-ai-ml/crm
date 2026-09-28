@@ -30,7 +30,7 @@ End-to-end cases (`E2E`) run Playwright against the full `docker compose` stack 
 - Given a saved segment
 - When the user clicks Run now and opens the Members and Runs tabs
 - Then within 10 s the Runs tab shows a Finished run with `412` members and trigger Manual, and the Members tab lists profiles with external id, email, and last seen, paging at 50
-- Planned: src/Hosts/Crm.Web/e2e/segment-run.spec.ts
+- Implemented: src/Hosts/Crm.Web/e2e/segment-run.spec.ts
 
 ### E2E-005 — segment list columns and badges
 - Traces: FR-22
