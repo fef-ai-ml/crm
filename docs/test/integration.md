@@ -237,6 +237,7 @@ Run against real SQL Server 2022, Kafka (KRaft), and Redis 7 started by Testcont
 - Given 10 batch changes at T1 and 3 real-time changes at T2 > T1
 - When `GET /v1/segments/{id}/changes?since=T2-1s&limit=2` and then the cursor
 - Then the pages contain the 3 T2 changes with `source = Realtime`, newest first, and nothing from T1
+- Plan I note (I15): the endpoint also takes `source=Batch|Realtime`; `SegmentReadTests.I15_changes_filtered_by_source_return_only_that_source` pins it (paged, with `since`, case-insensitive, 400 on anything else) and `SegmentReadPlanTests.I15_…` shows it stays a residual on the same `OccurredAt` seek with no Sort
 - Plan H note: proven with rows inserted directly through `SegmentsDb` (not the real-time evaluator, which does not exist yet) plus a tie fact — two of the three T2 changes share one `OccurredAt`, straddling the `limit=2` page boundary — the conjunctive `(OccurredAt, Id)` cursor returns each exactly once
 - Implemented: tests/Crm.IntegrationTests/Segments/SegmentReadTests.cs
 

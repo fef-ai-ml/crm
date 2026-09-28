@@ -9,21 +9,36 @@ namespace Crm.Segmentation.Domain.Segments;
 /// filter) so the guard is written once.</summary>
 public static class SegmentStatusParser
 {
-    public static bool TryParse(string? value, out SegmentStatus status)
+    public static bool TryParse(string? value, out SegmentStatus status) => EnumNames.TryParse(value, out status);
+}
+
+/// <summary>Plan I, ruling I15: the same total parse for the `source` filter of GET /segments/{id}/changes —
+/// exactly `Batch` or `Realtime`, case-insensitively.</summary>
+public static class MembershipChangeSourceParser
+{
+    public static bool TryParse(string? value, out MembershipChangeSource source) => EnumNames.TryParse(value, out source);
+}
+
+/// <summary>Matches a value against the enum's declared names only (see
+/// <see cref="SegmentStatusParser"/> for why <c>Enum.TryParse</c> is not enough).</summary>
+internal static class EnumNames
+{
+    public static bool TryParse<TEnum>(string? value, out TEnum result)
+        where TEnum : struct, Enum
     {
         if (value is not null)
         {
-            foreach (var name in Enum.GetNames<SegmentStatus>())
+            foreach (var name in Enum.GetNames<TEnum>())
             {
                 if (string.Equals(name, value, StringComparison.OrdinalIgnoreCase))
                 {
-                    status = Enum.Parse<SegmentStatus>(name);
+                    result = Enum.Parse<TEnum>(name);
                     return true;
                 }
             }
         }
 
-        status = default;
+        result = default;
         return false;
     }
 }

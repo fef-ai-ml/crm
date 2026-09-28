@@ -126,6 +126,39 @@ public sealed class SegmentReadPlanTests(CrmStackFixture stack, ITestOutputHelpe
         }
     }
 
+    /// <summary>Plan I, ruling I15: `source` is a residual predicate on the same clustered seek — `Source` is in
+    /// the clustered row, so it costs no lookup and the page still comes out ordered, with no Sort.</summary>
+    [Fact]
+    public async Task I15_changes_cursor_page_with_source_still_seeks_OccurredAt_without_a_sort()
+    {
+        var tenant = await TenancySeed.CreateTenantAsync(_factory);
+        _tenantIds.Add(tenant.TenantId);
+        var segmentId = await SegmentsDb.InsertSegmentAsync(stack.SqlConnectionString, tenant.TenantId, "plan-changes-source", DateTime.UtcNow);
+        var admin = TenancySeed.AccessToken(_factory, tenant.AdminUserId, tenant.TenantId, Roles.Admin);
+
+        var baseline = DateTime.UtcNow.AddMinutes(-30);
+        for (var i = 0; i < 10; i++)
+        {
+            await SegmentsDb.InsertMembershipChangeAsync(stack.SqlConnectionString, tenant.TenantId, segmentId, Guid.NewGuid(), baseline.AddSeconds(i), "Entered", i % 2 == 0 ? "Batch" : "Realtime");
+        }
+
+        var first = await _client.ReadAsync<SegmentChangeListResponse>($"/v1/segments/{segmentId}/changes?source=Realtime&limit=2", admin);
+        await _client.ReadAsync<SegmentChangeListResponse>($"/v1/segments/{segmentId}/changes?source=Realtime&limit=2&cursor={Uri.EscapeDataString(first.NextCursor!)}", admin);
+
+        // "@sourceFilter": EF Core names the parameter after EfSegmentQueries.ListChangesAsync's local, so this is
+        // provably a source-filtered statement; the cursor page ran last, so it is the newest such plan.
+        var paged = await QueryPlans.LatestAsync(stack.SqlConnectionString, "segments-changes", "@sourceFilter");
+
+        using var scope = new AssertionScope();
+        if (Found(paged, "changes, cursor page with source"))
+        {
+            paged.HasSort.Should().BeFalse($"operators were {string.Join(" > ", paged.PhysicalOperators)}; engine: {paged.Engine}");
+            paged.Indexes.Should().ContainSingle().Which.Should().Be("CX_MembershipChanges_TenantId_SegmentId_OccurredAt_Id");
+            paged.SeekColumns.Should().Contain("OccurredAt", $"seek columns were {string.Join(", ", paged.SeekColumns)}; engine: {paged.Engine}");
+            testOutput.WriteLine($"changes, cursor page with source: sort={paged.HasSort}; seek columns={string.Join(", ", paged.SeekColumns)}; operators={string.Join(" > ", paged.PhysicalOperators)}");
+        }
+    }
+
     /// <summary>Asserts a plan was found without throwing inside the AssertionScope (I2-B), mirroring ReadPathPlanTests.</summary>
     private static bool Found([NotNullWhen(true)] QueryPlan? plan, string what)
     {

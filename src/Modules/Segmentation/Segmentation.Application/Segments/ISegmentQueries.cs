@@ -19,7 +19,9 @@ public interface ISegmentQueries
     Task<Result<SegmentMemberListResponse>> ListMembersAsync(Guid segmentId, int? limit, string? cursor, CancellationToken cancellationToken);
 
     /// <summary>GET /segments/{id}/changes (task-8 brief, IT-029): membership changes newest first, optionally
-    /// filtered to <c>OccurredAt >= since</c>. <paramref name="since"/> is the raw query string, parsed here so an
-    /// unparsable value reports <c>segments.invalid_filter</c> rather than a framework binding error.</summary>
-    Task<Result<SegmentChangeListResponse>> ListChangesAsync(Guid segmentId, string? since, int? limit, string? cursor, CancellationToken cancellationToken);
+    /// filtered to <c>OccurredAt >= since</c> and to one <paramref name="source"/> (`Batch`/`Realtime`, plan I
+    /// ruling I15: the two are never merged, so a consumer that needs one entry per membership reads one of them).
+    /// Both are the raw query strings, parsed here so an unparsable value reports <c>segments.invalid_filter</c>
+    /// rather than a framework binding error.</summary>
+    Task<Result<SegmentChangeListResponse>> ListChangesAsync(Guid segmentId, string? since, string? source, int? limit, string? cursor, CancellationToken cancellationToken);
 }
