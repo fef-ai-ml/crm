@@ -10,6 +10,7 @@ import { SegmentDetailPage } from './routes/segments/detail';
 import type { SegmentDetailSearch } from './routes/segments/detail';
 import { ProfilesPage } from './routes/profiles';
 import type { ProfilesSearch } from './routes/profiles';
+import { ApiKeysPage } from './routes/api-keys';
 
 /**
  * Builds a fresh route tree + router. Exported (rather than only a module-level
@@ -92,9 +93,30 @@ export function createAppRouter(history?: RouterHistory) {
     component: StatusPage,
   });
 
+  // J9: the API-keys screen is Admin-only; a Viewer session (or one that lost Admin since it was decoded)
+  // is redirected before the page ever renders — the API's own 403 is the guard that actually matters.
+  const apiKeysRoute = createRoute({
+    getParentRoute: () => authedRoute,
+    path: '/api-keys',
+    beforeLoad: () => {
+      if (sessionStore.get()?.role !== 'Admin') {
+        throw redirect({ to: '/segments' });
+      }
+    },
+    component: ApiKeysPage,
+  });
+
   const routeTree = rootRoute.addChildren([
     loginRoute,
-    authedRoute.addChildren([indexRoute, segmentsRoute, segmentsNewRoute, segmentDetailRoute, profilesRoute, statusRoute]),
+    authedRoute.addChildren([
+      indexRoute,
+      segmentsRoute,
+      segmentsNewRoute,
+      segmentDetailRoute,
+      profilesRoute,
+      statusRoute,
+      apiKeysRoute,
+    ]),
   ]);
 
   return createRouter({ routeTree, ...(history ? { history } : {}) });

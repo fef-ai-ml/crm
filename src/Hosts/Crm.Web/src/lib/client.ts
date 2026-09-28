@@ -155,12 +155,16 @@ const profiles = {
 
 // ---- API keys ----
 
+export type ApiKeyListItem = Schemas['ApiKeyListItem'];
+export type ApiKeyListResponse = { items: ApiKeyListItem[]; nextCursor: string | null };
+export type ApiKeyCreated = Schemas['ApiKeyCreatedResponse'];
+
 const apiKeys = {
-  list(): Promise<Schemas['ApiKeyListResponse']> {
-    return apiFetch<Schemas['ApiKeyListResponse']>('/v1/api-keys');
+  list(): Promise<ApiKeyListResponse> {
+    return apiFetch<ApiKeyListResponse>('/v1/api-keys');
   },
-  create(name: string): Promise<Schemas['ApiKeyCreatedResponse']> {
-    return apiFetch<Schemas['ApiKeyCreatedResponse']>('/v1/api-keys', { method: 'POST', json: { name } });
+  create(name: string): Promise<ApiKeyCreated> {
+    return apiFetch<ApiKeyCreated>('/v1/api-keys', { method: 'POST', json: { name } });
   },
   revoke(id: string): Promise<void> {
     return apiFetch<undefined>(`/v1/api-keys/${id}`, { method: 'DELETE' });

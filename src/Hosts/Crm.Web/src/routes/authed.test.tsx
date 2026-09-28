@@ -1,6 +1,6 @@
 import { createMemoryHistory, RouterProvider } from '@tanstack/react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { decodeSession, sessionStore } from '@/lib/auth';
 import { createAppRouter } from '@/router';
@@ -67,5 +67,66 @@ describe('authed route guard', () => {
     renderRouter(router);
 
     expect(await screen.findByRole('heading', { name: 'Segments' })).not.toBeNull();
+  });
+});
+
+describe('AuthedLayout nav (J9)', () => {
+  function setSession(role: 'Admin' | 'Viewer') {
+    const accessToken = makeToken({ sub: 'u1', tenant_id: 't1', role, exp: Math.floor(Date.now() / 1000) + 900 });
+    sessionStore.set(decodeSession({ accessToken, expiresIn: 900 }));
+  }
+
+  beforeEach(() => {
+    sessionStore.set(null);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('shows the "API keys" nav entry for an Admin session', async () => {
+    setSession('Admin');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ items: [], nextCursor: null })));
+
+    const router = createAppRouter(createMemoryHistory({ initialEntries: ['/segments'] }));
+    await router.load();
+    renderRouter(router);
+
+    expect(await screen.findByRole('link', { name: 'API keys' })).toBeTruthy();
+  });
+
+  it('hides the "API keys" nav entry for a Viewer session', async () => {
+    setSession('Viewer');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ items: [], nextCursor: null })));
+
+    const router = createAppRouter(createMemoryHistory({ initialEntries: ['/segments'] }));
+    await router.load();
+    renderRouter(router);
+
+    await screen.findByRole('heading', { name: 'Segments' });
+    expect(screen.queryByRole('link', { name: 'API keys' })).toBeNull();
+  });
+
+  it('"Log out" logs out and navigates to /login', async () => {
+    setSession('Admin');
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      if (url === '/v1/auth/logout' && method === 'POST') {
+        return Promise.resolve(jsonResponse(null, 204));
+      }
+      return Promise.resolve(jsonResponse({ items: [], nextCursor: null }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const router = createAppRouter(createMemoryHistory({ initialEntries: ['/segments'] }));
+    await router.load();
+    renderRouter(router);
+
+    await screen.findByRole('heading', { name: 'Segments' });
+    fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
+    expect(fetchMock).toHaveBeenCalledWith('/v1/auth/logout', expect.objectContaining({ method: 'POST' }));
+    expect(sessionStore.get()).toBeNull();
   });
 });

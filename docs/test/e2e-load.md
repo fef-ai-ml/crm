@@ -51,14 +51,14 @@ End-to-end cases (`E2E`) run Playwright against the full `docker compose` stack 
 - Given the Admin on the API keys screen
 - When they create key "sdk", copy it, close the dialog, and then revoke it
 - Then the full key is visible only in the creation dialog, the list shows the 8-character prefix, and after revocation the row shows a revoked timestamp and `POST /v1/track` with that key returns 401
-- Planned: src/Hosts/Crm.Web/e2e/api-keys.spec.ts
+- Implemented: src/Hosts/Crm.Web/e2e/api-keys.spec.ts
 
 ### E2E-008 — Viewer sees a read-only UI
 - Traces: FR-19
 - Given the seeded Viewer user logs in
 - When they open `/segments` and a segment detail
 - Then Save, Run now, and API-key actions are absent or disabled, and lists and detail views render
-- Planned: src/Hosts/Crm.Web/e2e/viewer-role.spec.ts
+- Implemented: src/Hosts/Crm.Web/e2e/viewer-role.spec.ts
 
 ## Load
 

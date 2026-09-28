@@ -8,7 +8,7 @@ Stack: .NET 10 modular monolith (API + Worker), React 19 dashboard, SQL Server 2
 
 ## Status
 
-Slice 1 (events → profiles → segments) has its foundation complete: solution structure, Kernel, Contracts, the API/Worker/Web hosts, multi-tenant auth, CI, and an opt-in observability stack. The Ingestion API is also complete, and the Profiles pipeline's write side (Worker consumer, identity resolution, merge, DLQ) now turns those events into profiles; profiles are now readable through `GET /v1/profiles`, `GET /v1/profiles/{id}` and `GET /v1/profiles/{id}/events`. Segmentation's rule engine, batch materialization and API are complete: segments are defined by a validated rule tree, compiled to parameterized SQL, previewed in under five seconds, materialized by queued batch runs on the Worker (manual and six-hourly), and read back as members and membership changes through `/v1/segments`. Real-time evaluation keeps a Redis membership set for every Active, real-time-eligible segment: the Worker's `events.processed` consumer updates event counters and re-evaluates the profile on every event or identify, records each transition as a `Realtime` membership change, and exposes the set's size as `realtimeMemberCount`; every batch run rebuilds the set.
+Slice 1 (events → profiles → segments) has its foundation complete: solution structure, Kernel, Contracts, the API/Worker/Web hosts, multi-tenant auth, CI, and an opt-in observability stack. The Ingestion API is also complete, and the Profiles pipeline's write side (Worker consumer, identity resolution, merge, DLQ) now turns those events into profiles; profiles are now readable through `GET /v1/profiles`, `GET /v1/profiles/{id}` and `GET /v1/profiles/{id}/events`. Segmentation's rule engine, batch materialization and API are complete: segments are defined by a validated rule tree, compiled to parameterized SQL, previewed in under five seconds, materialized by queued batch runs on the Worker (manual and six-hourly), and read back as members and membership changes through `/v1/segments`. Real-time evaluation keeps a Redis membership set for every Active, real-time-eligible segment: the Worker's `events.processed` consumer updates event counters and re-evaluates the profile on every event or identify, records each transition as a `Realtime` membership change, and exposes the set's size as `realtimeMemberCount`; every batch run rebuilds the set. The Web dashboard is also complete: login, a segment builder with a live member count and server-validated rules, run/members/runs on each segment, a profile explorer with search and an event timeline, and an Admin-only API keys screen, with Viewer sessions rendered read-only throughout.
 
 | Phase | State |
 |---|---|
@@ -22,7 +22,7 @@ Slice 1 (events → profiles → segments) has its foundation complete: solution
 | Implementation: Profiles read API | Complete |
 | Implementation: Segmentation (rules, batch, API) | Complete |
 | Implementation: Segmentation (real-time evaluation) | Complete (LT-003 passes idle; under load it is bounded by the profiles pipeline — see below) |
-| Implementation: Web dashboard | Planned |
+| Implementation: Web dashboard | Complete |
 | Load test and results | Planned |
 
 ## Documentation
@@ -57,7 +57,7 @@ source .env.local && curl -X POST http://localhost:8080/v1/track \
   -d '{"userId":"u-123","event":"purchase","properties":{"amount":49.9}}'    # 202 {"eventId":"…"}
 ```
 
-Then open http://localhost:3000 (status page) and http://localhost:8080/swagger (API reference).
+Then open http://localhost:3000 and log in as admin@demo.local / Demo-Passw0rd! to reach the dashboard, or http://localhost:8080/swagger for the API reference.
 
 See [Developer Setup](docs/dev-setup.md) for prerequisites, Podman specifics, and running against a remote engine.
 
@@ -68,7 +68,7 @@ TOKEN=$(curl -s -X POST http://localhost:8080/v1/auth/login -H "Content-Type: ap
 curl -s "http://localhost:8080/v1/profiles?q=u-123" -H "Authorization: Bearer $TOKEN"    # the profile the curl above created
 ```
 
-The Web dashboard comes later.
+Or see the same profile in the dashboard's profile explorer at http://localhost:3000/profiles.
 
 ## Observability
 

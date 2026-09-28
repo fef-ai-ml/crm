@@ -2,16 +2,19 @@ import { Link, Outlet, useRouter } from '@tanstack/react-router';
 import { logout, useSession } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 
-// Later tasks extend this with role-gated entries (API keys — Admin only).
 const navItems = [
   { to: '/segments' as const, label: 'Segments' },
   { to: '/profiles' as const, label: 'Profiles' },
   { to: '/status' as const, label: 'Status' },
 ];
 
+// J9: Admin only — the route's own `beforeLoad` (router.tsx) redirects a Viewer regardless of this link.
+const adminNavItem = { to: '/api-keys' as const, label: 'API keys' };
+
 export function AuthedLayout() {
   const session = useSession();
   const router = useRouter();
+  const items = session?.role === 'Admin' ? [...navItems, adminNavItem] : navItems;
 
   async function handleLogout() {
     await logout();
@@ -23,7 +26,7 @@ export function AuthedLayout() {
       <header className="flex items-center gap-6 border-b border-zinc-200 px-6 py-3 dark:border-zinc-800">
         <span className="font-semibold">CRM</span>
         <nav className="flex gap-4 text-sm">
-          {navItems.map((item) => (
+          {items.map((item) => (
             <Link key={item.to} to={item.to} className="[&.active]:font-semibold">
               {item.label}
             </Link>

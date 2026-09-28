@@ -199,4 +199,4 @@ npx playwright install --with-deps chromium   # first run only
 E2E_BASE_URL=http://localhost:5173 npx playwright test
 ```
 
-`E2E_BASE_URL` overrides the default `http://localhost:3000` (the built `web` container's port) so the suite runs against the Vite dev server instead. The suite runs with a single worker (`playwright.config.ts`): `/v1/auth/login` and `/v1/auth/refresh` share a 20-request-per-minute rate limit (ruling J19), so parallel workers would trip it.
+`E2E_BASE_URL` overrides the default `http://localhost:3000` (the built `web` container's port) so the suite runs against the Vite dev server instead. The suite runs with a single worker (`playwright.config.ts`): `/v1/auth/login` and `/v1/auth/refresh` share a 20-request-per-minute rate limit per client address (ruling J19), so parallel workers would trip it, and every page load costs one refresh call. Each spec file logs in exactly once, in a `beforeAll`, and shares one browser page across its own tests (`test.describe.configure({ mode: 'serial' })`) rather than reloading or logging in again per test, keeping the whole suite well under the per-minute budget.
