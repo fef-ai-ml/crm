@@ -144,7 +144,6 @@ export function ApiKeysPage() {
             <label htmlFor="api-key-name">Key name</label>
             <Input
               id="api-key-name"
-              aria-label="Key name"
               value={name}
               onChange={(event) => setName(event.target.value)}
               disabled={creating}
@@ -189,7 +188,7 @@ export function ApiKeysPage() {
         )}
       </CardContent>
 
-      <Dialog open={secret !== null} onClose={handleCloseSecret}>
+      <Dialog open={secret !== null} onClose={handleCloseSecret} label="Key created">
         {secret ? (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold">Key created</h2>

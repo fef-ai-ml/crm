@@ -139,6 +139,7 @@ describe('ApiKeysPage (E2E-007 unit coverage)', () => {
     const secretEls = await screen.findAllByTestId('api-key-secret');
     expect(secretEls).toHaveLength(1);
     expect(secretEls[0].textContent).toBe('sdk_live_abcd1234thesecret');
+    expect(screen.getByRole('dialog', { name: 'Key created' })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByTestId('api-key-secret')).toBeNull());

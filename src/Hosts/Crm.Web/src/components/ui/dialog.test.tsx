@@ -20,7 +20,7 @@ describe('Dialog', () => {
 
   it('does not call showModal or close before it is ever opened', () => {
     render(
-      <Dialog open={false} onClose={() => {}}>
+      <Dialog open={false} onClose={() => {}} label="Test dialog">
         <p>Hi</p>
       </Dialog>,
     );
@@ -30,13 +30,13 @@ describe('Dialog', () => {
 
   it('calls showModal when `open` turns true, and close when it turns false again', () => {
     const { rerender } = render(
-      <Dialog open={false} onClose={() => {}}>
+      <Dialog open={false} onClose={() => {}} label="Test dialog">
         <p>Hi</p>
       </Dialog>,
     );
 
     rerender(
-      <Dialog open onClose={() => {}}>
+      <Dialog open onClose={() => {}} label="Test dialog">
         <p>Hi</p>
       </Dialog>,
     );
@@ -44,7 +44,7 @@ describe('Dialog', () => {
     expect(close).not.toHaveBeenCalled();
 
     rerender(
-      <Dialog open={false} onClose={() => {}}>
+      <Dialog open={false} onClose={() => {}} label="Test dialog">
         <p>Hi</p>
       </Dialog>,
     );
@@ -54,12 +54,12 @@ describe('Dialog', () => {
   it('calls onClose when the native dialog fires a close event (e.g. Escape)', () => {
     const onClose = vi.fn();
     const { container, rerender } = render(
-      <Dialog open={false} onClose={onClose}>
+      <Dialog open={false} onClose={onClose} label="Test dialog">
         <p>Hi</p>
       </Dialog>,
     );
     rerender(
-      <Dialog open onClose={onClose}>
+      <Dialog open onClose={onClose} label="Test dialog">
         <p>Hi</p>
       </Dialog>,
     );
@@ -70,12 +70,38 @@ describe('Dialog', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('renders children only while mounted, so a caller can remove them independently of `open`', () => {
-    const { getByText } = render(
-      <Dialog open onClose={() => {}}>
+  it('exposes `label` as the dialog\'s accessible name', () => {
+    const { getByRole } = render(
+      <Dialog open onClose={() => {}} label="Key created">
+        <p>Hi</p>
+      </Dialog>,
+    );
+    expect(getByRole('dialog', { name: 'Key created' })).toBeTruthy();
+  });
+
+  it('closes on unmount while still open, instead of leaving the native dialog open', () => {
+    const { unmount } = render(
+      <Dialog open onClose={() => {}} label="Test dialog">
         <p>Secret content</p>
       </Dialog>,
     );
-    expect(getByText('Secret content')).toBeTruthy();
+    expect(showModal).toHaveBeenCalledTimes(1);
+    expect(close).not.toHaveBeenCalled();
+
+    unmount();
+
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call close on unmount when it was never opened', () => {
+    const { unmount } = render(
+      <Dialog open={false} onClose={() => {}} label="Test dialog">
+        <p>Hi</p>
+      </Dialog>,
+    );
+
+    unmount();
+
+    expect(close).not.toHaveBeenCalled();
   });
 });
