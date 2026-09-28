@@ -134,7 +134,9 @@ describe('RunsTab', () => {
     const client = newClient();
     const onSettled = vi.fn();
 
-    render(<RunsTab segmentId="seg-1" onSettled={onSettled} pollIntervalMs={POLL_MS} />, {
+    // currentRunId matches the already-terminal run's id: the caller already knows about it (it's not a
+    // newly-appeared run), so M-5's first-observation check must not fire either.
+    render(<RunsTab segmentId="seg-1" currentRunId="run-1" onSettled={onSettled} pollIntervalMs={POLL_MS} />, {
       wrapper: makeWrapper(client),
     });
 
@@ -144,6 +146,33 @@ describe('RunsTab', () => {
     });
 
     expect(onSettled).not.toHaveBeenCalled();
+  });
+
+  // M-5: a run that's already Finished/Failed by the time RunsTab's first fetch lands (e.g. a fast worker, or
+  // a small tenant) never transitions through `activeRunIdsRef`, so the transition-based check above can never
+  // fire for it. If its id is one the caller doesn't already know about (differs from the segment's own
+  // `currentRunId`), the very first observation must still fire `onSettled` so the header/Members refresh.
+  it('fires onSettled on the very first observation when the newest run is already terminal and unknown to the caller', async () => {
+    const finishedRun = makeRun({
+      runId: 'run-new',
+      status: 'Finished',
+      startedAt: '2026-01-01T00:00:01Z',
+      finishedAt: '2026-01-01T00:00:05Z',
+      memberCount: 412,
+    });
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({ items: [finishedRun], nextCursor: null })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = newClient();
+    const onSettled = vi.fn();
+
+    render(<RunsTab segmentId="seg-1" currentRunId="run-old" onSettled={onSettled} pollIntervalMs={POLL_MS} />, {
+      wrapper: makeWrapper(client),
+    });
+
+    await screen.findByText('Finished');
+    await waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1));
+    expect(onSettled).toHaveBeenCalledWith(expect.objectContaining({ runId: 'run-new', status: 'Finished' }));
   });
 
   it('does not fire onSettled for a previous segment after remounting via key on segmentId change', async () => {
@@ -166,8 +195,18 @@ describe('RunsTab', () => {
     const client = newClient();
     const onSettled = vi.fn();
 
+    // currentRunId matches the shared runId here too: this test is about the active-tracking ref not leaking
+    // across a key-based remount, not about M-5's new-run detection.
     function Harness({ segmentId }: { segmentId: string }) {
-      return <RunsTab key={segmentId} segmentId={segmentId} onSettled={onSettled} pollIntervalMs={POLL_MS} />;
+      return (
+        <RunsTab
+          key={segmentId}
+          segmentId={segmentId}
+          currentRunId="run-shared"
+          onSettled={onSettled}
+          pollIntervalMs={POLL_MS}
+        />
+      );
     }
 
     const { rerender } = render(<Harness segmentId="seg-a" />, { wrapper: makeWrapper(client) });

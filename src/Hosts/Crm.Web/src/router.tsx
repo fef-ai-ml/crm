@@ -57,9 +57,16 @@ export function createAppRouter(history?: RouterHistory) {
     component: SegmentsListPage,
   });
 
+  // M-7: same Admin-only guard as /api-keys — a Viewer could otherwise open this by URL and see a disabled
+  // form with no Save button; harmless (the API 403s regardless) but inconsistent with /api-keys.
   const segmentsNewRoute = createRoute({
     getParentRoute: () => authedRoute,
     path: '/segments/new',
+    beforeLoad: () => {
+      if (sessionStore.get()?.role !== 'Admin') {
+        throw redirect({ to: '/segments' });
+      }
+    },
     component: SegmentNewPage,
   });
 

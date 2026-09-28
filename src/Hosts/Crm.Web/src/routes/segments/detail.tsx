@@ -74,6 +74,11 @@ export function SegmentDetailPage() {
     try {
       await api.segments.run(id);
       setRunMessage('Run queued');
+      // I-2/J27: unconditional, so a Run now while the Runs tab is ALREADY active (where `setTab('runs')`
+      // below is a no-op) still refreshes it — previously the new Queued run never appeared until something
+      // else happened to refetch.
+      void queryClient.invalidateQueries({ queryKey: ['segment', id, 'runs'] });
+      void queryClient.invalidateQueries({ queryKey: ['segment', id] });
       setTab('runs');
     } catch (err) {
       setRunError(err instanceof ApiError ? (err.problem?.detail ?? 'Run failed.') : 'Run failed.');
@@ -95,6 +100,9 @@ export function SegmentDetailPage() {
     setArchiveState('archiving');
     try {
       await api.segments.archive(id);
+      // M-4: the segments list was never invalidated after Archive, so a subsequent visit could still show
+      // it as Active until that list's own mount refetch happened to land.
+      void queryClient.invalidateQueries({ queryKey: ['segments'] });
       void navigate({ to: '/segments' });
     } catch (err) {
       setArchiveError(err instanceof ApiError ? (err.problem?.detail ?? 'Archive failed') : 'Archive failed');
@@ -172,7 +180,11 @@ export function SegmentDetailPage() {
         <Tabs value={activeTab} onChange={setTab} tabs={TAB_ITEMS} />
 
         <TabPanel value="definition" active={activeTab}>
+          {/* M-3: key={id} forces a fresh SegmentForm instance on segment change — otherwise its `useState`
+              fields (seeded from `initial` once) can keep showing the previous segment's name/tree if the
+              new id's data is already cached (RunsTab already solves this the same way for the same reason). */}
           <SegmentForm
+            key={id}
             initial={segment}
             onSaved={() => {
               void queryClient.invalidateQueries({ queryKey: ['segment', id] });
@@ -187,7 +199,7 @@ export function SegmentDetailPage() {
         <TabPanel value="runs" active={activeTab}>
           {/* key={id}: forces a fresh RunsTab instance (and a fresh activeRunIdsRef) on segment change,
               rather than relying on run ids being globally unique to avoid a stale onSettled fire (I-2). */}
-          <RunsTab key={id} segmentId={id} onSettled={handleRunSettled} />
+          <RunsTab key={id} segmentId={id} currentRunId={segment.currentRunId} onSettled={handleRunSettled} />
         </TabPanel>
       </CardContent>
     </Card>

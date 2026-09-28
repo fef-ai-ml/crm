@@ -261,4 +261,31 @@ describe('SegmentForm', () => {
     expect(nameError).toBeTruthy();
     expect(screen.getByText('window must match ^\\d+(d|h)$ and be at most 365 days')).toBeTruthy();
   });
+
+  // M-4: nothing invalidated the segments list after create or update, so a stale row (name, status, kind)
+  // could persist in the list until its own mount refetch happened to land.
+  it('invalidates the segments list cache after a successful save (M-4)', async () => {
+    setSession('Admin');
+    const fetchMock = vi.fn((url: string) => {
+      if (url === '/v1/segments') {
+        return Promise.resolve(jsonResponse(makeSegment({ id: 'new-1', name: 'vip' }), 201));
+      }
+      return Promise.resolve(jsonResponse({ count: null, timedOut: false, cachedAt: null }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+
+    render(
+      <QueryClientProvider client={client}>
+        <SegmentForm onSaved={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'vip' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['segments'] }));
+  });
 });

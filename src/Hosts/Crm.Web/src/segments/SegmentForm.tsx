@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '@/lib/api';
 import { api } from '@/lib/client';
 import type { SegmentResponse, SegmentWriteRequest } from '@/lib/client';
@@ -74,6 +75,7 @@ function splitFieldErrors(
  * machine and this module's own JSDoc-style comments below for the Save flow's client/server error handling
  * (the E2E-003 ruling: client validation is shown immediately but never blocks the request). */
 export function SegmentForm({ initial, onSaved }: SegmentFormProps) {
+  const queryClient = useQueryClient();
   const session = useSession();
   const isAdmin = session?.role === 'Admin';
   const isViewer = !isAdmin;
@@ -127,6 +129,10 @@ export function SegmentForm({ initial, onSaved }: SegmentFormProps) {
       const saved = initial ? await api.segments.update(initial.id, body) : await api.segments.create(body);
       setFieldErrors(new Map());
       setUnmappedErrors([]);
+      // M-4: create and update both change what the segments list would show (name, status, member count is
+      // unaffected but Kind/name can change) — nothing invalidated it before, so a stale list could persist
+      // until its own mount refetch happened to land.
+      void queryClient.invalidateQueries({ queryKey: ['segments'] });
       onSaved(saved);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {

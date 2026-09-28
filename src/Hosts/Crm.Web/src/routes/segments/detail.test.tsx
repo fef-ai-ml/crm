@@ -73,9 +73,8 @@ function makeFetchMock(segment: SegmentResponse) {
   });
 }
 
-async function renderDetail(segmentId = 'seg-1') {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const router = createAppRouter(createMemoryHistory({ initialEntries: [`/segments/${segmentId}`] }));
+async function renderDetail(segmentId = 'seg-1', search = '', client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+  const router = createAppRouter(createMemoryHistory({ initialEntries: [`/segments/${segmentId}${search}`] }));
   await router.load();
   render(
     <QueryClientProvider client={client}>
@@ -83,6 +82,20 @@ async function renderDetail(segmentId = 'seg-1') {
     </QueryClientProvider>,
   );
   return router;
+}
+
+function makeRunItem(overrides: Record<string, unknown> = {}) {
+  return {
+    runId: 'run-1',
+    status: 'Queued',
+    trigger: 'Manual',
+    startedAt: null,
+    finishedAt: null,
+    memberCount: null,
+    error: null,
+    createdAt: '2026-01-01T00:00:00Z',
+    ...overrides,
+  };
 }
 
 describe('SegmentDetailPage (E2E-004 unit coverage)', () => {
@@ -303,5 +316,151 @@ describe('SegmentDetailPage (E2E-004 unit coverage)', () => {
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'The segment is archived.');
     expect(screen.queryByRole('status')).toBeNull();
     expect(screen.getByRole('tab', { name: 'Definition' }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  // I-2: Run now while the Runs tab is already open previously only called `setTab('runs')`, a no-op when
+  // that tab is already active — the runs query was never invalidated, so the new Queued run never appeared.
+  it('Run now while the Runs tab is open triggers a fresh runs fetch and renders the new Queued run (I-2)', async () => {
+    setSession('Admin');
+    const segment = makeSegment({ currentRunId: 'run-old' });
+    let runsCallCount = 0;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      const path = String(url);
+      if (path === `/v1/segments/${segment.id}` && method === 'GET') {
+        return Promise.resolve(jsonResponse(segment));
+      }
+      if (path === `/v1/segments/${segment.id}/run` && method === 'POST') {
+        return Promise.resolve(jsonResponse({ runId: 'run-new' }, 202));
+      }
+      if (path.startsWith(`/v1/segments/${segment.id}/runs`)) {
+        runsCallCount += 1;
+        if (runsCallCount === 1) {
+          return Promise.resolve(
+            jsonResponse({ items: [makeRunItem({ runId: 'run-old', status: 'Finished', finishedAt: '2026-01-01T00:00:05Z', memberCount: 10 })], nextCursor: null }),
+          );
+        }
+        return Promise.resolve(
+          jsonResponse({ items: [makeRunItem({ runId: 'run-new', status: 'Queued', createdAt: '2026-01-02T00:00:00Z' })], nextCursor: null }),
+        );
+      }
+      if (path.startsWith(`/v1/segments/${segment.id}/members`)) {
+        return Promise.resolve(jsonResponse({ items: [], nextCursor: null }));
+      }
+      return Promise.resolve(jsonResponse({ title: 'not found' }, 404));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await renderDetail(segment.id, '?tab=runs');
+
+    await screen.findByText('Finished');
+
+    const runButton = await screen.findByRole('button', { name: 'Run now' });
+    await act(async () => {
+      runButton.click();
+    });
+
+    await waitFor(() => expect(runsCallCount).toBeGreaterThanOrEqual(2));
+    await screen.findByText('Queued');
+  });
+
+  // M-5 (page level): a run that's already terminal on the Runs tab's very first fetch, with a runId the
+  // segment resource doesn't yet know about, must still refresh the segment header via RunsTab's onSettled.
+  it('a terminal run present on the very first runs fetch with a new run id refreshes the segment header (M-5)', async () => {
+    setSession('Admin');
+    const segment = makeSegment({ currentRunId: 'run-old' });
+    let segmentGetCount = 0;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      const path = String(url);
+      if (path === `/v1/segments/${segment.id}` && method === 'GET') {
+        segmentGetCount += 1;
+        return Promise.resolve(jsonResponse(segment));
+      }
+      if (path.startsWith(`/v1/segments/${segment.id}/runs`)) {
+        return Promise.resolve(
+          jsonResponse({
+            items: [makeRunItem({ runId: 'run-new', status: 'Finished', finishedAt: '2026-01-01T00:00:05Z', memberCount: 20, createdAt: '2026-01-02T00:00:00Z' })],
+            nextCursor: null,
+          }),
+        );
+      }
+      if (path.startsWith(`/v1/segments/${segment.id}/members`)) {
+        return Promise.resolve(jsonResponse({ items: [], nextCursor: null }));
+      }
+      return Promise.resolve(jsonResponse({ title: 'not found' }, 404));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await renderDetail(segment.id, '?tab=runs');
+
+    await screen.findByText('Finished');
+    await waitFor(() => expect(segmentGetCount).toBeGreaterThanOrEqual(2));
+  });
+
+  // M-3: SegmentForm seeded its fields from `initial` only once (`useState`); navigating from one detail page
+  // to another without a full remount kept the previous segment's name/tree in the form.
+  it('the Definition form resets when navigating from one segment detail to another (M-3)', async () => {
+    setSession('Admin');
+    const segment1 = makeSegment({ id: 'seg-1', name: 'first' });
+    const segment2 = makeSegment({ id: 'seg-2', name: 'second' });
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      const path = String(url);
+      if (path === '/v1/segments/seg-1' && method === 'GET') return Promise.resolve(jsonResponse(segment1));
+      if (path === '/v1/segments/seg-2' && method === 'GET') return Promise.resolve(jsonResponse(segment2));
+      if (path.startsWith('/v1/segments/seg-1/') || path.startsWith('/v1/segments/seg-2/')) {
+        return Promise.resolve(jsonResponse({ items: [], nextCursor: null }));
+      }
+      return Promise.resolve(jsonResponse({ title: 'not found' }, 404));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const router = createAppRouter(createMemoryHistory({ initialEntries: ['/segments/seg-1'] }));
+    await router.load();
+    render(
+      <QueryClientProvider client={client}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByLabelText('Name')).toHaveProperty('value', 'first');
+
+    // M-3 only reproduces when the target is already CACHED: `query.isPending` is then false immediately, so
+    // the page never renders its "Loading…" branch (which would otherwise unmount/remount SegmentForm on its
+    // own) — the bug is specifically that the still-mounted, unkeyed form then never re-seeds from `initial`.
+    client.setQueryData(['segment', 'seg-2'], segment2);
+
+    await act(async () => {
+      await router.navigate({ to: '/segments/$id', params: { id: 'seg-2' } });
+    });
+
+    await waitFor(() => expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('second'));
+  });
+
+  // M-4: nothing invalidated the segments list after Archive, so a subsequent visit to /segments could show
+  // the archived segment as Active until its own mount refetch happened to land.
+  it('Archive invalidates the segments list cache after success (M-4)', async () => {
+    setSession('Admin');
+    const segment = makeSegment();
+    const fetchMock = makeFetchMock(segment);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+
+    await renderDetail(segment.id, '', client);
+
+    const archiveButton = await screen.findByRole('button', { name: 'Archive' });
+    await act(async () => {
+      archiveButton.click();
+    });
+    const confirmButton = await screen.findByRole('button', { name: 'Confirm archive' });
+    await act(async () => {
+      confirmButton.click();
+    });
+
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['segments'] }));
   });
 });
