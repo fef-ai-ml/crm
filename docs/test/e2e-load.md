@@ -44,7 +44,7 @@ End-to-end cases (`E2E`) run Playwright against the full `docker compose` stack 
 - Given the seed dataset
 - When the user types `alice` in `/profiles`, opens the first result, and scrolls the timeline
 - Then the results table shows the matching profile, the drawer shows core fields and an attributes JSON viewer, and the timeline loads a second page of 50 events on scroll
-- Planned: src/Hosts/Crm.Web/e2e/profile-explorer.spec.ts
+- Implemented: src/Hosts/Crm.Web/e2e/profile-explorer.spec.ts
 
 ### E2E-007 — API key lifecycle in the UI
 - Traces: FR-23

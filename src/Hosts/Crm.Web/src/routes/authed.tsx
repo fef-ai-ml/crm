@@ -2,9 +2,10 @@ import { Link, Outlet, useRouter } from '@tanstack/react-router';
 import { logout, useSession } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 
-// Later tasks extend this with role-gated entries (Profiles, API keys — Admin only).
+// Later tasks extend this with role-gated entries (API keys — Admin only).
 const navItems = [
   { to: '/segments' as const, label: 'Segments' },
+  { to: '/profiles' as const, label: 'Profiles' },
   { to: '/status' as const, label: 'Status' },
 ];
 

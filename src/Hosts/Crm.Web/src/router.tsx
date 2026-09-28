@@ -8,6 +8,8 @@ import { SegmentsListPage } from './routes/segments/list';
 import { SegmentNewPage } from './routes/segments/new';
 import { SegmentDetailPage } from './routes/segments/detail';
 import type { SegmentDetailSearch } from './routes/segments/detail';
+import { ProfilesPage } from './routes/profiles';
+import type { ProfilesSearch } from './routes/profiles';
 
 /**
  * Builds a fresh route tree + router. Exported (rather than only a module-level
@@ -71,6 +73,19 @@ export function createAppRouter(history?: RouterHistory) {
     },
   });
 
+  const profilesRoute = createRoute({
+    getParentRoute: () => authedRoute,
+    path: '/profiles',
+    component: ProfilesPage,
+    // Task 6/J14: `q` and the selected profile `id` are URL search params (strings only, dropped otherwise).
+    validateSearch: (search: Record<string, unknown>): ProfilesSearch => {
+      const result: ProfilesSearch = {};
+      if (typeof search.q === 'string') result.q = search.q;
+      if (typeof search.id === 'string') result.id = search.id;
+      return result;
+    },
+  });
+
   const statusRoute = createRoute({
     getParentRoute: () => authedRoute,
     path: '/status',
@@ -79,7 +94,7 @@ export function createAppRouter(history?: RouterHistory) {
 
   const routeTree = rootRoute.addChildren([
     loginRoute,
-    authedRoute.addChildren([indexRoute, segmentsRoute, segmentsNewRoute, segmentDetailRoute, statusRoute]),
+    authedRoute.addChildren([indexRoute, segmentsRoute, segmentsNewRoute, segmentDetailRoute, profilesRoute, statusRoute]),
   ]);
 
   return createRouter({ routeTree, ...(history ? { history } : {}) });
