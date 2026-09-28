@@ -80,7 +80,7 @@ services:
     restart: "no"
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     command: ["redis-server", "--appendonly", "no", "--save", ""]
     ports:
       - "${REDIS_HOST_PORT:-6380}:6379"   # 6380 on the host: 6379 is commonly taken by other local projects
