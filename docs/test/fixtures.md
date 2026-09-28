@@ -66,6 +66,7 @@ Directory `tests/fixtures/rules/`. Both the C# validator theory and the Zod test
 | `cmp-unknown.json` | unknown comparator |
 | `event-count-negative.json` | count < 0 |
 | `type-unknown.json` | unknown node type |
+| `value-infinite.json` | non-finite number (`1e400`) as an attribute value |
 
 ## Golden SQL Files
 

@@ -1,0 +1,4 @@
+{
+  "definition": { "type": "attribute", "key": "ltv", "cmp": "gt", "value": 1e400 },
+  "expectedErrorPath": "definition.value"
+}

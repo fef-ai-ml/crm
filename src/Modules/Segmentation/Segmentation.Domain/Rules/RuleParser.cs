@@ -164,13 +164,17 @@ public static class RuleParser
                     return null;
                 }
 
-                if (valueElement.ValueKind != JsonValueKind.Number)
+                // TryGetDouble, not GetDouble, and an explicit finiteness check: a JSON number with an extreme
+                // exponent (e.g. `1e400`) is syntactically valid but has no finite double value (J21).
+                if (valueElement.ValueKind != JsonValueKind.Number
+                    || !valueElement.TryGetDouble(out var comparisonValue)
+                    || !double.IsFinite(comparisonValue))
                 {
                     errors.Add(new RuleError(valuePath, "value must be a number"));
                     return null;
                 }
 
-                return new RuleValue.Number(valueElement.GetDouble());
+                return new RuleValue.Number(comparisonValue);
 
             case AttributeCmp.Contains:
                 if (!hasValue)
@@ -214,7 +218,10 @@ public static class RuleParser
         valueElement.ValueKind switch
         {
             JsonValueKind.String => ParseBoundedString(valueElement.GetString()!, path, errors),
-            JsonValueKind.Number => new RuleValue.Number(valueElement.GetDouble()),
+            // TryGetDouble + IsFinite, not GetDouble: an extreme-exponent number (e.g. `1e400`) is not finite and
+            // falls through to the default arm below, same as any other non-scalar value (J21).
+            JsonValueKind.Number when valueElement.TryGetDouble(out var value) && double.IsFinite(value) =>
+                new RuleValue.Number(value),
             JsonValueKind.True or JsonValueKind.False => new RuleValue.Bool(valueElement.GetBoolean()),
             _ => FailValue(path, "value must be a string, number or boolean", errors),
         };
@@ -258,7 +265,10 @@ public static class RuleParser
             return new RuleValue.TextList(items.Select(item => item.GetString()!).ToList());
         }
 
-        if (items.All(item => item.ValueKind == JsonValueKind.Number))
+        // TryGetDouble + IsFinite per item, not just ValueKind: an extreme-exponent item (e.g. `1e400`) is a JSON
+        // number syntactically but has no finite double value, so it fails "all numbers" and the list is rejected
+        // with the same message as any other invalid list, matching the TypeScript walker (J21).
+        if (items.All(item => item.ValueKind == JsonValueKind.Number && item.TryGetDouble(out var itemValue) && double.IsFinite(itemValue)))
         {
             return new RuleValue.NumberList(items.Select(item => item.GetDouble()).ToList());
         }

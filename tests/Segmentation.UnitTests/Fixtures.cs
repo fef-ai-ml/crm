@@ -21,7 +21,7 @@ public static class Fixtures
         "depth-6", "leaves-21", "not-two-children", "not-no-children",
         "window-366d", "window-1w", "window-0d", "window-bare",
         "key-dot", "key-quote", "key-65",
-        "cmp-unknown", "event-count-negative", "type-unknown",
+        "cmp-unknown", "event-count-negative", "type-unknown", "value-infinite",
     ];
 
     public static TheoryData<string> Valid() => new(ValidFileNames);

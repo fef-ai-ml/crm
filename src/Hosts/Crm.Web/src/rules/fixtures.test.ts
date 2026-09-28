@@ -60,6 +60,7 @@ const INVALID = [
   'cmp-unknown',
   'event-count-negative',
   'type-unknown',
+  'value-infinite',
 ];
 
 type Fixture = { definition: unknown; expectedErrorPath: string | null };

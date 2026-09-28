@@ -250,6 +250,33 @@ public class RuleValidatorTests
         result.Errors[0].Should().Be(new RuleError("definition.value", "value must be a string, number or boolean"));
     }
 
+    // J21: the C# validator must reject non-finite JSON numbers (e.g. `1e400`, which parses to
+    // `double.PositiveInfinity`) exactly where the TypeScript walker does, with the same messages.
+
+    [Fact]
+    public void J21_gt_with_a_non_finite_number_reports_value_must_be_a_number()
+    {
+        var result = RuleParser.Parse(Json("""{"type":"attribute","key":"ltv","cmp":"gt","value":1e400}"""));
+
+        result.Errors[0].Should().Be(new RuleError("definition.value", "value must be a number"));
+    }
+
+    [Fact]
+    public void J21_eq_with_a_non_finite_number_reports_the_accepted_types()
+    {
+        var result = RuleParser.Parse(Json("""{"type":"attribute","key":"plan","cmp":"eq","value":1e400}"""));
+
+        result.Errors[0].Should().Be(new RuleError("definition.value", "value must be a string, number or boolean"));
+    }
+
+    [Fact]
+    public void J21_in_with_a_non_finite_number_in_the_list_reports_the_list_message()
+    {
+        var result = RuleParser.Parse(Json("""{"type":"attribute","key":"country","cmp":"in","value":[1,1e400]}"""));
+
+        result.Errors[0].Should().Be(new RuleError("definition.value", "value must be a non-empty array of strings or of numbers (at most 100)"));
+    }
+
     [Fact]
     public void unknown_comparator_is_rejected()
     {
