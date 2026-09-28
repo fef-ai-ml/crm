@@ -76,6 +76,31 @@ describe('AttributeLeafRow (UT-062)', () => {
     expect(leafFrom(dispatch).value).toEqual(['ID', 'SG']);
   });
 
+  it('typing an "in" list character by character never loses a keystroke (C-1)', () => {
+    const { dispatch, rerender } = renderRow({ type: 'attribute', key: 'country', cmp: 'in', value: [] });
+    const value = () => (screen.getByLabelText('Value') as HTMLInputElement).value;
+
+    // Simulates typing "ID, SG" one character at a time: each `fireEvent.change` carries the full string typed
+    // so far (as successive keystrokes would leave the input), then the row is re-rendered with the freshly
+    // dispatched leaf — mirroring the real reducer round trip a live app performs in the same render batch.
+    for (const typed of ['I', 'ID', 'ID,', 'ID, ', 'ID, S', 'ID, SG']) {
+      fireEvent.change(screen.getByLabelText('Value'), { target: { value: typed } });
+      rerender(leafFrom(dispatch, dispatch.mock.calls.length - 1));
+      expect(value()).toBe(typed);
+    }
+    expect(leafFrom(dispatch, dispatch.mock.calls.length - 1).value).toEqual(['ID', 'SG']);
+
+    // a trailing comma stays visible without losing the already-parsed items
+    fireEvent.change(screen.getByLabelText('Value'), { target: { value: 'ID, SG,' } });
+    rerender(leafFrom(dispatch, dispatch.mock.calls.length - 1));
+    expect(value()).toBe('ID, SG,');
+    expect(leafFrom(dispatch, dispatch.mock.calls.length - 1).value).toEqual(['ID', 'SG']);
+
+    // an external value change (not derived from what's currently typed) replaces the text
+    rerender({ type: 'attribute', key: 'country', cmp: 'in', value: ['X'] });
+    expect(value()).toBe('X');
+  });
+
   it('"in" parses a comma-separated list into numbers when every item is numeric', () => {
     const { dispatch } = renderRow({ type: 'attribute', key: 'score', cmp: 'in', value: [] });
     fireEvent.change(screen.getByLabelText('Value'), { target: { value: '1, 2.5' } });
@@ -88,6 +113,34 @@ describe('AttributeLeafRow (UT-062)', () => {
     fireEvent.change(screen.getByLabelText('Value'), { target: { value: '' } });
 
     expect(Object.hasOwn(leafFrom(dispatch), 'value')).toBe(false);
+  });
+
+  it('a bare "-" never writes NaN into the tree; a completed negative number does (C-2)', () => {
+    const { dispatch, rerender } = renderRow({ type: 'attribute', key: 'age', cmp: 'lt', value: 5 });
+
+    fireEvent.change(screen.getByLabelText('Value'), { target: { value: '-' } });
+    expect(dispatch).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText('Value'), { target: { value: '-1' } });
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    const leaf = leafFrom(dispatch, 0);
+    expect(leaf.value).toBe(-1);
+    expect(JSON.stringify(leaf)).not.toContain('null');
+
+    rerender(leaf);
+    expect((screen.getByLabelText('Value') as HTMLInputElement).value).toBe('-1');
+  });
+
+  it('an incomplete exponent ("1e") never writes NaN into an eq-number value', () => {
+    const { dispatch, rerender } = renderRow({ type: 'attribute', key: 'age', cmp: 'eq', value: 1 });
+    fireEvent.change(screen.getByLabelText('Value type'), { target: { value: 'number' } });
+    rerender(leafFrom(dispatch, 0));
+
+    fireEvent.change(screen.getByLabelText('Value'), { target: { value: '1e' } });
+    expect(dispatch).toHaveBeenCalledTimes(1); // only the type switch, no NaN dispatch from "1e"
+
+    fireEvent.change(screen.getByLabelText('Value'), { target: { value: '1e3' } });
+    expect(leafFrom(dispatch, 1).value).toBe(1000);
   });
 
   it('eq with type number and text "42" yields the number 42', () => {
@@ -112,6 +165,24 @@ describe('AttributeLeafRow (UT-062)', () => {
     rerender(afterType);
     fireEvent.change(screen.getByLabelText('Value'), { target: { value: 'true' } });
     expect(leafFrom(dispatch, 1).value).toBe(true);
+  });
+
+  it('a value-keyed error on exists/not_exists renders under the comparator, not as a floating alert (M-1)', () => {
+    const errors: FieldErrors = new Map([[formatPath([0], 'value'), ['value is not allowed for this comparator']]]);
+    render(
+      <AttributeLeafRow
+        node={{ type: 'attribute', key: 'plan', cmp: 'exists' }}
+        path={[0]}
+        errors={errors}
+        dispatch={vi.fn()}
+      />,
+    );
+
+    const alerts = screen.getAllByRole('alert');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].textContent).toBe('value is not allowed for this comparator');
+    // no value control exists for exists/not_exists, so the alert must sit next to the comparator select
+    expect(screen.getByLabelText('Comparator').parentElement?.contains(alerts[0])).toBe(true);
   });
 
   it('renders field errors as alerts under their own field, not other fields', () => {

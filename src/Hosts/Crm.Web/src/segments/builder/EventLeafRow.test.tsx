@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { EventLeafRow } from './EventLeafRow';
+import type { BuilderAction, FieldErrors } from './reducer';
 import type { EventNode } from '@/rules/types';
-import type { FieldErrors } from './reducer';
 import { formatPath } from '@/rules/paths';
 
 const NO_ERRORS: FieldErrors = new Map();
@@ -13,6 +14,25 @@ function baseNode(): EventNode {
 
 function leafFrom(dispatch: ReturnType<typeof vi.fn>, callIndex = 0): EventNode {
   return dispatch.mock.calls[callIndex][0].leaf as EventNode;
+}
+
+// A tiny stateful harness: a bare `vi.fn()` dispatch never feeds `node` back as a new prop, so it can't tell
+// the difference between "the buffer's own edit round-tripping back down" and "an external revert" — the same
+// distinction the render-time resync exists to make. Wiring `dispatch` through real state (as the live app
+// does via `builderReducer`) puts the child's own buffer update and the ancestor's prop update in the same
+// render batch, matching production, so this is used wherever a test cares about the buffer's displayed value
+// across more than one edit.
+function Harness({ initial }: { initial: EventNode }) {
+  const [node, setNode] = useState(initial);
+  function dispatch(action: BuilderAction) {
+    if (action.type === 'updateLeaf') setNode(action.leaf as EventNode);
+  }
+  return (
+    <>
+      <span data-testid="count-in-tree">{node.count}</span>
+      <EventLeafRow node={node} path={[1]} errors={NO_ERRORS} dispatch={dispatch} />
+    </>
+  );
 }
 
 describe('EventLeafRow (UT-062)', () => {
@@ -60,6 +80,29 @@ describe('EventLeafRow (UT-062)', () => {
     fireEvent.change(screen.getByLabelText('Count'), { target: { value: '5' } });
 
     expect(leafFrom(dispatch).count).toBe(5);
+  });
+
+  it('a bare "-" leaves count unchanged and does not dispatch; a completed number does (C-2)', () => {
+    const dispatch = vi.fn();
+    render(<EventLeafRow node={baseNode()} path={[1]} errors={NO_ERRORS} dispatch={dispatch} />);
+
+    fireEvent.change(screen.getByLabelText('Count'), { target: { value: '-' } });
+    expect(dispatch).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText('Count'), { target: { value: '2' } });
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    const leaf = leafFrom(dispatch, 0);
+    expect(leaf.count).toBe(2);
+    expect(JSON.stringify(leaf)).not.toContain('null');
+  });
+
+  it('a non-canonical count like "007" stays as typed while the tree holds the parsed number (M-2)', () => {
+    render(<Harness initial={baseNode()} />);
+
+    fireEvent.change(screen.getByLabelText('Count'), { target: { value: '007' } });
+
+    expect((screen.getByLabelText('Count') as HTMLInputElement).value).toBe('007');
+    expect(screen.getByTestId('count-in-tree').textContent).toBe('7');
   });
 
   it('event name and comparator edits dispatch updateLeaf', () => {

@@ -1,4 +1,5 @@
 import { useState, type ChangeEvent } from 'react';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, type SelectOption } from '@/components/ui/select';
 import { WINDOW_PATTERN } from '@/rules/types';
@@ -24,17 +25,31 @@ export type EventLeafRowProps = {
   errors: FieldErrors;
   dispatch: (action: BuilderAction) => void;
   readOnly?: boolean;
+  isRoot?: boolean;
 };
 
-export function EventLeafRow({ node, path, errors, dispatch, readOnly = false }: EventLeafRowProps) {
-  // "Count" buffers its own text so the field can go visually empty while typing without losing the last
-  // valid `count` on the node (an empty string is not a valid `number`) — the controller resolution. Resynced
-  // by adjusting state during render (not in an effect, which would cause a cascading render) whenever `count`
-  // changes from the outside.
+export function EventLeafRow({
+  node,
+  path,
+  errors,
+  dispatch,
+  readOnly = false,
+  isRoot = false,
+}: EventLeafRowProps) {
+  // "Count" buffers its own text so the field can go visually empty, or hold a non-canonical string like `007`
+  // or a still-typing `-`, while typing, without losing the last valid `count` on the node. Rendered as
+  // `type="text"` with `inputMode="numeric"`, not `type="number"`: a native number input's `value` IDL
+  // attribute sanitizes any syntactically invalid intermediate ("-", "1e", ...) down to the empty string before
+  // `onChange` ever sees it — indistinguishable from clearing the field — so a plain text input is needed to
+  // see the raw keystrokes at all (C-2). Resynced by adjusting state during render (not in an effect, which
+  // would cause a cascading render), compared by CONTENT — what the buffer currently parses to — against
+  // `count`, the same principle as `ListValueInput` (C-1) and the attribute leaf's numeric fields: our own
+  // dispatch of a just-typed, non-canonical count (e.g. "007" -> 7) never immediately stomps the text the user
+  // is still looking at (M-2), and an indeterminate in-progress text (empty, or not a finite number, e.g. "-")
+  // never forces a resync either.
   const [countText, setCountText] = useState(String(node.count));
-  const [prevCount, setPrevCount] = useState(node.count);
-  if (node.count !== prevCount) {
-    setPrevCount(node.count);
+  const parsedCountText = countText.trim() === '' ? NaN : Number(countText);
+  if (Number.isFinite(parsedCountText) && parsedCountText !== node.count) {
     setCountText(String(node.count));
   }
 
@@ -53,8 +68,11 @@ export function EventLeafRow({ node, path, errors, dispatch, readOnly = false }:
   function handleCountChange(event: ChangeEvent<HTMLInputElement>) {
     const raw = event.target.value;
     setCountText(raw);
-    if (raw === '') return; // keep the last valid count; a non-integer string is left to the validator
-    emit({ ...node, count: Number(raw) });
+    if (raw.trim() === '') return; // keep the last valid count; the validator reports a missing one
+
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return; // e.g. "-", "1e": keep typing, tree keeps its last valid count
+    emit({ ...node, count: parsed });
   }
 
   const windowMatch = WINDOW_PATTERN.exec(node.window);
@@ -111,9 +129,8 @@ export function EventLeafRow({ node, path, errors, dispatch, readOnly = false }:
 
       <div className="flex flex-col gap-1">
         <Input
-          type="number"
-          min={0}
-          step={1}
+          type="text"
+          inputMode="numeric"
           aria-label="Count"
           value={countText}
           onChange={handleCountChange}
@@ -152,6 +169,32 @@ export function EventLeafRow({ node, path, errors, dispatch, readOnly = false }:
           </p>
         ))}
       </div>
+
+      {!readOnly && !isRoot && (
+        <div className="flex items-center gap-1">
+          <Button type="button" size="sm" variant="ghost" onClick={() => dispatch({ type: 'removeNode', path })}>
+            Remove
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            aria-label="Move up"
+            onClick={() => dispatch({ type: 'moveNode', path, direction: 'up' })}
+          >
+            ↑
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            aria-label="Move down"
+            onClick={() => dispatch({ type: 'moveNode', path, direction: 'down' })}
+          >
+            ↓
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

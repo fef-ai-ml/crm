@@ -23,7 +23,7 @@ export function RuleBuilder({ tree, onChange, errors, readOnly = false }: RuleBu
     return <GroupRow node={tree} path={[]} errors={errors} dispatch={dispatch} readOnly={readOnly} isRoot />;
   }
   if (tree.type === 'attribute') {
-    return <AttributeLeafRow node={tree} path={[]} errors={errors} dispatch={dispatch} readOnly={readOnly} />;
+    return <AttributeLeafRow node={tree} path={[]} errors={errors} dispatch={dispatch} readOnly={readOnly} isRoot />;
   }
-  return <EventLeafRow node={tree} path={[]} errors={errors} dispatch={dispatch} readOnly={readOnly} />;
+  return <EventLeafRow node={tree} path={[]} errors={errors} dispatch={dispatch} readOnly={readOnly} isRoot />;
 }

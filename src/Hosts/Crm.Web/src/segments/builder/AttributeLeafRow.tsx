@@ -1,4 +1,5 @@
-import type { ChangeEvent } from 'react';
+import { useState, type ChangeEvent } from 'react';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, type SelectOption } from '@/components/ui/select';
 import { ListValueInput, type ListValue } from './ListValueInput';
@@ -87,15 +88,80 @@ function typeOfValue(value: RuleValue | undefined): 'text' | 'number' | 'boolean
   return 'text';
 }
 
+type NumberFieldProps = {
+  value: number | undefined;
+  onValue: (value: number | undefined) => void;
+  emptyValue: number | undefined;
+  disabled: boolean;
+  className: string;
+};
+
+// Buffers typed text so an in-progress numeric edit (a bare `-`, `-0.`, `1e`, `.`) never writes into the tree
+// (C-2): `Number('-')` is `NaN`, and `NaN` would silently survive further edits because `typeof NaN ===
+// 'number'` passes the same duck-typed checks (`fitsCmp`) a real number would. Rendered as `type="text"` with
+// `inputMode="decimal"`, not `type="number"`: a native number input's `value` IDL attribute runs the HTML
+// value-sanitization algorithm and silently collapses any syntactically invalid intermediate ("-", "-0.",
+// "1e", ".") to the empty string before our `onChange` ever sees it — indistinguishable from the user clearing
+// the field — so our own `Number.isFinite` guard would never even get a chance to run on the text that
+// actually needs it. A plain text input hands us the raw keystrokes and keeps the numeric keyboard on mobile
+// via `inputMode`. Resynced by adjusting state during render, compared by CONTENT (what the buffer currently
+// parses to) against the incoming `value` — the same principle as `ListValueInput` (C-1) — so our own dispatch
+// of a just-typed value never fights the buffer, and an indeterminate in-progress text (empty, or not a finite
+// number) never forces a resync either.
+function NumberField({ value, onValue, emptyValue, disabled, className }: NumberFieldProps) {
+  const [text, setText] = useState(() => (value === undefined ? '' : String(value)));
+
+  if (text.trim() === '') {
+    if (value !== emptyValue) setText(value === undefined ? '' : String(value));
+  } else {
+    const parsed = Number(text);
+    if (Number.isFinite(parsed) && parsed !== value) setText(value === undefined ? '' : String(value));
+  }
+
+  function handleChange(event: ChangeEvent<HTMLInputElement>) {
+    const raw = event.target.value;
+    setText(raw);
+
+    if (raw.trim() === '') {
+      onValue(emptyValue);
+      return;
+    }
+
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return; // e.g. "-", "-0.", "1e", ".": keep typing, tree stays untouched
+    onValue(parsed);
+  }
+
+  return (
+    <Input
+      type="text"
+      inputMode="decimal"
+      aria-label="Value"
+      value={text}
+      onChange={handleChange}
+      disabled={disabled}
+      className={className}
+    />
+  );
+}
+
 export type AttributeLeafRowProps = {
   node: AttributeNode;
   path: NodePath;
   errors: FieldErrors;
   dispatch: (action: BuilderAction) => void;
   readOnly?: boolean;
+  isRoot?: boolean;
 };
 
-export function AttributeLeafRow({ node, path, errors, dispatch, readOnly = false }: AttributeLeafRowProps) {
+export function AttributeLeafRow({
+  node,
+  path,
+  errors,
+  dispatch,
+  readOnly = false,
+  isRoot = false,
+}: AttributeLeafRowProps) {
   function emit(next: AttributeNode) {
     dispatch({ type: 'updateLeaf', path, leaf: next });
   }
@@ -120,6 +186,9 @@ export function AttributeLeafRow({ node, path, errors, dispatch, readOnly = fals
   const keyErrors = errorsFor(errors, path, 'key');
   const cmpErrors = errorsFor(errors, path, 'cmp');
   const valueErrors = errorsFor(errors, path, 'value');
+  // `exists`/`not_exists` render no value control at all (M-1): a `value`-keyed error for one of them has no
+  // input to sit under, so it renders under the comparator instead of floating with nothing above it.
+  const isValueless = node.cmp === 'exists' || node.cmp === 'not_exists';
 
   return (
     <div data-testid={`rule-node-${testIdFor(path)}`} className="flex flex-wrap items-start gap-2">
@@ -146,16 +215,49 @@ export function AttributeLeafRow({ node, path, errors, dispatch, readOnly = fals
             {message}
           </p>
         ))}
+        {isValueless &&
+          valueErrors.map((message) => (
+            <p role="alert" key={`value-${message}`} className="text-xs text-red-600">
+              {message}
+            </p>
+          ))}
       </div>
 
       <div className="flex flex-col gap-1">
         <ValueControl node={node} readOnly={readOnly} onValue={handleValue} />
-        {valueErrors.map((message) => (
-          <p role="alert" key={message} className="text-xs text-red-600">
-            {message}
-          </p>
-        ))}
+        {!isValueless &&
+          valueErrors.map((message) => (
+            <p role="alert" key={message} className="text-xs text-red-600">
+              {message}
+            </p>
+          ))}
       </div>
+
+      {!readOnly && !isRoot && (
+        <div className="flex items-center gap-1">
+          <Button type="button" size="sm" variant="ghost" onClick={() => dispatch({ type: 'removeNode', path })}>
+            Remove
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            aria-label="Move up"
+            onClick={() => dispatch({ type: 'moveNode', path, direction: 'up' })}
+          >
+            ↑
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            aria-label="Move down"
+            onClick={() => dispatch({ type: 'moveNode', path, direction: 'down' })}
+          >
+            ↓
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -179,11 +281,10 @@ function ValueControl({
     case 'lt':
     case 'lte':
       return (
-        <Input
-          type="number"
-          aria-label="Value"
-          value={typeof node.value === 'number' ? node.value : ''}
-          onChange={(event) => onValue(event.target.value === '' ? undefined : Number(event.target.value))}
+        <NumberField
+          value={typeof node.value === 'number' ? node.value : undefined}
+          onValue={onValue}
+          emptyValue={undefined}
           disabled={readOnly}
           className="w-32"
         />
@@ -236,11 +337,10 @@ function ValueControl({
             />
           )}
           {currentType === 'number' && (
-            <Input
-              type="number"
-              aria-label="Value"
-              value={typeof node.value === 'number' ? node.value : ''}
-              onChange={(event) => onValue(event.target.value === '' ? 0 : Number(event.target.value))}
+            <NumberField
+              value={typeof node.value === 'number' ? node.value : 0}
+              onValue={onValue}
+              emptyValue={0}
               disabled={readOnly}
               className="w-32"
             />
