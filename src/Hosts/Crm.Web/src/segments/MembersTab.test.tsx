@@ -64,5 +64,6 @@ describe('MembersTab', () => {
     expect(allRows).toHaveLength(2);
     expect(allRows[1].textContent).toContain('u-2');
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('cursor=cursor-1'))).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
   });
 });

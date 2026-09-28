@@ -14,6 +14,8 @@ import { SegmentForm } from '@/segments/SegmentForm';
 import { MembersTab } from '@/segments/MembersTab';
 import { RunsTab } from '@/segments/RunsTab';
 
+type ArchiveState = 'idle' | 'confirming' | 'archiving';
+
 export type DetailTab = 'definition' | 'members' | 'runs';
 export type SegmentDetailSearch = { tab?: DetailTab };
 
@@ -50,7 +52,8 @@ export function SegmentDetailPage() {
   const [running, setRunning] = useState(false);
   const [runMessage, setRunMessage] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
-  const [archiveConfirming, setArchiveConfirming] = useState(false);
+  const [archiveState, setArchiveState] = useState<ArchiveState>('idle');
+  const [archiveError, setArchiveError] = useState<string | null>(null);
 
   const setTab = useCallback(
     (tab: DetailTab) => {
@@ -80,12 +83,23 @@ export function SegmentDetailPage() {
   }
 
   async function handleArchiveClick() {
-    if (!archiveConfirming) {
-      setArchiveConfirming(true);
+    if (archiveState === 'archiving') return;
+
+    if (archiveState === 'idle') {
+      setArchiveError(null);
+      setArchiveState('confirming');
       return;
     }
-    await api.segments.archive(id);
-    void navigate({ to: '/segments' });
+
+    // archiveState === 'confirming'
+    setArchiveState('archiving');
+    try {
+      await api.segments.archive(id);
+      void navigate({ to: '/segments' });
+    } catch (err) {
+      setArchiveError(err instanceof ApiError ? (err.problem?.detail ?? 'Archive failed') : 'Archive failed');
+      setArchiveState('idle');
+    }
   }
 
   if (query.isPending) {
@@ -130,9 +144,10 @@ export function SegmentDetailPage() {
             <Button
               variant="outline"
               onClick={() => void handleArchiveClick()}
-              onBlur={() => setArchiveConfirming(false)}
+              onBlur={() => setArchiveState((state) => (state === 'confirming' ? 'idle' : state))}
+              disabled={archiveState === 'archiving'}
             >
-              {archiveConfirming ? 'Confirm archive' : 'Archive'}
+              {archiveState === 'archiving' ? 'Archiving…' : archiveState === 'confirming' ? 'Confirm archive' : 'Archive'}
             </Button>
           </div>
         )}
@@ -145,6 +160,11 @@ export function SegmentDetailPage() {
         {runError ? (
           <p role="alert" className="text-sm text-red-600">
             {runError}
+          </p>
+        ) : null}
+        {archiveError ? (
+          <p role="alert" className="text-sm text-red-600">
+            {archiveError}
           </p>
         ) : null}
       </CardHeader>
@@ -165,7 +185,9 @@ export function SegmentDetailPage() {
         </TabPanel>
 
         <TabPanel value="runs" active={activeTab}>
-          <RunsTab segmentId={id} onSettled={handleRunSettled} />
+          {/* key={id}: forces a fresh RunsTab instance (and a fresh activeRunIdsRef) on segment change,
+              rather than relying on run ids being globally unique to avoid a stale onSettled fire (I-2). */}
+          <RunsTab key={id} segmentId={id} onSettled={handleRunSettled} />
         </TabPanel>
       </CardContent>
     </Card>

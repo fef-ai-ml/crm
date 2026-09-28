@@ -123,5 +123,65 @@ describe('RunsTab', () => {
     expect(allRows).toHaveLength(2);
     expect(allRows[1].textContent).toContain('Failed');
     expect(allRows[1].textContent).toContain('boom');
+    expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
+  });
+
+  it('does not fire onSettled on mount when the first fetch already returns a terminal run', async () => {
+    const finishedRun = makeRun({ status: 'Finished', startedAt: '2026-01-01T00:00:01Z', finishedAt: '2026-01-01T00:00:05Z' });
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({ items: [finishedRun], nextCursor: null })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = newClient();
+    const onSettled = vi.fn();
+
+    render(<RunsTab segmentId="seg-1" onSettled={onSettled} pollIntervalMs={POLL_MS} />, {
+      wrapper: makeWrapper(client),
+    });
+
+    await screen.findByText('Finished');
+    await act(async () => {
+      await wait(POLL_MS * 3);
+    });
+
+    expect(onSettled).not.toHaveBeenCalled();
+  });
+
+  it('does not fire onSettled for a previous segment after remounting via key on segmentId change', async () => {
+    const activeRun = makeRun({ runId: 'run-shared', status: 'Running', startedAt: '2026-01-01T00:00:01Z' });
+    const finishedRun = makeRun({
+      runId: 'run-shared',
+      status: 'Finished',
+      startedAt: '2026-01-01T00:00:01Z',
+      finishedAt: '2026-01-01T00:00:05Z',
+    });
+
+    const fetchMock = vi.fn((url: string) => {
+      if (String(url).includes('/segments/seg-a/')) {
+        return Promise.resolve(jsonResponse({ items: [activeRun], nextCursor: null }));
+      }
+      return Promise.resolve(jsonResponse({ items: [finishedRun], nextCursor: null }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = newClient();
+    const onSettled = vi.fn();
+
+    function Harness({ segmentId }: { segmentId: string }) {
+      return <RunsTab key={segmentId} segmentId={segmentId} onSettled={onSettled} pollIntervalMs={POLL_MS} />;
+    }
+
+    const { rerender } = render(<Harness segmentId="seg-a" />, { wrapper: makeWrapper(client) });
+
+    await screen.findByText('Running');
+    expect(onSettled).not.toHaveBeenCalled();
+
+    rerender(<Harness segmentId="seg-b" />);
+
+    await screen.findByText('Finished');
+    await act(async () => {
+      await wait(POLL_MS * 3);
+    });
+
+    expect(onSettled).not.toHaveBeenCalled();
   });
 });

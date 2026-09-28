@@ -179,4 +179,129 @@ describe('SegmentDetailPage (E2E-004 unit coverage)', () => {
 
     await screen.findByRole('heading', { name: 'Segments' });
   });
+
+  it('Archive is single-flight: rapid re-clicks while the DELETE is in flight fire exactly one request', async () => {
+    setSession('Admin');
+    const segment = makeSegment();
+    let resolveDelete: (response: Response) => void = () => {};
+    const deletePromise = new Promise<Response>((resolve) => {
+      resolveDelete = resolve;
+    });
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      const path = String(url);
+      if (path === `/v1/segments/${segment.id}` && method === 'DELETE') {
+        return deletePromise;
+      }
+      return makeFetchMock(segment)(url, init);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await renderDetail();
+
+    const archiveButton = await screen.findByRole('button', { name: 'Archive' });
+    await act(async () => {
+      archiveButton.click();
+    });
+    const confirmButton = await screen.findByRole('button', { name: 'Confirm archive' });
+    await act(async () => {
+      confirmButton.click();
+    });
+
+    const archivingButton = await screen.findByRole('button', { name: 'Archiving…' });
+    expect(archivingButton).toHaveProperty('disabled', true);
+
+    // Two more rapid clicks while the DELETE is still in flight must not issue another request.
+    await act(async () => {
+      archivingButton.click();
+      archivingButton.click();
+    });
+
+    const deleteCalls = fetchMock.mock.calls.filter(
+      ([url, i]) => String(url) === `/v1/segments/${segment.id}` && (i as RequestInit | undefined)?.method === 'DELETE',
+    );
+    expect(deleteCalls).toHaveLength(1);
+
+    await act(async () => {
+      resolveDelete(jsonResponse(null, 204));
+    });
+
+    await screen.findByRole('heading', { name: 'Segments' });
+  });
+
+  it('Archive shows the problem detail and resets to the plain Archive state on failure', async () => {
+    setSession('Admin');
+    const segment = makeSegment();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      const path = String(url);
+      if (path === `/v1/segments/${segment.id}` && method === 'DELETE') {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              type: 'https://crm.example/problems/conflict',
+              title: 'Conflict',
+              status: 409,
+              code: 'segment.archived',
+              detail: 'The segment is already archived.',
+            }),
+            { status: 409, headers: { 'content-type': 'application/problem+json' } },
+          ),
+        );
+      }
+      return makeFetchMock(segment)(url, init);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await renderDetail();
+
+    const archiveButton = await screen.findByRole('button', { name: 'Archive' });
+    await act(async () => {
+      archiveButton.click();
+    });
+    const confirmButton = await screen.findByRole('button', { name: 'Confirm archive' });
+    await act(async () => {
+      confirmButton.click();
+    });
+
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'The segment is already archived.');
+    const resetButton = await screen.findByRole('button', { name: 'Archive' });
+    expect(resetButton).toHaveProperty('disabled', false);
+  });
+
+  it('Run now shows the problem detail on a 409 segment.archived response, without "Run queued" or a tab switch', async () => {
+    setSession('Admin');
+    const segment = makeSegment();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      const path = String(url);
+      if (path === `/v1/segments/${segment.id}/run` && method === 'POST') {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              type: 'https://crm.example/problems/conflict',
+              title: 'Conflict',
+              status: 409,
+              code: 'segment.archived',
+              detail: 'The segment is archived.',
+            }),
+            { status: 409, headers: { 'content-type': 'application/problem+json' } },
+          ),
+        );
+      }
+      return makeFetchMock(segment)(url, init);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await renderDetail();
+
+    const runButton = await screen.findByRole('button', { name: 'Run now' });
+    await act(async () => {
+      runButton.click();
+    });
+
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'The segment is archived.');
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByRole('tab', { name: 'Definition' }).getAttribute('aria-selected')).toBe('true');
+  });
 });

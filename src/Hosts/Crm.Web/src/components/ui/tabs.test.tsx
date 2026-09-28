@@ -43,6 +43,15 @@ describe('Tabs', () => {
     expect(screen.getByRole('tabpanel').textContent).toBe('panel-a');
   });
 
+  it('pairs each tab with its panel via aria-controls/id and the panel back via aria-labelledby/id', () => {
+    render(<Harness />);
+
+    const tab = screen.getByRole('tab', { name: 'First' });
+    const panel = screen.getByRole('tabpanel');
+    expect(tab.getAttribute('aria-controls')).toBe(panel.id);
+    expect(panel.getAttribute('aria-labelledby')).toBe(tab.id);
+  });
+
   it('clicking a tab switches the selection and the visible panel', () => {
     render(<Harness />);
 
