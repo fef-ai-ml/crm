@@ -433,3 +433,17 @@ Each case loads `tests/fixtures/rules/valid/<name>.json`, compiles it for tenant
 - When an API call returns 401
 - Then `apiFetch` calls `POST /v1/auth/refresh` exactly once (concurrent 401s and concurrent `refreshSession()` callers share one in-flight promise — the API revokes every token of the user if a rotated refresh token is presented twice), replays the original request with the new token, and clears the store when the refresh itself fails
 - Implemented: src/Hosts/Crm.Web/src/lib/auth.test.ts
+
+### UT-060 — rule validator messages, paths and order match RuleParser
+- Traces: FR-12, FR-13
+- Given a hand-built rule tree exercising one validation rule from `RuleParser.cs` at a time, plus the shared `tests/fixtures/rules/` fixtures
+- When `validateRule` walks it
+- Then every message and error path matches the C# parser exactly, and the pre-order/depth/leaves ordering (H19) holds: a group's own arity error is reported before its children's, in child index order, and depth/leaf-count errors come after every node-level error
+- Implemented: src/Hosts/Crm.Web/src/rules/validate.test.ts
+
+### UT-061 — real-time eligibility badge mirrors the classifier
+- Traces: FR-16
+- Given all 26 valid rule fixtures in `tests/fixtures/rules/valid/`
+- When `isRealtimeEligible` classifies each tree
+- Then it agrees with `RealtimeEligibility.Classify` on every fixture — 19 eligible, 7 ineligible — since any `not` group, any `lte` event leaf, or any zero-count `eq`/`gte` event leaf makes the whole tree ineligible
+- Implemented: src/Hosts/Crm.Web/src/rules/eligibility.test.ts

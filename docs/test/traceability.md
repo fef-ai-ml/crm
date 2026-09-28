@@ -17,11 +17,11 @@ Every requirement in the [BRD](../brd/BRD.md) maps to at least one test case; ev
 | FR-09 | merge rules, locks, re-routing, EventCount | UT-010, UT-011, UT-012, UT-013, IT-007, IT-008, IT-009, IT-010 |
 | FR-10 | event vs identify updates | UT-014, UT-015, IT-002 |
 | FR-11 | profile search and timeline | IT-011, IT-012 |
-| FR-12 | rule tree shape and limits | UT-016, UT-017, UT-018, CT-002 |
-| FR-13 | comparators and windows | UT-019, UT-020, UT-021, UT-022, UT-023, UT-024, UT-025, UT-026, UT-027, UT-028, UT-029, UT-030, UT-031, UT-032, UT-033, UT-034, UT-036, UT-038, CT-002 |
+| FR-12 | rule tree shape and limits | UT-016, UT-017, UT-018, UT-060, CT-002 |
+| FR-13 | comparators and windows | UT-019, UT-020, UT-021, UT-022, UT-023, UT-024, UT-025, UT-026, UT-027, UT-028, UT-029, UT-030, UT-031, UT-032, UT-033, UT-034, UT-036, UT-038, UT-060, CT-002 |
 | FR-14 | parameterized SQL only | UT-020, UT-035, UT-037, UT-039, IT-042 |
 | FR-15 | batch run, diff, swap, prune, schedule | IT-016, IT-017, IT-018, IT-019, IT-020, IT-021, E2E-004 |
-| FR-16 | real-time eligibility and evaluation | UT-040, UT-041, UT-042, UT-043, UT-044, UT-045, UT-046, UT-047, UT-048, UT-049, IT-022, IT-023, IT-024, IT-025, IT-026, IT-027, IT-043 |
+| FR-16 | real-time eligibility and evaluation | UT-040, UT-041, UT-042, UT-043, UT-044, UT-045, UT-046, UT-047, UT-048, UT-049, UT-061, IT-022, IT-023, IT-024, IT-025, IT-026, IT-027, IT-043 |
 | FR-17 | preview count, timeout, cache | UT-058, IT-014, IT-015 |
 | FR-18 | segment CRUD, runs, members, changes | IT-013, IT-028, IT-029 |
 | FR-19 | login, roles | UT-053, UT-059, IT-036, IT-037, E2E-001, E2E-008 |

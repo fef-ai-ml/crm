@@ -1,9 +1,9 @@
 import { apiFetch } from './api';
 import { login, logout, refreshSession } from './auth';
 import type { components } from './api.generated';
+import type { RuleTree } from '../rules/types';
 
-/** Placeholder until Task 2 defines the real rule tree — replaced by src/rules/types.ts in Task 2. */
-export type RuleTree = unknown;
+export type { RuleTree };
 
 type Schemas = components['schemas'];
 
