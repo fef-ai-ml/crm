@@ -22,7 +22,10 @@ export class ApiError extends Error {
 
 export type ApiFetchInit = RequestInit & { json?: unknown };
 
-const AUTH_PATH_PREFIX = '/v1/auth/';
+// J25: only login and refresh itself are excluded from the 401→refresh→replay handling. Logout (and every
+// other /v1/auth/* call) gets the standard treatment, so a logout issued on an expired access token still
+// revokes the refresh token server-side instead of silently doing nothing (C-1).
+const NO_REFRESH_PATHS = new Set(['/v1/auth/login', '/v1/auth/refresh']);
 
 function send(path: string, init: ApiFetchInit): Promise<Response> {
   const { json, headers, ...rest } = init;
@@ -51,12 +54,12 @@ async function toProblem(response: Response): Promise<Problem | undefined> {
  * single in-flight promise) and replays the request; a 204 resolves to `undefined`.
  */
 export async function apiFetch<T>(path: string, init: ApiFetchInit = {}): Promise<T> {
-  const isAuthPath = path.startsWith(AUTH_PATH_PREFIX);
+  const skipRefresh = NO_REFRESH_PATHS.has(path);
   const hadSession = sessionStore.get() !== null;
 
   let response = await send(path, init);
 
-  if (response.status === 401 && !isAuthPath && hadSession) {
+  if (response.status === 401 && !skipRefresh && hadSession) {
     const session = await refreshSession();
     if (session) {
       response = await send(path, init);

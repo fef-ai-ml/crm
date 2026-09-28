@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Link, Outlet, useRouter } from '@tanstack/react-router';
 import { logout, useSession } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
@@ -16,9 +17,18 @@ export function AuthedLayout() {
   const router = useRouter();
   const items = session?.role === 'Admin' ? [...navItems, adminNavItem] : navItems;
 
+  // M-6: the route guard's `beforeLoad` only redirects at entry time. Once inside, a session lost mid-session
+  // — an explicit "Log out", or a failed background refresh (auth.ts:95-97) — previously left the user
+  // stranded on the current page (no "Log out" button, 401 alerts on every query) until they clicked a nav
+  // link. This effect covers every case where `useSession()` sees the store go to null while mounted, sharing
+  // one redirect path with the explicit logout below.
+  useEffect(() => {
+    if (session) return;
+    void router.navigate({ to: '/login', search: { redirect: router.state.location.href } });
+  }, [session, router]);
+
   async function handleLogout() {
     await logout();
-    router.history.push('/login');
   }
 
   return (

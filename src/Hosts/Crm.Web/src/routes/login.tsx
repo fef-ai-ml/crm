@@ -86,8 +86,19 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
   );
 }
 
+// M-1: a leading backslash (`/\evil.com`) passed the old `startsWith('/') && !startsWith('//')` check, but a
+// browser normalizes it to a scheme-relative URL — not an open redirect (the browser stays same-origin), but
+// `pushState` throws a SecurityError on it, so a successful login crashed instead of redirecting. Control
+// characters are rejected for the same reason: they're never a legitimate in-app path.
 function isSafeRedirectTarget(target: string | undefined): target is string {
-  return typeof target === 'string' && target.startsWith('/') && !target.startsWith('//');
+  if (typeof target !== 'string' || !target.startsWith('/') || target.startsWith('//')) {
+    return false;
+  }
+  if (target.includes('\\')) return false;
+  for (let i = 0; i < target.length; i++) {
+    if (target.charCodeAt(i) < 0x20) return false;
+  }
+  return true;
 }
 
 export function LoginPage() {

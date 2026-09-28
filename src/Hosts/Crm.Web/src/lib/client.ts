@@ -75,7 +75,9 @@ const segments = {
     return { items: response.items.map(normalizeSegmentListItem), nextCursor: response.nextCursor };
   },
   async get(id: string): Promise<SegmentResponse> {
-    return normalizeSegmentResponse(await apiFetch<Schemas['SegmentResponse']>(`/v1/segments/${id}`));
+    return normalizeSegmentResponse(
+      await apiFetch<Schemas['SegmentResponse']>(`/v1/segments/${encodeURIComponent(id)}`),
+    );
   },
   async create(body: SegmentWriteRequest): Promise<SegmentResponse> {
     return normalizeSegmentResponse(
@@ -84,11 +86,17 @@ const segments = {
   },
   async update(id: string, body: SegmentWriteRequest): Promise<SegmentResponse> {
     return normalizeSegmentResponse(
-      await apiFetch<Schemas['SegmentResponse']>(`/v1/segments/${id}`, { method: 'PUT', json: body }),
+      await apiFetch<Schemas['SegmentResponse']>(`/v1/segments/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        json: body,
+      }),
     );
   },
+  // M-2: ids come from route params / the `id` search param (already decoded by TanStack); an id containing
+  // `/` or `..` would otherwise be interpolated raw and `fetch` normalizes it into a different same-origin
+  // endpoint — defense in depth, since Archive only renders after a successful GET on the same path today.
   archive(id: string): Promise<void> {
-    return apiFetch<undefined>(`/v1/segments/${id}`, { method: 'DELETE' });
+    return apiFetch<undefined>(`/v1/segments/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
   async preview(definition: RuleTree): Promise<PreviewResponse> {
     return normalizePreviewResponse(
@@ -96,16 +104,18 @@ const segments = {
     );
   },
   run(id: string): Promise<Schemas['RunQueuedResponse']> {
-    return apiFetch<Schemas['RunQueuedResponse']>(`/v1/segments/${id}/run`, { method: 'POST' });
+    return apiFetch<Schemas['RunQueuedResponse']>(`/v1/segments/${encodeURIComponent(id)}/run`, { method: 'POST' });
   },
   async runs(id: string, params: { limit?: number; cursor?: string } = {}): Promise<SegmentRunListResponse> {
     const response = await apiFetch<Schemas['SegmentRunListResponse']>(
-      `/v1/segments/${id}/runs${buildQuery(params)}`,
+      `/v1/segments/${encodeURIComponent(id)}/runs${buildQuery(params)}`,
     );
     return { items: response.items.map(normalizeSegmentRunListItem), nextCursor: response.nextCursor };
   },
   members(id: string, params: { limit?: number; cursor?: string } = {}): Promise<SegmentMemberListResponse> {
-    return apiFetch<Schemas['SegmentMemberListResponse']>(`/v1/segments/${id}/members${buildQuery(params)}`);
+    return apiFetch<Schemas['SegmentMemberListResponse']>(
+      `/v1/segments/${encodeURIComponent(id)}/members${buildQuery(params)}`,
+    );
   },
 };
 
@@ -142,13 +152,17 @@ const profiles = {
     return { items: response.items.map(normalizeProfileListItem), nextCursor: response.nextCursor };
   },
   async get(id: string): Promise<ProfileResponse> {
-    return normalizeProfileResponse(await apiFetch<Schemas['ProfileResponse']>(`/v1/profiles/${id}`));
+    return normalizeProfileResponse(
+      await apiFetch<Schemas['ProfileResponse']>(`/v1/profiles/${encodeURIComponent(id)}`),
+    );
   },
   async events(
     id: string,
     params: { name?: string; limit?: number; cursor?: string } = {},
   ): Promise<TimelineResponse> {
-    const response = await apiFetch<Schemas['TimelineResponse']>(`/v1/profiles/${id}/events${buildQuery(params)}`);
+    const response = await apiFetch<Schemas['TimelineResponse']>(
+      `/v1/profiles/${encodeURIComponent(id)}/events${buildQuery(params)}`,
+    );
     return { items: response.items.map(normalizeTimelineEvent), nextCursor: response.nextCursor };
   },
 };
@@ -167,7 +181,7 @@ const apiKeys = {
     return apiFetch<ApiKeyCreated>('/v1/api-keys', { method: 'POST', json: { name } });
   },
   revoke(id: string): Promise<void> {
-    return apiFetch<undefined>(`/v1/api-keys/${id}`, { method: 'DELETE' });
+    return apiFetch<undefined>(`/v1/api-keys/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 };
 

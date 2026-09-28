@@ -115,4 +115,107 @@ describe('apiFetch', () => {
 
     await expect(apiFetch('/v1/auth/logout', { method: 'POST' })).resolves.toBeUndefined();
   });
+
+  // C-1 / J25: logout is no longer excluded from the 401→refresh→replay handling.
+  it('logout: a 401 triggers exactly one refresh, then the replayed logout carries the new bearer', async () => {
+    sessionStore.set(sampleSession());
+    const newAccessToken = makeToken({
+      sub: 'user-1',
+      tenant_id: 'tenant-1',
+      role: 'Admin',
+      exp: Math.floor(Date.now() / 1000) + 900,
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ code: 'auth.unauthorized' }, 401)) // logout, expired access token
+      .mockResolvedValueOnce(new Response(JSON.stringify({ accessToken: newAccessToken, expiresIn: 900 }), { status: 200 })) // refresh
+      .mockResolvedValueOnce(new Response(null, { status: 204 })); // replayed logout succeeds
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiFetch('/v1/auth/logout', { method: 'POST' });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[1][0]).toBe('/v1/auth/refresh');
+    const retryInit = fetchMock.mock.calls[2][1] as RequestInit;
+    expect((retryInit.headers as Record<string, string>).Authorization).toBe(`Bearer ${newAccessToken}`);
+  });
+
+  it('logout: a refresh failure still clears the store and makes no further calls', async () => {
+    sessionStore.set(sampleSession());
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ code: 'auth.unauthorized' }, 401)) // logout, expired access token
+      .mockResolvedValueOnce(jsonResponse({ code: 'auth.invalid_refresh_token' }, 401)); // refresh fails
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(apiFetch('/v1/auth/logout', { method: 'POST' })).rejects.toMatchObject({ status: 401 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sessionStore.get()).toBeNull();
+  });
+
+  // M-10: auth-layer negative tests.
+  it('a 401 with no session makes no refresh call', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ code: 'auth.unauthorized' }, 401));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(apiFetch('/v1/segments')).rejects.toMatchObject({ status: 401 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a replayed request that 401s again is not retried a second time', async () => {
+    sessionStore.set(sampleSession());
+    const newAccessToken = makeToken({
+      sub: 'user-1',
+      tenant_id: 'tenant-1',
+      role: 'Admin',
+      exp: Math.floor(Date.now() / 1000) + 900,
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ code: 'auth.unauthorized' }, 401)) // original
+      .mockResolvedValueOnce(new Response(JSON.stringify({ accessToken: newAccessToken, expiresIn: 900 }), { status: 200 })) // refresh
+      .mockResolvedValueOnce(jsonResponse({ code: 'auth.unauthorized' }, 401)); // replay still 401
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(apiFetch('/v1/segments')).rejects.toMatchObject({ status: 401 });
+
+    // original + refresh + one replay — no second refresh, no second replay.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  // M-11: UT-059 claims concurrent 401s share one in-flight refresh at the apiFetch level, not just
+  // concurrent refreshSession() callers (auth.test.ts) — this pins that claim directly.
+  it('two requests that both 401 at once share exactly one refresh call and both replay', async () => {
+    sessionStore.set(sampleSession());
+    const newAccessToken = makeToken({
+      sub: 'user-1',
+      tenant_id: 'tenant-1',
+      role: 'Admin',
+      exp: Math.floor(Date.now() / 1000) + 900,
+    });
+    let refreshCalls = 0;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === '/v1/auth/refresh') {
+        refreshCalls += 1;
+        return Promise.resolve(
+          new Response(JSON.stringify({ accessToken: newAccessToken, expiresIn: 900 }), { status: 200 }),
+        );
+      }
+      const authHeader = (init?.headers as Record<string, string> | undefined)?.Authorization;
+      if (authHeader === `Bearer ${newAccessToken}`) {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }), { status: 200 }));
+      }
+      return Promise.resolve(jsonResponse({ code: 'auth.unauthorized' }, 401));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const [a, b] = await Promise.all([apiFetch('/v1/segments'), apiFetch('/v1/profiles')]);
+
+    expect(refreshCalls).toBe(1);
+    expect(a).toEqual({ items: [] });
+    expect(b).toEqual({ items: [] });
+  });
 });

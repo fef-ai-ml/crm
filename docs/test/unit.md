@@ -433,6 +433,7 @@ Each case loads `tests/fixtures/rules/valid/<name>.json`, compiles it for tenant
 - When an API call returns 401
 - Then `apiFetch` calls `POST /v1/auth/refresh` exactly once (concurrent 401s and concurrent `refreshSession()` callers share one in-flight promise — the API revokes every token of the user if a rotated refresh token is presented twice), replays the original request with the new token, and clears the store when the refresh itself fails
 - Implemented: src/Hosts/Crm.Web/src/lib/auth.test.ts
+- Implemented: src/Hosts/Crm.Web/src/lib/api.test.ts
 
 ### UT-060 — rule validator messages, paths and order match RuleParser
 - Traces: FR-12, FR-13

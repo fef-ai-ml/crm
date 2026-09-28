@@ -1,6 +1,6 @@
 import { createMemoryHistory, RouterProvider } from '@tanstack/react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { decodeSession, sessionStore } from '@/lib/auth';
 import { createAppRouter } from '@/router';
@@ -67,6 +67,62 @@ describe('authed route guard', () => {
     renderRouter(router);
 
     expect(await screen.findByRole('heading', { name: 'Segments' })).not.toBeNull();
+  });
+
+  // M-10: the cold-start happy path — no session, refresh succeeds — was previously uncovered; only
+  // "session exists" and "refresh fails" were tested.
+  it('renders the outlet on a cold start when there is no session and refresh succeeds', async () => {
+    const accessToken = makeToken({
+      sub: 'u1',
+      tenant_id: 't1',
+      role: 'Admin',
+      exp: Math.floor(Date.now() / 1000) + 900,
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse({ accessToken, expiresIn: 900 })),
+    );
+
+    const router = createAppRouter(createMemoryHistory({ initialEntries: ['/segments'] }));
+    await router.load();
+    renderRouter(router);
+
+    expect(await screen.findByRole('heading', { name: 'Segments' })).not.toBeNull();
+    expect(sessionStore.get()).not.toBeNull();
+  });
+});
+
+describe('AuthedLayout redirects when the session is lost mid-session (M-6)', () => {
+  function setSession(role: 'Admin' | 'Viewer') {
+    const accessToken = makeToken({ sub: 'u1', tenant_id: 't1', role, exp: Math.floor(Date.now() / 1000) + 900 });
+    sessionStore.set(decodeSession({ accessToken, expiresIn: 900 }));
+  }
+
+  beforeEach(() => {
+    sessionStore.set(null);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('navigates to /login?redirect=<path> when useSession() turns null while mounted', async () => {
+    setSession('Admin');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ items: [], nextCursor: null })));
+
+    const router = createAppRouter(createMemoryHistory({ initialEntries: ['/segments'] }));
+    await router.load();
+    renderRouter(router);
+
+    await screen.findByRole('heading', { name: 'Segments' });
+
+    // Simulates a background refresh failing (auth.ts:95-97) rather than an explicit "Log out" click.
+    act(() => {
+      sessionStore.set(null);
+    });
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
+    expect(router.state.location.search).toEqual({ redirect: '/segments' });
   });
 });
 

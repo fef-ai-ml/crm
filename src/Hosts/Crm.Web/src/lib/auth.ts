@@ -110,9 +110,12 @@ export function refreshSession(): Promise<Session | null> {
 
 export async function logout(): Promise<void> {
   try {
+    // J25: apiFetch now gives /v1/auth/logout the standard refresh-and-replay on a 401 (C-1), so an idle
+    // tab's "Log out" click still revokes the refresh token server-side instead of silently no-op'ing.
     await apiFetch('/v1/auth/logout', { method: 'POST' });
   } catch {
     // best effort — the server-side revocation matters more than the client noticing
+  } finally {
+    sessionStore.set(null);
   }
-  sessionStore.set(null);
 }

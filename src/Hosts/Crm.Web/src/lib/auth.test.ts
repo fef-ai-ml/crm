@@ -137,12 +137,18 @@ describe('logout', () => {
     vi.unstubAllGlobals();
   });
 
-  it('clears the store even when the request errors', async () => {
+  // C-1 rewrite: the previous version of this test used a rejected fetch (no response at all) to stand in
+  // for "the request errors", which is a genuinely different case from a 401 — it never exercised the
+  // refresh path apiFetch now takes for /v1/auth/logout (J25), so it can't tell a real network failure apart
+  // from the fixed 401-then-refresh behaviour. See api.test.ts for the 401/refresh-failure logout cases.
+  it('clears the store even when the request throws — a real network failure, with no response to refresh from', async () => {
     sessionStore.set(sampleSession());
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
+    const fetchMock = vi.fn().mockRejectedValue(new Error('network down'));
+    vi.stubGlobal('fetch', fetchMock);
 
     await logout();
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(sessionStore.get()).toBeNull();
   });
 });
