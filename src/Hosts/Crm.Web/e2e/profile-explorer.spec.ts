@@ -60,11 +60,11 @@ test('E2E-006 — profile explorer search and timeline', async () => {
   await drawer.getByRole('button', { name: 'Close' }).click();
   await expect(drawer).toBeHidden();
 
-  // A second timeline page needs a profile with > 50 events; not every `alice` result has one.
+  // M-9/J28: the seed dataset is deterministic, so a big-enough alice profile must exist — this is a hard
+  // test failure, not a skip (the previous `test.skip` here let a broken scroll path pass silently).
   const bigProfileRow = await findProfileWithManyEvents(page);
   if (!bigProfileRow) {
-    test.skip(true, 'No profile among the visible "alice" search results (first page + one Load more) has > 50 events; skipping the second-page assertion.');
-    return;
+    throw new Error('No alice profile among the visible search results has more than 50 events.');
   }
 
   await bigProfileRow.getByRole('button').click();
@@ -74,16 +74,9 @@ test('E2E-006 — profile explorer search and timeline', async () => {
   const sentinel = bigDrawer.getByTestId('timeline-sentinel');
   await sentinel.scrollIntoViewIfNeeded();
 
-  try {
-    await expect
-      .poll(async () => (await bigDrawer.getByTestId('timeline-row').count()) > 50, { timeout: 5000 })
-      .toBe(true);
-  } catch {
-    // Fallback (J10): the sentinel's IntersectionObserver may not fire in a headless viewport reliably —
-    // the "Load more" button shares the same guard and is the documented fallback.
-    await bigDrawer.getByRole('button', { name: 'Load more' }).click();
-    await expect
-      .poll(async () => (await bigDrawer.getByTestId('timeline-row').count()) > 50, { timeout: 5000 })
-      .toBe(true);
-  }
+  // M-9/J28: asserts the scroll path only — no "Load more" fallback, so a broken IntersectionObserver path
+  // is a hard failure here rather than silently passing via the button.
+  await expect
+    .poll(async () => (await bigDrawer.getByTestId('timeline-row').count()) > 50, { timeout: 5000 })
+    .toBe(true);
 });

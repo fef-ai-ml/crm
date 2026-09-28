@@ -90,7 +90,7 @@ jobs:
           $obs config --format json | python3 tools/compose_check.py --observability
 
   web:
-    name: web lint, typecheck, unit tests
+    name: web lint, typecheck, api types drift, unit tests, build
     runs-on: ubuntu-latest
     defaults:
       run:
