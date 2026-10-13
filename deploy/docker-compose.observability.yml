@@ -56,7 +56,7 @@ services:
     profiles: [observability]
     # Jaeger v2 (v1 all-in-one is end-of-life). OTLP gRPC on 4317 inside the compose network, UI on 16686.
     # The image ships no shell, so there is no healthcheck.
-    image: jaegertracing/jaeger:2.10.0
+    image: jaegertracing/jaeger:2.22.0
     ports:
       # Loopback only: unauthenticated Jaeger UI must not face the LAN (the ssh tunnel's
       # -L …:localhost:PORT still reaches it — localhost there resolves on the engine).
